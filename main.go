@@ -2,6 +2,8 @@ package main
 
 import (
 	"bufio"
+	"bytes"
+	"context"
 	"embed"
 	"encoding/json"
 	"flag"
@@ -10,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"os/user"
 	"strconv"
 	"strings"
 	"sync"
@@ -28,9 +31,12 @@ var upgrader = websocket.Upgrader{
 }
 
 type hub struct {
-	mu      sync.Mutex
-	clients map[*websocket.Conn]struct{}
-	last    []byte
+	mu          sync.Mutex
+	clients     map[*websocket.Conn]struct{}
+	last        []byte
+	intervalMs  int
+	cancelFn    context.CancelFunc
+	atopVersion string // amdgpu_top version string
 }
 
 func (h *hub) add(c *websocket.Conn) {
@@ -73,20 +79,43 @@ func (h *hub) serveWS(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func runStreamer(binary string, atopArgs []string, h *hub) {
+func runStreamer(binary string, baseArgs []string, h *hub) {
 	for {
-		cmd := exec.Command(binary, atopArgs...)
+		h.mu.Lock()
+		ms := h.intervalMs
+		h.mu.Unlock()
+
+		args := append(append([]string{}, baseArgs...), "-s", strconv.Itoa(ms))
+		ctx, cancel := context.WithCancel(context.Background())
+		cmd := exec.CommandContext(ctx, binary, args...)
+
+		var stderr bytes.Buffer
+		cmd.Stderr = &stderr
+
+		h.mu.Lock()
+		h.cancelFn = cancel
+		h.mu.Unlock()
+
 		stdout, err := cmd.StdoutPipe()
 		if err != nil {
-			log.Printf("pipe: %v; retrying in 5s", err)
+			cancel()
+			h.mu.Lock()
+			h.cancelFn = nil
+			h.mu.Unlock()
+			log.Printf("amdgpu_top pipe error: %v; retrying in 5s", err)
 			time.Sleep(5 * time.Second)
 			continue
 		}
 		if err := cmd.Start(); err != nil {
-			log.Printf("start amdgpu_top: %v; retrying in 5s", err)
+			cancel()
+			h.mu.Lock()
+			h.cancelFn = nil
+			h.mu.Unlock()
+			log.Printf("amdgpu_top failed to start: %v; retrying in 5s", err)
 			time.Sleep(5 * time.Second)
 			continue
 		}
+
 		scanner := bufio.NewScanner(stdout)
 		scanner.Buffer(make([]byte, 4<<20), 4<<20) // 4 MiB; JSON frames can be large
 		for scanner.Scan() {
@@ -98,16 +127,35 @@ func runStreamer(binary string, atopArgs []string, h *hub) {
 			copy(frame, line)
 			h.broadcast(frame)
 		}
+		if err := scanner.Err(); err != nil && ctx.Err() == nil {
+			log.Printf("amdgpu_top read error: %v", err)
+		}
+
+		wasKilled := ctx.Err() != nil
+		cancel()
 		cmd.Wait()
-		log.Printf("amdgpu_top exited; retrying in 5s")
-		time.Sleep(5 * time.Second)
+
+		h.mu.Lock()
+		h.cancelFn = nil
+		h.mu.Unlock()
+
+		if msg := strings.TrimSpace(stderr.String()); msg != "" && !wasKilled {
+			log.Printf("amdgpu_top stderr: %s", msg)
+		}
+		if wasKilled {
+			time.Sleep(200 * time.Millisecond)
+		} else {
+			log.Printf("amdgpu_top exited unexpectedly; retrying in 5s")
+			time.Sleep(5 * time.Second)
+		}
 	}
 }
 
-func buildAtopArgs(intervalMs, updateIdx, instance int, pci string, apu, single, nopc bool) []string {
+func buildAtopArgs(updateIdx, instance int, pci string, apu, single, nopc bool) []string {
+	// -s (interval) is omitted here; runStreamer injects it dynamically so that
+	// changing the interval via /api/interval takes effect without restarting atopweb.
 	args := []string{
 		"-J",
-		"-s", strconv.Itoa(intervalMs),
 		"-u", strconv.Itoa(updateIdx),
 	}
 	if instance >= 0 {
@@ -126,6 +174,64 @@ func buildAtopArgs(intervalMs, updateIdx, instance int, pci string, apu, single,
 		args = append(args, "--no-pc")
 	}
 	return args
+}
+
+// getAtopVersion probes the amdgpu_top binary for its version string.
+func getAtopVersion(binary string) string {
+	for _, arg := range []string{"--version", "-V"} {
+		if out, err := exec.Command(binary, arg).Output(); err == nil {
+			return strings.TrimSpace(string(out))
+		}
+	}
+	return "unknown"
+}
+
+// ── /api/config ───────────────────────────────────────────────────────────────
+
+type configInfo struct {
+	IntervalMs     int    `json:"interval_ms"`
+	AtopwebVersion string `json:"atopweb_version"`
+	AtopTopVersion string `json:"amdgpu_top_version"`
+}
+
+func (h *hub) serveConfig(w http.ResponseWriter, r *http.Request) {
+	h.mu.Lock()
+	info := configInfo{
+		IntervalMs:     h.intervalMs,
+		AtopwebVersion: version,
+		AtopTopVersion: h.atopVersion,
+	}
+	h.mu.Unlock()
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	json.NewEncoder(w).Encode(info)
+}
+
+// ── /api/interval ─────────────────────────────────────────────────────────────
+
+func (h *hub) serveSetInterval(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST required", http.StatusMethodNotAllowed)
+		return
+	}
+	ms, err := strconv.Atoi(r.URL.Query().Get("ms"))
+	if err != nil || ms < 50 || ms > 60000 {
+		http.Error(w, "ms must be 50–60000", http.StatusBadRequest)
+		return
+	}
+
+	h.mu.Lock()
+	old := h.intervalMs
+	h.intervalMs = ms
+	cancel := h.cancelFn
+	h.mu.Unlock()
+
+	if cancel != nil {
+		cancel()
+	}
+	log.Printf("update interval: %d ms → %d ms", old, ms)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // ── /api/vram ────────────────────────────────────────────────────────────────
@@ -199,8 +305,8 @@ func (h *hub) serveVRAM(w http.ResponseWriter, r *http.Request) {
 }
 
 // ── /api/gpu-pct ──────────────────────────────────────────────────────────────
-// GfxPct maps to gpu_activity.GFX, which corresponds to the amdgpu driver's gpu_busy_percent
-// (the same value most GPU monitors display as the primary GPU-usage percentage).
+// GfxPct maps to gpu_activity.GFX, which corresponds to the amdgpu driver's
+// gpu_busy_percent — the same value most GPU monitors display as primary usage.
 
 type gpuPctInfo struct {
 	Name   string  `json:"name"`
@@ -244,9 +350,9 @@ func (h *hub) serveGPUPct(w http.ResponseWriter, r *http.Request) {
 
 // ── /api/power-limits ────────────────────────────────────────────────────────
 // Returns APU package power limits in watts:
-//   stapm_w  – from gpu_metrics in the last frame (milliwatts → W)
-//   fast_w   – RAPL constraint_1 short_term (µW → W)
-//   slow_w   – RAPL constraint_0 long_term  (µW → W)
+//   stapm_w – from gpu_metrics in the last frame (milliwatts → W)
+//   fast_w  – RAPL constraint_1 short_term (µW → W)
+//   slow_w  – RAPL constraint_0 long_term  (µW → W)
 // Any field is omitted when the source is unavailable.
 
 type powerLimitsInfo struct {
@@ -270,9 +376,8 @@ func readUW(path string) *float64 {
 	return &w
 }
 
-// raplConstraintUW tries several known sysfs base paths for the RAPL
-// powercap interface and returns the value of the requested constraint
-// file, converted from µW to W.
+// raplConstraintW tries several known sysfs base paths for the RAPL powercap
+// interface and returns the named constraint file value converted from µW to W.
 func raplConstraintW(constraintFile string) *float64 {
 	bases := []string{
 		"/sys/class/powercap/intel-rapl:0",
@@ -302,8 +407,8 @@ func (h *hub) servePowerLimits(w http.ResponseWriter, r *http.Request) {
 		if err := json.Unmarshal(raw, &frame); err == nil {
 			for _, dev := range frame.Devices {
 				if mw := dev.GPUMetrics.STAPMPowerLimit; mw != nil && *mw > 0 {
-					w := *mw / 1000.0
-					result.STAPMWatts = &w
+					watts := *mw / 1000.0
+					result.STAPMWatts = &watts
 					break
 				}
 			}
@@ -315,6 +420,8 @@ func (h *hub) servePowerLimits(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(result)
 }
 
+// ── static files ─────────────────────────────────────────────────────────────
+
 func serveStatic(name, contentType string) http.HandlerFunc {
 	data, err := static.ReadFile(name)
 	if err != nil {
@@ -325,6 +432,8 @@ func serveStatic(name, contentType string) http.HandlerFunc {
 		w.Write(data)
 	}
 }
+
+// ── main ─────────────────────────────────────────────────────────────────────
 
 func main() {
 	// atopweb-specific flags
@@ -342,6 +451,13 @@ func main() {
 
 	flag.Parse()
 
+	log.Printf("atopweb %s starting", version)
+
+	// Log the current process user so it's easy to confirm privilege level.
+	if u, err := user.Current(); err == nil {
+		log.Printf("running as %s (uid %s)", u.Username, u.Uid)
+	}
+
 	binary := *atopBin
 	if binary == "" {
 		var err error
@@ -350,20 +466,39 @@ func main() {
 			log.Fatal("amdgpu_top not found on PATH; use --amdgpu-top to specify the path")
 		}
 	}
+	log.Printf("amdgpu_top binary: %s", binary)
 
-	atopArgs := buildAtopArgs(*intervalMs, *updateIdx, *instance, *pci, *apu, *single, *nopc)
-	log.Printf("atopweb %s — running: %s %v", version, binary, atopArgs)
+	atopVer := getAtopVersion(binary)
+	log.Printf("amdgpu_top version: %s", atopVer)
 
-	h := &hub{clients: make(map[*websocket.Conn]struct{})}
+	atopArgs := buildAtopArgs(*updateIdx, *instance, *pci, *apu, *single, *nopc)
+	log.Printf("amdgpu_top base args: %v (interval injected dynamically)", atopArgs)
+
+	h := &hub{
+		clients:     make(map[*websocket.Conn]struct{}),
+		intervalMs:  *intervalMs,
+		atopVersion: atopVer,
+	}
 	go runStreamer(binary, atopArgs, h)
 
-	http.HandleFunc("/", serveStatic("dashboard.html", "text/html; charset=utf-8"))
+	// Dashboard: log each browser connection.
+	dashHandler := serveStatic("dashboard.html", "text/html; charset=utf-8")
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/" {
+			http.NotFound(w, r)
+			return
+		}
+		log.Printf("dashboard opened from %s", r.RemoteAddr)
+		dashHandler(w, r)
+	})
 	http.HandleFunc("/dashboard.css", serveStatic("dashboard.css", "text/css; charset=utf-8"))
-	http.HandleFunc("/dashboard.js", serveStatic("dashboard.js", "application/javascript; charset=utf-8"))
-	http.HandleFunc("/api/vram", h.serveVRAM)
-	http.HandleFunc("/api/gpu-pct", h.serveGPUPct)
+	http.HandleFunc("/dashboard.js",  serveStatic("dashboard.js",  "application/javascript; charset=utf-8"))
+	http.HandleFunc("/api/config",       h.serveConfig)
+	http.HandleFunc("/api/interval",     h.serveSetInterval)
+	http.HandleFunc("/api/vram",         h.serveVRAM)
+	http.HandleFunc("/api/gpu-pct",      h.serveGPUPct)
 	http.HandleFunc("/api/power-limits", h.servePowerLimits)
-	http.HandleFunc("/ws", h.serveWS)
+	http.HandleFunc("/ws",               h.serveWS)
 
 	addr := fmt.Sprintf(":%d", *port)
 	log.Printf("listening on http://0.0.0.0%s", addr)

@@ -1,6 +1,5 @@
 'use strict';
-
-Chart.register(ChartAnnotation);
+// chartjs-plugin-annotation auto-registers itself when loaded from CDN after Chart.js.
 
 // ── Constants ────────────────────────────────────────────────────────────────
 const HISTORY = 60;
@@ -543,7 +542,6 @@ function connect() {
     try { data = JSON.parse(evt.data); } catch { return; }
     if (!data || !Array.isArray(data.devices)) return;
 
-    if (data.title) document.getElementById('page-title').textContent = data.title;
     document.getElementById('period-label').textContent = new Date().toLocaleTimeString();
 
     if (state.n !== data.devices.length) buildDom(data.devices);
@@ -575,7 +573,13 @@ function fetchPowerLimits() {
 function initIntervalCtrl() {
   fetch('/api/config')
     .then(r => r.json())
-    .then(cfg => { document.getElementById('interval-input').value = cfg.interval_ms; })
+    .then(cfg => {
+      document.getElementById('interval-input').value = cfg.interval_ms;
+      document.getElementById('page-title').textContent = 'atopweb ' + (cfg.atopweb_version || '');
+      if (cfg.amdgpu_top_version) {
+        document.getElementById('page-subtitle').textContent = cfg.amdgpu_top_version;
+      }
+    })
     .catch(() => {});
 
   const apply = () => {
