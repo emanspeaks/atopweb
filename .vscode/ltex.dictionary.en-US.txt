@@ -3,7 +3,9 @@ ASIC
 atopweb
 bg
 BlinkMacSystemFont
+cputmp
 etmp
+fclk
 fdinfo
 GOARCH
 gofmt
@@ -22,10 +24,12 @@ nixpkgs
 nopc
 numtide
 pkgs
+RAPL
 Roboto
 sclk
 Segoe
+setuid
+STAPM
+sysfs
 toml
 upgrader
-
-setuid

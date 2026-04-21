@@ -229,7 +229,6 @@ main { padding: 20px; }
 .c-fclk   .card-value { color: var(--blue); }
 .c-pwr    .card-value { color: var(--yellow); }
 .c-etmp   .card-value { color: var(--red); }
-.c-jtmp   .card-value { color: var(--red); }
 .c-cputmp .card-value { color: var(--yellow); }
 .c-fan    .card-value { color: var(--muted); }
 
