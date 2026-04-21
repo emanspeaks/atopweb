@@ -75,8 +75,8 @@
 
             amdgpuTopBin = lib.mkOption {
               type = lib.types.str;
-              default = "${pkgs.amdgpu-top}/bin/amdgpu_top";
-              defaultText = lib.literalExpression ''"''${pkgs.amdgpu-top}/bin/amdgpu_top"'';
+              default = "${pkgs.amdgpu_top}/bin/amdgpu_top";
+              defaultText = lib.literalExpression ''"''${pkgs.amdgpu_top}/bin/amdgpu_top"'';
               description = ''
                 Path to the amdgpu_top binary passed to atopweb via --amdgpu-top.
                 Override with a security.wrappers path when amdgpu_top needs to run

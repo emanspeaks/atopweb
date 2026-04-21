@@ -138,7 +138,7 @@ http://<server-ip>:5899
 | `services.atopweb.extraArgs` | `[str]` | `[]` | Extra flags passed to atopweb (e.g. `[ "-i" "0" ]`) |
 | `services.atopweb.package` | `package` | flake default | Override the atopweb package |
 
-The module defaults `amdgpuTopBin` to `${pkgs.amdgpu-top}/bin/amdgpu_top` from
+The module defaults `amdgpuTopBin` to `${pkgs.amdgpu_top}/bin/amdgpu_top` from
 the same nixpkgs revision, so the service never relies on `$PATH`.
 
 ### Running amdgpu_top as root (setuid wrapper)
@@ -149,7 +149,7 @@ unprivileged `atopweb` service user exec `amdgpu_top` as root:
 
 ```nix
 security.wrappers.amdgpu_top = {
-  source      = "${pkgs.amdgpu-top}/bin/amdgpu_top";
+  source      = "${pkgs.amdgpu_top}/bin/amdgpu_top";
   owner       = "root";
   group       = "atopweb";
   setuid      = true;
