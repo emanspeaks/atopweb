@@ -72,6 +72,22 @@ function makeDataset(label, color, data) {
   };
 }
 
+// ── RAF render loop ──────────────────────────────────────────────────────────
+// Chart.js defers actual canvas drawing to requestAnimationFrame even with
+// animation:false, so calling update() directly in the WebSocket handler can
+// only render at 1 Hz when the browser coalesces those calls. Instead we mark
+// charts dirty and flush once per animation frame — this ties visual updates
+// to the display refresh rate (60 fps) while still consuming every data point.
+let _rafPending = false;
+function scheduleRender() {
+  if (_rafPending) return;
+  _rafPending = true;
+  requestAnimationFrame(() => {
+    _rafPending = false;
+    for (const c of Object.values(state.charts)) c.update('none');
+  });
+}
+
 // ── State ────────────────────────────────────────────────────────────────────
 const state = {
   cur:         -1,
@@ -83,18 +99,19 @@ const state = {
 
 function makeHist() {
   return {
-    labels: Array(HISTORY).fill(''),
-    gfx:    Array(HISTORY).fill(null),
-    mem:    Array(HISTORY).fill(null),
-    media:  Array(HISTORY).fill(null),
-    vram:   Array(HISTORY).fill(null),  // VRAM+GTT combined used MiB
-    pwr:    Array(HISTORY).fill(null),
-    tempE:  Array(HISTORY).fill(null),
-    tempC:  Array(HISTORY).fill(null),  // CPU Tctl
-    tempS:  Array(HISTORY).fill(null),  // SoC (gpu_metrics)
-    sclk:   Array(HISTORY).fill(null),
-    mclk:   Array(HISTORY).fill(null),
-    fclk:   Array(HISTORY).fill(null),
+    labels:  Array(HISTORY).fill(''),
+    gfx:     Array(HISTORY).fill(null),
+    mem:     Array(HISTORY).fill(null),
+    media:   Array(HISTORY).fill(null),
+    vram:    Array(HISTORY).fill(null),  // VRAM+GTT combined used MiB
+    pwr:     Array(HISTORY).fill(null),  // total/package power
+    gfxPwr:  Array(HISTORY).fill(null),  // GFX engine power only
+    tempE:   Array(HISTORY).fill(null),
+    tempC:   Array(HISTORY).fill(null),  // CPU Tctl
+    tempS:   Array(HISTORY).fill(null),  // SoC (gpu_metrics)
+    sclk:    Array(HISTORY).fill(null),
+    mclk:    Array(HISTORY).fill(null),
+    fclk:    Array(HISTORY).fill(null),
     vramMax: 1,  // VRAM+GTT combined total MiB
   };
 }
@@ -142,7 +159,6 @@ function buildDom(devices) {
     const cards = el('div', 'cards');
     const cardDefs = [
       { id: `c-gfx-${i}`,    cls: 'c-gfx',    label: 'GFX',       unit: '%',   bar: true  },
-      { id: `c-mem-${i}`,    cls: 'c-mem',    label: 'Memory',    unit: '%',   bar: true  },
       { id: `c-media-${i}`,  cls: 'c-media',  label: 'Media',     unit: '%',   bar: true  },
       { id: `c-vram-${i}`,   cls: 'c-vram',   label: 'VRAM',      unit: 'MiB', bar: true  },
       { id: `c-gtt-${i}`,    cls: 'c-gtt',    label: 'GTT Used',  unit: 'MiB', bar: true  },
@@ -152,7 +168,6 @@ function buildDom(devices) {
       { id: `c-pwr-${i}`,    cls: 'c-pwr',    label: 'Power',     unit: 'W',   bar: false },
       { id: `c-etmp-${i}`,   cls: 'c-etmp',   label: 'Edge Temp', unit: '°C',  bar: false },
       { id: `c-cputmp-${i}`, cls: 'c-cputmp', label: 'CPU Tctl',  unit: '°C',  bar: false },
-      { id: `c-fan-${i}`,    cls: 'c-fan',    label: 'Fan',       unit: 'RPM', bar: false },
     ];
 
     cardDefs.forEach(def => {
@@ -175,7 +190,7 @@ function buildDom(devices) {
 
     const chartDefs = [
       {
-        key: 'activity', title: 'GPU Activity (%)', height: 160, yMax: 100,
+        key: 'activity', title: 'GPU Activity (%)', height: 140, yMax: 100,
         datasets: () => [
           makeDataset('GFX',    '#e85d04', h.gfx),
           makeDataset('Memory', '#388bfd', h.mem),
@@ -183,28 +198,32 @@ function buildDom(devices) {
         ]
       },
       {
-        key: 'vram', title: 'VRAM + GTT Usage (MiB)', height: 160, yMax: null,
+        key: 'vram', title: 'VRAM + GTT Usage (MiB)', height: 140, yMax: null,
         datasets: () => [makeDataset('VRAM+GTT', '#3fb950', h.vram)]
       },
       {
-        key: 'power', title: 'Power (W)', height: 160, yMax: null,
-        datasets: () => [makeDataset('Power', '#e3b341', h.pwr)]
-      },
-      {
-        key: 'temp', title: 'Temperature (°C)', height: 160, yMax: null,
+        key: 'temp', title: 'Temperature (°C)', height: 140, yMax: null,
         datasets: () => [
-          makeDataset('Edge',    '#f85149', h.tempE),
-          makeDataset('CPU Tctl','#e3b341', h.tempC),
-          makeDataset('SoC',     '#bc8cff', h.tempS),
+          makeDataset('Edge',     '#f85149', h.tempE),
+          makeDataset('CPU Tctl', '#e3b341', h.tempC),
+          makeDataset('SoC',      '#bc8cff', h.tempS),
         ]
       },
       {
-        key: 'clocks', title: 'Clocks (MHz)', height: 160, yMax: null, wide: true,
+        key: 'gfx-power', title: 'GFX Engine Power (W)', height: 140, yMax: null,
+        datasets: () => [makeDataset('GFX Power', '#e85d04', h.gfxPwr)]
+      },
+      {
+        key: 'gfx-clk', title: 'Clocks (MHz)', height: 140, yMax: null,
         datasets: () => [
           makeDataset('SCLK', '#e85d04', h.sclk),
           makeDataset('MCLK', '#388bfd', h.mclk),
           makeDataset('FCLK', '#3fb950', h.fclk),
         ]
+      },
+      {
+        key: 'power', title: 'Package Power (W)', height: 140, yMax: null, wide: true,
+        datasets: () => [makeDataset('Power', '#e3b341', h.pwr)]
       },
     ];
 
@@ -396,11 +415,11 @@ function updateDevice(i, dev) {
   const sclk   = v(sens, 'GFX_SCLK');
   const mclk   = v(sens, 'GFX_MCLK');
   const fclk   = v(sens, 'FCLK');
-  const pwr    = v(sens, 'GFX Power') ?? v(sens, 'Average Power') ?? v(sens, 'Input Power');
+  const gfxPwr = v(sens, 'GFX Power');
+  const pwr    = v(sens, 'Average Power') ?? v(sens, 'Socket Power') ?? v(sens, 'Input Power') ?? gfxPwr;
   const tempE  = v(sens, 'Edge Temperature');
   const cputmp = v(sens, 'CPU Tctl');
   const tempS  = dev.gpu_metrics?.temperature_soc ?? null;
-  const fan    = v(sens, 'Fan');
 
   const combinedU = (vramU != null && gttU != null) ? vramU + gttU
                   : (vramU ?? gttU);
@@ -409,7 +428,6 @@ function updateDevice(i, dev) {
 
   // ── Stat cards ──
   setCard(`c-gfx-${i}`,    gfx);
-  setCard(`c-mem-${i}`,    mem);
   setCard(`c-media-${i}`,  media);
   setCard(`c-sclk-${i}`,   sclk);
   setCard(`c-mclk-${i}`,   mclk);
@@ -417,7 +435,6 @@ function updateDevice(i, dev) {
   setCard(`c-pwr-${i}`,    pwr,    1);
   setCard(`c-etmp-${i}`,   tempE,  1);
   setCard(`c-cputmp-${i}`, cputmp, 1);
-  setCard(`c-fan-${i}`,    fan);
 
   // VRAM card: "used / total MiB"
   const vramEl = document.getElementById(`c-vram-${i}`);
@@ -431,42 +448,44 @@ function updateDevice(i, dev) {
 
   // Progress bars
   setBar(`c-gfx-${i}`,   gfx);
-  setBar(`c-mem-${i}`,   mem);
   setBar(`c-media-${i}`, media);
   setBar(`c-vram-${i}`,  vramT  > 0 ? vramU  / vramT  * 100 : null);
   setBar(`c-gtt-${i}`,   gttT   > 0 ? gttU   / gttT   * 100 : null);
 
   // ── History ──
-  pushHistory(h.gfx,   gfx);
-  pushHistory(h.mem,   mem);
-  pushHistory(h.media, media);
-  pushHistory(h.vram,  combinedU);
-  pushHistory(h.pwr,   pwr);
-  pushHistory(h.tempE, tempE);
-  pushHistory(h.tempC, cputmp);
-  pushHistory(h.tempS, tempS);
-  pushHistory(h.sclk,  sclk);
-  pushHistory(h.mclk,  mclk);
-  pushHistory(h.fclk,  fclk);
+  pushHistory(h.gfx,    gfx);
+  pushHistory(h.mem,    mem);
+  pushHistory(h.media,  media);
+  pushHistory(h.vram,   combinedU);
+  pushHistory(h.pwr,    pwr);
+  pushHistory(h.gfxPwr, gfxPwr);
+  pushHistory(h.tempE,  tempE);
+  pushHistory(h.tempC,  cputmp);
+  pushHistory(h.tempS,  tempS);
+  pushHistory(h.sclk,   sclk);
+  pushHistory(h.mclk,   mclk);
+  pushHistory(h.fclk,   fclk);
 
   if (combinedT != null && combinedT > 0) h.vramMax = combinedT;
 
-  // ── Charts ──
-  const cAct  = state.charts[`${i}-activity`];
-  const cVram = state.charts[`${i}-vram`];
-  const cPwr  = state.charts[`${i}-power`];
-  const cTemp = state.charts[`${i}-temp`];
-  const cClk  = state.charts[`${i}-clocks`];
+  // ── Chart options (scale/annotations) — rendering is batched via scheduleRender ──
+  const cAct    = state.charts[`${i}-activity`];
+  const cVram   = state.charts[`${i}-vram`];
+  const cPwr    = state.charts[`${i}-power`];
+  const cTemp   = state.charts[`${i}-temp`];
+  const cGfxPwr = state.charts[`${i}-gfx-power`];
+  const cGfxClk = state.charts[`${i}-gfx-clk`];
 
   if (cVram) cVram.options.scales.y.max = h.vramMax;
 
-  if (cAct)  setAnnotations(cAct,  {},                    h.gfx, h.mem, h.media);
-  if (cVram) setAnnotations(cVram, {},                    h.vram);
-  if (cPwr)  setAnnotations(cPwr,  powerLimitAnnotations(), h.pwr);
-  if (cTemp) setAnnotations(cTemp, {},                    h.tempE, h.tempC, h.tempS);
-  if (cClk)  setAnnotations(cClk,  {},                    h.sclk, h.mclk, h.fclk);
+  if (cAct)    setAnnotations(cAct,    {},                      h.gfx, h.mem, h.media);
+  if (cVram)   setAnnotations(cVram,   {},                      h.vram);
+  if (cPwr)    setAnnotations(cPwr,    powerLimitAnnotations(), h.pwr);
+  if (cTemp)   setAnnotations(cTemp,   {},                      h.tempE, h.tempC, h.tempS);
+  if (cGfxPwr) setAnnotations(cGfxPwr, {},                     h.gfxPwr);
+  if (cGfxClk) setAnnotations(cGfxClk, {},                     h.sclk, h.mclk, h.fclk);
 
-  [cAct, cVram, cPwr, cTemp, cClk].forEach(c => { if (c) c.update('none'); });
+  scheduleRender();
 
   // ── GRBM performance counters ──
   GRBM_KEYS.forEach((key, ki) => {
@@ -497,15 +516,19 @@ function updateDevice(i, dev) {
     return;
   }
 
+  // amdgpu_top may store per-process fields directly on the object or under
+  // a nested "usage" key depending on version; try both.
+  const getUsage = (p) => p.usage || p;
+
   pids.sort((a, b) => {
-    const av = v(fdinfo[a].usage, 'VRAM') ?? 0;
-    const bv = v(fdinfo[b].usage, 'VRAM') ?? 0;
+    const av = v(getUsage(fdinfo[a]), 'VRAM') ?? 0;
+    const bv = v(getUsage(fdinfo[b]), 'VRAM') ?? 0;
     return bv - av;
   });
 
   tbody.innerHTML = pids.map(pid => {
     const proc  = fdinfo[pid];
-    const u     = proc.usage || {};
+    const u     = getUsage(proc);
     const media = v(u, 'Media') ?? v(u, 'VCN_Unified');
     return `<tr>
       <td class="proc-pid">${pid}</td>
@@ -540,7 +563,9 @@ function connect() {
     try { data = JSON.parse(evt.data); } catch { return; }
     if (!data || !Array.isArray(data.devices)) return;
 
-    document.getElementById('period-label').textContent = new Date().toLocaleTimeString();
+    const _t = new Date();
+    document.getElementById('period-label').textContent =
+      _t.toLocaleTimeString([], { hour12: false }) + '.' + String(_t.getMilliseconds()).padStart(3, '0');
 
     if (state.n !== data.devices.length) buildDom(data.devices);
     data.devices.forEach((dev, i) => updateDevice(i, dev));

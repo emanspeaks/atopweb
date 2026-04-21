@@ -97,6 +97,17 @@
               '';
             };
 
+            ryzenAdjBin = lib.mkOption {
+              type = lib.types.str;
+              default = "";
+              description = ''
+                Path to the ryzenadj binary.  When set, atopweb calls
+                ryzenadj -i (via sudo when sudo = true) to read APU power
+                limits (STAPM, fast-PPT, slow-PPT) for the power chart.
+                Example: "''${pkgs.ryzenadj}/bin/ryzenadj"
+              '';
+            };
+
             extraArgs = lib.mkOption {
               type = lib.types.listOf lib.types.str;
               default = [];
@@ -130,6 +141,7 @@
                   ]
                   ++ lib.optional cfg.nopc "--no-pc"
                   ++ lib.optionals cfg.sudo [ "--sudo" "--sudo-bin" "/run/wrappers/bin/sudo" ]
+                  ++ lib.optionals (cfg.ryzenAdjBin != "") [ "--ryzenadj" cfg.ryzenAdjBin ]
                   ++ cfg.extraArgs
                 );
 
@@ -152,7 +164,10 @@
               commands = [{
                 command = cfg.amdgpuTopBin;
                 options = [ "NOPASSWD" ];
-              }];
+              }] ++ lib.optional (cfg.ryzenAdjBin != "") {
+                command = cfg.ryzenAdjBin;
+                options = [ "NOPASSWD" ];
+              };
             }];
 
             users.users.atopweb = {

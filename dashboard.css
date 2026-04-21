@@ -174,19 +174,19 @@ main { padding: 20px; }
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 8px;
-  padding: 12px 14px;
+  padding: 8px 12px;
 }
 
 .card-label {
-  font-size: 11px;
+  font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--muted);
-  margin-bottom: 4px;
+  margin-bottom: 2px;
 }
 
 .card-value {
-  font-size: 22px;
+  font-size: 18px;
   font-weight: 700;
   line-height: 1.2;
 }
