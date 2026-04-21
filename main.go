@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"os"
 	"os/exec"
 	"os/user"
 	"strconv"
@@ -34,12 +33,13 @@ var upgrader = websocket.Upgrader{
 }
 
 type hub struct {
-	mu          sync.Mutex
-	clients     map[*websocket.Conn]struct{}
-	last        []byte
-	intervalMs  int
-	cancelFn    context.CancelFunc
-	atopVersion string // amdgpu_top version string
+	mu             sync.Mutex
+	clients        map[*websocket.Conn]struct{}
+	last           []byte
+	intervalMs     int
+	cancelFn       context.CancelFunc
+	atopVersion    string   // amdgpu_top version string
+	ryzenAdjArgs   []string // nil if not configured; includes sudo prefix when needed
 }
 
 func (h *hub) add(c *websocket.Conn) {
@@ -352,11 +352,8 @@ func (h *hub) serveGPUPct(w http.ResponseWriter, r *http.Request) {
 }
 
 // ── /api/power-limits ────────────────────────────────────────────────────────
-// Returns APU package power limits in watts:
-//   stapm_w – from gpu_metrics in the last frame (milliwatts → W)
-//   fast_w  – RAPL constraint_1 short_term (µW → W)
-//   slow_w  – RAPL constraint_0 long_term  (µW → W)
-// Any field is omitted when the source is unavailable.
+// Returns APU power limits in watts from ryzenadj -i output.
+// Any field is omitted when ryzenadj is not configured or the value is absent.
 
 type powerLimitsInfo struct {
 	STAPMWatts *float64 `json:"stapm_w,omitempty"`
@@ -364,57 +361,55 @@ type powerLimitsInfo struct {
 	SlowWatts  *float64 `json:"slow_w,omitempty"`
 }
 
-// readUW reads a sysfs file containing a power value in microwatts and
-// returns it converted to watts, or nil on any error.
-func readUW(path string) *float64 {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil
-	}
-	v, err := strconv.ParseFloat(strings.TrimSpace(string(data)), 64)
-	if err != nil || v <= 0 {
-		return nil
-	}
-	w := v / 1e6
-	return &w
-}
-
-// raplConstraintW tries several known sysfs base paths for the RAPL powercap
-// interface and returns the named constraint file value converted from µW to W.
-func raplConstraintW(constraintFile string) *float64 {
-	bases := []string{
-		"/sys/class/powercap/intel-rapl:0",
-		"/sys/devices/virtual/powercap/intel-rapl/intel-rapl:0",
-	}
-	for _, base := range bases {
-		if v := readUW(base + "/" + constraintFile); v != nil {
-			return v
+// parseRyzenAdjInfo extracts STAPM, fast-PPT, and slow-PPT limits from the
+// table printed by `ryzenadj -i`. Values may be in mW or W; both are handled.
+func parseRyzenAdjInfo(output string) (stapm, fast, slow *float64) {
+	for _, line := range strings.Split(output, "\n") {
+		parts := strings.Split(line, "|")
+		if len(parts) < 2 {
+			continue
+		}
+		name   := strings.TrimSpace(parts[0])
+		valStr := strings.TrimSpace(parts[1])
+		unit   := ""
+		if len(parts) >= 3 {
+			unit = strings.ToLower(strings.TrimSpace(parts[2]))
+		}
+		val, err := strconv.ParseFloat(valStr, 64)
+		if err != nil || val <= 0 {
+			continue
+		}
+		var watts float64
+		switch unit {
+		case "mw":
+			watts = val / 1000.0
+		case "w":
+			watts = val
+		default:
+			continue
+		}
+		w := watts
+		switch name {
+		case "stapm_limit":
+			stapm = &w
+		case "fast_ppt_limit":
+			fast = &w
+		case "slow_ppt_limit":
+			slow = &w
 		}
 	}
-	return nil
+	return
 }
 
 func (h *hub) servePowerLimits(w http.ResponseWriter, r *http.Request) {
-	result := powerLimitsInfo{
-		FastWatts: raplConstraintW("constraint_1_power_limit_uw"),
-		SlowWatts: raplConstraintW("constraint_0_power_limit_uw"),
-	}
+	var result powerLimitsInfo
 
-	// STAPM from the most recent streaming frame (milliwatts → W).
-	h.mu.Lock()
-	raw := h.last
-	h.mu.Unlock()
-
-	if raw != nil {
-		var frame atopFrame
-		if err := json.Unmarshal(raw, &frame); err == nil {
-			for _, dev := range frame.Devices {
-				if mw := dev.GPUMetrics.STAPMPowerLimit; mw != nil && *mw > 0 {
-					watts := *mw / 1000.0
-					result.STAPMWatts = &watts
-					break
-				}
-			}
+	if len(h.ryzenAdjArgs) > 0 {
+		out, err := exec.Command(h.ryzenAdjArgs[0], h.ryzenAdjArgs[1:]...).Output()
+		if err != nil {
+			log.Printf("ryzenadj: %v", err)
+		} else {
+			result.STAPMWatts, result.FastWatts, result.SlowWatts = parseRyzenAdjInfo(string(out))
 		}
 	}
 
@@ -443,7 +438,8 @@ func main() {
 	port    := flag.Int("port", 5899, "TCP port to listen on")
 	atopBin := flag.String("amdgpu-top", "", "path to amdgpu_top binary (default: search PATH)")
 	useSudo  := flag.Bool("sudo", false, "launch amdgpu_top via 'sudo -n' (requires a NOPASSWD sudoers entry for the atopweb user)")
-	sudoBin  := flag.String("sudo-bin", "sudo", "path to the sudo binary (NixOS: /run/wrappers/bin/sudo)")
+	sudoBin    := flag.String("sudo-bin",  "sudo", "path to the sudo binary (NixOS: /run/wrappers/bin/sudo)")
+	ryzenAdj   := flag.String("ryzenadj", "",     "path to ryzenadj binary for reading APU power limits")
 
 	// amdgpu_top JSON-mode passthrough flags
 	intervalMs := flag.Int("s", 1000, "amdgpu_top refresh period in milliseconds")
@@ -492,10 +488,22 @@ func main() {
 
 	log.Printf("amdgpu_top base args: %v (interval injected dynamically)", atopArgs)
 
+	// Build ryzenadj invocation (with sudo prefix when --sudo is set).
+	var ryzenAdjArgs []string
+	if *ryzenAdj != "" {
+		if *useSudo {
+			ryzenAdjArgs = []string{*sudoBin, "-n", *ryzenAdj, "-i"}
+		} else {
+			ryzenAdjArgs = []string{*ryzenAdj, "-i"}
+		}
+		log.Printf("ryzenadj: %v", ryzenAdjArgs)
+	}
+
 	h := &hub{
-		clients:     make(map[*websocket.Conn]struct{}),
-		intervalMs:  *intervalMs,
-		atopVersion: atopVer,
+		clients:      make(map[*websocket.Conn]struct{}),
+		intervalMs:   *intervalMs,
+		atopVersion:  atopVer,
+		ryzenAdjArgs: ryzenAdjArgs,
 	}
 	go runStreamer(binary, atopArgs, h)
 
