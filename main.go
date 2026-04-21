@@ -164,8 +164,8 @@ func (h *hub) serveVRAM(w http.ResponseWriter, r *http.Request) {
 
 	result := make([]vramInfo, 0, len(frame.Devices))
 	for i, dev := range frame.Devices {
-		used := dev.VRAM["Total VRAM Usage"].Value
-		total := dev.VRAM["Total VRAM"].Value
+		used  := dev.VRAM["Total VRAM Usage"].Value + dev.VRAM["Total GTT Usage"].Value
+		total := dev.VRAM["Total VRAM"].Value + dev.VRAM["Total GTT"].Value
 		var pct float64
 		if total > 0 {
 			pct = used / total * 100
