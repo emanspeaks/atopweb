@@ -62,8 +62,8 @@
               default = false;
               description = ''
                 Skip GPU performance counter reads (passes --no-pc to amdgpu_top).
-                Saves power and avoids needing CAP_PERFMON / relaxed
-                perf_event_paranoid, but GRBM/GRBM2 data will be absent.
+                Saves power and avoids needing CAP_PERFMON, but GRBM/GRBM2 data
+                will be absent.
               '';
             };
 
@@ -73,11 +73,24 @@
               description = "amdgpu_top refresh period in milliseconds.";
             };
 
+            amdgpuTopBin = lib.mkOption {
+              type = lib.types.str;
+              default = "${pkgs.amdgpu-top}/bin/amdgpu_top";
+              defaultText = lib.literalExpression ''"''${pkgs.amdgpu-top}/bin/amdgpu_top"'';
+              description = ''
+                Path to the amdgpu_top binary passed to atopweb via --amdgpu-top.
+                Override with a security.wrappers path when amdgpu_top needs to run
+                as root (e.g. amdgpuTopBin = "/run/wrappers/bin/amdgpu_top").
+                When using a setuid wrapper, also set grantPerfmonCapability = false.
+              '';
+            };
+
             extraArgs = lib.mkOption {
               type = lib.types.listOf lib.types.str;
               default = [];
               description = ''
-                Additional arguments passed verbatim to atopweb (e.g. [ "-i" "0" "--pci" "0000:03:00.0" ]).
+                Additional arguments passed verbatim to atopweb
+                (e.g. [ "-i" "0" "--pci" "0000:03:00.0" ]).
               '';
             };
 
@@ -100,7 +113,7 @@
                   [
                     "${cfg.package}/bin/atopweb"
                     "--port" (toString cfg.port)
-                    "--amdgpu-top" "${pkgs.amdgpu-top}/bin/amdgpu_top"
+                    "--amdgpu-top" cfg.amdgpuTopBin
                     "-s" (toString cfg.interval)
                   ]
                   ++ lib.optional cfg.nopc "--no-pc"
@@ -114,8 +127,8 @@
                 Restart = "on-failure";
                 RestartSec = "5s";
 
-                NoNewPrivileges = true;
-                ProtectSystem = "strict";
+                # NoNewPrivileges intentionally absent: the setuid wrapper on
+                # amdgpuTopBin requires privilege gain to be allowed across exec().
                 ProtectHome = true;
                 PrivateTmp = true;
               };
