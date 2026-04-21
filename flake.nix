@@ -1,0 +1,134 @@
+{
+  description = "atopweb — AMD GPU monitor web dashboard";
+
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    flake-utils.url = "github:numtide/flake-utils";
+    gomod2nix = {
+      url = "github:nix-community/gomod2nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+  };
+
+  outputs = { self, nixpkgs, flake-utils, gomod2nix }:
+    let
+      supportedSystems = [ "x86_64-linux" "aarch64-linux" ];
+    in
+    flake-utils.lib.eachSystem supportedSystems (system:
+      let
+        pkgs = nixpkgs.legacyPackages.${system};
+        inherit (pkgs) lib;
+        inherit (gomod2nix.legacyPackages.${system}) buildGoApplication;
+
+        atopweb = buildGoApplication {
+          pname = "atopweb";
+          version = lib.fileContents ./VERSION;
+          src = ./.;
+          modules = ./gomod2nix.toml;
+
+          meta = {
+            description = "Web dashboard server that streams amdgpu_top JSON output over WebSocket";
+            license = lib.licenses.mit;
+            platforms = lib.platforms.linux;
+            mainProgram = "atopweb";
+          };
+        };
+      in
+      {
+        packages = {
+          default = atopweb;
+          inherit atopweb;
+        };
+      }
+    )
+    //
+    {
+      nixosModules.default = { config, pkgs, lib, ... }:
+        let
+          cfg = config.services.atopweb;
+        in
+        {
+          options.services.atopweb = {
+            enable = lib.mkEnableOption "atopweb GPU web dashboard service";
+
+            port = lib.mkOption {
+              type = lib.types.port;
+              default = 5899;
+              description = "TCP port the web dashboard listens on.";
+            };
+
+            nopc = lib.mkOption {
+              type = lib.types.bool;
+              default = false;
+              description = ''
+                Skip GPU performance counter reads (passes --no-pc to amdgpu_top).
+                Saves power and avoids needing CAP_PERFMON / relaxed
+                perf_event_paranoid, but GRBM/GRBM2 data will be absent.
+              '';
+            };
+
+            interval = lib.mkOption {
+              type = lib.types.ints.positive;
+              default = 1000;
+              description = "amdgpu_top refresh period in milliseconds.";
+            };
+
+            extraArgs = lib.mkOption {
+              type = lib.types.listOf lib.types.str;
+              default = [];
+              description = ''
+                Additional arguments passed verbatim to atopweb (e.g. [ "-i" "0" "--pci" "0000:03:00.0" ]).
+              '';
+            };
+
+            package = lib.mkOption {
+              type = lib.types.package;
+              default = self.packages.${pkgs.system}.default;
+              defaultText = lib.literalExpression "atopweb flake package";
+              description = "The atopweb package to use.";
+            };
+          };
+
+          config = lib.mkIf cfg.enable {
+            systemd.services.atopweb = {
+              description = "atopweb GPU web dashboard";
+              wantedBy = [ "multi-user.target" ];
+              after = [ "network.target" ];
+
+              serviceConfig = {
+                ExecStart = lib.concatStringsSep " " (
+                  [
+                    "${cfg.package}/bin/atopweb"
+                    "--port" (toString cfg.port)
+                    "--amdgpu-top" "${pkgs.amdgpu-top}/bin/amdgpu_top"
+                    "-s" (toString cfg.interval)
+                  ]
+                  ++ lib.optional cfg.nopc "--no-pc"
+                  ++ cfg.extraArgs
+                );
+
+                User = "atopweb";
+                Group = "atopweb";
+                SupplementaryGroups = [ "render" "video" ];
+
+                Restart = "on-failure";
+                RestartSec = "5s";
+
+                NoNewPrivileges = true;
+                ProtectSystem = "strict";
+                ProtectHome = true;
+                PrivateTmp = true;
+              };
+            };
+
+            users.users.atopweb = {
+              isSystemUser = true;
+              group = "atopweb";
+              description = "atopweb web dashboard service user";
+            };
+
+            users.groups.atopweb = {};
+          };
+        };
+    };
+}
