@@ -129,7 +129,7 @@
                     "-s" (toString cfg.interval)
                   ]
                   ++ lib.optional cfg.nopc "--no-pc"
-                  ++ lib.optional cfg.sudo "--sudo"
+                  ++ lib.optionals cfg.sudo [ "--sudo" "--sudo-bin" "/run/wrappers/bin/sudo" ]
                   ++ cfg.extraArgs
                 );
 
