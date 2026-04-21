@@ -1,6 +1,5 @@
 'use strict';
-
-Chart.register(ChartAnnotation);
+// chartjs-plugin-annotation auto-registers itself when loaded from CDN after Chart.js.
 
 // ── Constants ────────────────────────────────────────────────────────────────
 const HISTORY = 60;
