@@ -151,7 +151,6 @@ function buildDom(devices) {
       { id: `c-fclk-${i}`,   cls: 'c-fclk',   label: 'FCLK',      unit: 'MHz', bar: false },
       { id: `c-pwr-${i}`,    cls: 'c-pwr',    label: 'Power',     unit: 'W',   bar: false },
       { id: `c-etmp-${i}`,   cls: 'c-etmp',   label: 'Edge Temp', unit: '°C',  bar: false },
-      { id: `c-jtmp-${i}`,   cls: 'c-jtmp',   label: 'Jnct Temp', unit: '°C',  bar: false },
       { id: `c-cputmp-${i}`, cls: 'c-cputmp', label: 'CPU Tctl',  unit: '°C',  bar: false },
       { id: `c-fan-${i}`,    cls: 'c-fan',    label: 'Fan',       unit: 'RPM', bar: false },
     ];
@@ -417,7 +416,6 @@ function updateDevice(i, dev) {
   setCard(`c-fclk-${i}`,   fclk);
   setCard(`c-pwr-${i}`,    pwr,    1);
   setCard(`c-etmp-${i}`,   tempE,  1);
-  setCard(`c-jtmp-${i}`,   tempJ,  1);
   setCard(`c-cputmp-${i}`, cputmp, 1);
   setCard(`c-fan-${i}`,    fan);
 
