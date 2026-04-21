@@ -21,7 +21,10 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-var version = "dev"
+//go:embed VERSION
+var versionFile string
+
+var version = strings.TrimSpace(versionFile)
 
 //go:embed dashboard.html dashboard.css dashboard.js
 var static embed.FS
@@ -439,6 +442,7 @@ func main() {
 	// atopweb-specific flags
 	port    := flag.Int("port", 5899, "TCP port to listen on")
 	atopBin := flag.String("amdgpu-top", "", "path to amdgpu_top binary (default: search PATH)")
+	useSudo := flag.Bool("sudo", false, "launch amdgpu_top via 'sudo -n' (requires a NOPASSWD sudoers entry for the atopweb user)")
 
 	// amdgpu_top JSON-mode passthrough flags
 	intervalMs := flag.Int("s", 1000, "amdgpu_top refresh period in milliseconds")
@@ -453,9 +457,12 @@ func main() {
 
 	log.Printf("atopweb %s starting", version)
 
-	// Log the current process user so it's easy to confirm privilege level.
+	// Log the current process user.
 	if u, err := user.Current(); err == nil {
 		log.Printf("running as %s (uid %s)", u.Username, u.Uid)
+		if u.Uid != "0" && !*useSudo {
+			log.Printf("warning: not running as root and --sudo not set — amdgpu_top may lack access to fdinfo, perf counters, and power limits")
+		}
 	}
 
 	binary := *atopBin
@@ -472,6 +479,16 @@ func main() {
 	log.Printf("amdgpu_top version: %s", atopVer)
 
 	atopArgs := buildAtopArgs(*updateIdx, *instance, *pci, *apu, *single, *nopc)
+
+	// When --sudo is set, run amdgpu_top as root via sudo. The -n flag makes
+	// sudo fail immediately if no NOPASSWD entry exists rather than hanging.
+	if *useSudo {
+		atopArgs = append([]string{binary}, atopArgs...)
+		binary = "sudo"
+		atopArgs = append([]string{"-n"}, atopArgs...)
+		log.Printf("amdgpu_top will run via sudo (root)")
+	}
+
 	log.Printf("amdgpu_top base args: %v (interval injected dynamically)", atopArgs)
 
 	h := &hub{

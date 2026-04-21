@@ -85,6 +85,18 @@
               '';
             };
 
+            sudo = lib.mkOption {
+              type = lib.types.bool;
+              default = false;
+              description = ''
+                Launch amdgpu_top as root via sudo rather than running the
+                whole service as root.  When enabled, atopweb is passed
+                --sudo and a NOPASSWD sudoers rule is automatically added
+                allowing the atopweb user to run the configured amdgpu_top
+                binary as root without a password prompt.
+              '';
+            };
+
             extraArgs = lib.mkOption {
               type = lib.types.listOf lib.types.str;
               default = [];
@@ -117,6 +129,7 @@
                     "-s" (toString cfg.interval)
                   ]
                   ++ lib.optional cfg.nopc "--no-pc"
+                  ++ lib.optional cfg.sudo "--sudo"
                   ++ cfg.extraArgs
                 );
 
@@ -133,6 +146,14 @@
                 PrivateTmp = true;
               };
             };
+
+            security.sudo.extraRules = lib.mkIf cfg.sudo [{
+              users = [ "atopweb" ];
+              commands = [{
+                command = cfg.amdgpuTopBin;
+                options = [ "NOPASSWD" ];
+              }];
+            }];
 
             users.users.atopweb = {
               isSystemUser = true;
