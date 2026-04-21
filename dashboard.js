@@ -75,10 +75,11 @@ function makeDataset(label, color, data) {
 
 // ── State ────────────────────────────────────────────────────────────────────
 const state = {
-  cur:    -1,
-  n:       0,
-  hist:   [],
-  charts: {}
+  cur:         -1,
+  n:            0,
+  hist:        [],
+  charts:      {},
+  powerLimits: { stapm_w: null, fast_w: null, slow_w: null },
 };
 
 function makeHist() {
@@ -319,28 +320,63 @@ function pushHistory(arr, val) {
   arr.push(val);
 }
 
-function setAnnotations(chart, ...arrays) {
+// Returns a min/max annotation object (does not modify the chart).
+function minMaxAnnotations(...arrays) {
   const allVals = arrays.flat().filter(x => x != null);
-  const annotations = {};
+  const out = {};
   if (allVals.length >= 2) {
     const minVal = Math.min(...allVals);
     const maxVal = Math.max(...allVals);
     const color  = 'rgba(139,148,158,0.6)';
     const fmtA   = x => (Math.abs(x) >= 100 ? x.toFixed(0) : x.toFixed(1));
-    annotations.minLine = {
+    out.minLine = {
       type: 'line', yMin: minVal, yMax: minVal,
       borderColor: color, borderWidth: 1, borderDash: [3, 3],
       label: { display: true, content: fmtA(minVal), position: 'start', color, font: { size: 9 }, backgroundColor: 'transparent', padding: 2 }
     };
     if (maxVal !== minVal) {
-      annotations.maxLine = {
+      out.maxLine = {
         type: 'line', yMin: maxVal, yMax: maxVal,
         borderColor: color, borderWidth: 1, borderDash: [3, 3],
         label: { display: true, content: fmtA(maxVal), position: 'end', color, font: { size: 9 }, backgroundColor: 'transparent', padding: 2 }
       };
     }
   }
-  chart.options.plugins.annotation.annotations = annotations;
+  return out;
+}
+
+// Returns annotation lines for the three APU power limits.
+function powerLimitAnnotations() {
+  const out = {};
+  const defs = [
+    { key: 'staplLine', label: 'STAPM', val: state.powerLimits.stapm_w, color: '#e3b341' },
+    { key: 'fastLine',  label: 'Fast',  val: state.powerLimits.fast_w,  color: '#f85149' },
+    { key: 'slowLine',  label: 'Slow',  val: state.powerLimits.slow_w,  color: '#3fb950' },
+  ];
+  defs.forEach(({ key, label, val, color }) => {
+    if (val == null) return;
+    out[key] = {
+      type: 'line', yMin: val, yMax: val,
+      borderColor: color, borderWidth: 1, borderDash: [6, 4],
+      label: {
+        display: true,
+        content: `${label} ${val.toFixed(0)}W`,
+        position: 'center',
+        color,
+        font: { size: 9 },
+        backgroundColor: 'transparent',
+        padding: 2,
+      },
+    };
+  });
+  return out;
+}
+
+function setAnnotations(chart, extra, ...arrays) {
+  chart.options.plugins.annotation.annotations = {
+    ...minMaxAnnotations(...arrays),
+    ...extra,
+  };
 }
 
 function updateDevice(i, dev) {
@@ -427,11 +463,11 @@ function updateDevice(i, dev) {
 
   if (cVram) cVram.options.scales.y.max = h.vramMax;
 
-  if (cAct)  setAnnotations(cAct,  h.gfx, h.mem, h.media);
-  if (cVram) setAnnotations(cVram, h.vram);
-  if (cPwr)  setAnnotations(cPwr,  h.pwr);
-  if (cTemp) setAnnotations(cTemp, h.tempE, h.tempC, h.tempS);
-  if (cClk)  setAnnotations(cClk,  h.sclk, h.mclk, h.fclk);
+  if (cAct)  setAnnotations(cAct,  {},                    h.gfx, h.mem, h.media);
+  if (cVram) setAnnotations(cVram, {},                    h.vram);
+  if (cPwr)  setAnnotations(cPwr,  powerLimitAnnotations(), h.pwr);
+  if (cTemp) setAnnotations(cTemp, {},                    h.tempE, h.tempC, h.tempS);
+  if (cClk)  setAnnotations(cClk,  {},                    h.sclk, h.mclk, h.fclk);
 
   [cAct, cVram, cPwr, cTemp, cClk].forEach(c => { if (c) c.update('none'); });
 
@@ -499,6 +535,7 @@ function connect() {
   ws.addEventListener('open', () => {
     retryMs = 1000;
     setConnStatus('connected', 'Connected');
+    fetchPowerLimits();
   });
 
   ws.addEventListener('message', evt => {
@@ -522,6 +559,18 @@ function connect() {
   ws.addEventListener('error', () => ws.close());
 }
 
+// ── Power limits ─────────────────────────────────────────────────────────────
+function fetchPowerLimits() {
+  fetch('/api/power-limits')
+    .then(r => r.json())
+    .then(d => {
+      state.powerLimits.stapm_w = d.stapm_w ?? null;
+      state.powerLimits.fast_w  = d.fast_w  ?? null;
+      state.powerLimits.slow_w  = d.slow_w  ?? null;
+    })
+    .catch(() => {});
+}
+
 // ── Interval control ─────────────────────────────────────────────────────────
 function initIntervalCtrl() {
   fetch('/api/config')
@@ -542,4 +591,6 @@ function initIntervalCtrl() {
 }
 
 initIntervalCtrl();
+fetchPowerLimits();
+setInterval(fetchPowerLimits, 30_000);
 connect();
