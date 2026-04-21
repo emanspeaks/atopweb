@@ -134,12 +134,33 @@ http://<server-ip>:5899
 | `services.atopweb.port` | `port` | `5899` | TCP port |
 | `services.atopweb.nopc` | `bool` | `false` | Skip perf counter reads |
 | `services.atopweb.interval` | `int` | `1000` | Refresh period in ms |
+| `services.atopweb.amdgpuTopBin` | `str` | nix store | `amdgpu_top` binary path; override with a setuid wrapper (see below) |
 | `services.atopweb.extraArgs` | `[str]` | `[]` | Extra flags passed to atopweb (e.g. `[ "-i" "0" ]`) |
 | `services.atopweb.package` | `package` | flake default | Override the atopweb package |
 
-The NixOS module pins `amdgpu_top` to `pkgs.amdgpu-top` from the same nixpkgs
-revision, passing its store path via `--amdgpu-top` so the service never relies
-on `$PATH`.
+The module defaults `amdgpuTopBin` to `${pkgs.amdgpu-top}/bin/amdgpu_top` from
+the same nixpkgs revision, so the service never relies on `$PATH`.
+
+### Running amdgpu_top as root (setuid wrapper)
+
+`amdgpu_top` needs elevated privileges to read GPU performance counters.  The
+recommended NixOS approach is a `security.wrappers` setuid wrapper that lets the
+unprivileged `atopweb` service user exec `amdgpu_top` as root:
+
+```nix
+security.wrappers.amdgpu_top = {
+  source      = "${pkgs.amdgpu-top}/bin/amdgpu_top";
+  owner       = "root";
+  group       = "atopweb";
+  setuid      = true;
+  permissions = "u+rx,g+rx,o-rwx";
+};
+
+services.atopweb = {
+  enable       = true;
+  amdgpuTopBin = "/run/wrappers/bin/amdgpu_top";
+};
+```
 
 ---
 
