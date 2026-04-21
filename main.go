@@ -442,7 +442,8 @@ func main() {
 	// atopweb-specific flags
 	port    := flag.Int("port", 5899, "TCP port to listen on")
 	atopBin := flag.String("amdgpu-top", "", "path to amdgpu_top binary (default: search PATH)")
-	useSudo := flag.Bool("sudo", false, "launch amdgpu_top via 'sudo -n' (requires a NOPASSWD sudoers entry for the atopweb user)")
+	useSudo  := flag.Bool("sudo", false, "launch amdgpu_top via 'sudo -n' (requires a NOPASSWD sudoers entry for the atopweb user)")
+	sudoBin  := flag.String("sudo-bin", "sudo", "path to the sudo binary (NixOS: /run/wrappers/bin/sudo)")
 
 	// amdgpu_top JSON-mode passthrough flags
 	intervalMs := flag.Int("s", 1000, "amdgpu_top refresh period in milliseconds")
@@ -484,9 +485,9 @@ func main() {
 	// sudo fail immediately if no NOPASSWD entry exists rather than hanging.
 	if *useSudo {
 		atopArgs = append([]string{binary}, atopArgs...)
-		binary = "sudo"
+		binary = *sudoBin
 		atopArgs = append([]string{"-n"}, atopArgs...)
-		log.Printf("amdgpu_top will run via sudo (root)")
+		log.Printf("amdgpu_top will run via sudo (%s)", *sudoBin)
 	}
 
 	log.Printf("amdgpu_top base args: %v (interval injected dynamically)", atopArgs)
