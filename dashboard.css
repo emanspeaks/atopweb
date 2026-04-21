@@ -36,6 +36,18 @@ header {
   gap: 16px;
 }
 
+.title-block {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.page-subtitle {
+  font-size: 10px;
+  color: var(--muted);
+  line-height: 1;
+}
+
 header h1 {
   font-size: 16px;
   font-weight: 600;
