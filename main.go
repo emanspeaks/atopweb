@@ -8,8 +8,10 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"os/exec"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -133,10 +135,17 @@ type atopFrame struct {
 }
 
 type atopDevice struct {
-	Info map[string]interface{} `json:"Info"`
+	Info     map[string]interface{} `json:"Info"`
+	Activity map[string]struct {
+		Value float64 `json:"value"`
+	} `json:"gpu_activity"`
 	VRAM map[string]struct {
 		Value float64 `json:"value"`
 	} `json:"VRAM"`
+	GPUMetrics struct {
+		STAPMPowerLimit        *float64 `json:"stapm_power_limit"`
+		CurrentSTAPMPowerLimit *float64 `json:"current_stapm_power_limit"`
+	} `json:"gpu_metrics"`
 }
 
 type vramInfo struct {
@@ -182,6 +191,123 @@ func (h *hub) serveVRAM(w http.ResponseWriter, r *http.Request) {
 			TotalMiB: total,
 			UsedPct:  pct,
 		})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	json.NewEncoder(w).Encode(result)
+}
+
+// ── /api/gpu-pct ──────────────────────────────────────────────────────────────
+// GfxPct maps to gpu_activity.GFX, which corresponds to the amdgpu driver's gpu_busy_percent
+// (the same value most GPU monitors display as the primary GPU-usage percentage).
+
+type gpuPctInfo struct {
+	Name   string  `json:"name"`
+	GpuPct float64 `json:"gpu_pct"`
+}
+
+func (h *hub) serveGPUPct(w http.ResponseWriter, r *http.Request) {
+	h.mu.Lock()
+	raw := h.last
+	h.mu.Unlock()
+
+	if raw == nil {
+		http.Error(w, "no data yet", http.StatusServiceUnavailable)
+		return
+	}
+
+	var frame atopFrame
+	if err := json.Unmarshal(raw, &frame); err != nil {
+		http.Error(w, "parse error", http.StatusInternalServerError)
+		return
+	}
+
+	result := make([]gpuPctInfo, 0, len(frame.Devices))
+	for i, dev := range frame.Devices {
+		name := fmt.Sprintf("GPU %d", i)
+		if n, ok := dev.Info["DeviceName"].(string); ok && n != "" {
+			name = n
+		} else if n, ok := dev.Info["ASIC Name"].(string); ok && n != "" {
+			name = n
+		}
+		result = append(result, gpuPctInfo{
+			Name:   name,
+			GpuPct: dev.Activity["GFX"].Value,
+		})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	json.NewEncoder(w).Encode(result)
+}
+
+// ── /api/power-limits ────────────────────────────────────────────────────────
+// Returns APU package power limits in watts:
+//   stapm_w  – from gpu_metrics in the last frame (milliwatts → W)
+//   fast_w   – RAPL constraint_1 short_term (µW → W)
+//   slow_w   – RAPL constraint_0 long_term  (µW → W)
+// Any field is omitted when the source is unavailable.
+
+type powerLimitsInfo struct {
+	STAPMWatts *float64 `json:"stapm_w,omitempty"`
+	FastWatts  *float64 `json:"fast_w,omitempty"`
+	SlowWatts  *float64 `json:"slow_w,omitempty"`
+}
+
+// readUW reads a sysfs file containing a power value in microwatts and
+// returns it converted to watts, or nil on any error.
+func readUW(path string) *float64 {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	v, err := strconv.ParseFloat(strings.TrimSpace(string(data)), 64)
+	if err != nil || v <= 0 {
+		return nil
+	}
+	w := v / 1e6
+	return &w
+}
+
+// raplConstraintUW tries several known sysfs base paths for the RAPL
+// powercap interface and returns the value of the requested constraint
+// file, converted from µW to W.
+func raplConstraintW(constraintFile string) *float64 {
+	bases := []string{
+		"/sys/class/powercap/intel-rapl:0",
+		"/sys/devices/virtual/powercap/intel-rapl/intel-rapl:0",
+	}
+	for _, base := range bases {
+		if v := readUW(base + "/" + constraintFile); v != nil {
+			return v
+		}
+	}
+	return nil
+}
+
+func (h *hub) servePowerLimits(w http.ResponseWriter, r *http.Request) {
+	result := powerLimitsInfo{
+		FastWatts: raplConstraintW("constraint_1_power_limit_uw"),
+		SlowWatts: raplConstraintW("constraint_0_power_limit_uw"),
+	}
+
+	// STAPM from the most recent streaming frame (milliwatts → W).
+	h.mu.Lock()
+	raw := h.last
+	h.mu.Unlock()
+
+	if raw != nil {
+		var frame atopFrame
+		if err := json.Unmarshal(raw, &frame); err == nil {
+			for _, dev := range frame.Devices {
+				if mw := dev.GPUMetrics.STAPMPowerLimit; mw != nil && *mw > 0 {
+					w := *mw / 1000.0
+					result.STAPMWatts = &w
+					break
+				}
+			}
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -235,6 +361,8 @@ func main() {
 	http.HandleFunc("/dashboard.css", serveStatic("dashboard.css", "text/css; charset=utf-8"))
 	http.HandleFunc("/dashboard.js", serveStatic("dashboard.js", "application/javascript; charset=utf-8"))
 	http.HandleFunc("/api/vram", h.serveVRAM)
+	http.HandleFunc("/api/gpu-pct", h.serveGPUPct)
+	http.HandleFunc("/api/power-limits", h.servePowerLimits)
 	http.HandleFunc("/ws", h.serveWS)
 
 	addr := fmt.Sprintf(":%d", *port)

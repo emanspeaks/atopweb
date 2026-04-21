@@ -6,6 +6,7 @@
 <title>atopweb</title>
 <link rel="stylesheet" href="/dashboard.css">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js"></script>
 </head>
 <body>
 
@@ -15,6 +16,12 @@
     <span class="conn-dot" id="conn-dot"></span>
     <span id="conn-label">Connecting…</span>
   </span>
+  <div class="interval-ctrl">
+    <label for="interval-input">Interval</label>
+    <input type="number" id="interval-input" min="50" max="60000" step="50" value="1000">
+    <span>ms</span>
+    <button id="interval-btn">Apply</button>
+  </div>
   <span class="period" id="period-label"></span>
 </header>
 
