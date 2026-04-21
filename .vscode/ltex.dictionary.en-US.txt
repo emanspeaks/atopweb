@@ -27,3 +27,5 @@ sclk
 Segoe
 toml
 upgrader
+
+setuid
