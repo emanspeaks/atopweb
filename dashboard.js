@@ -1,7 +1,32 @@
 'use strict';
 
+Chart.register(ChartAnnotation);
+
 // ── Constants ────────────────────────────────────────────────────────────────
 const HISTORY = 60;
+
+const GRBM_KEYS = [
+  'Graphics Pipe',
+  'Texture Pipe',
+  'Shader Export',
+  'Shader Processor Interpolator',
+  'Primitive Assembly',
+  'Depth Block',
+  'Color Block',
+  'Geometry Engine',
+];
+
+const GRBM2_KEYS = [
+  'RunList Controller',
+  'Texture Cache per Pipe',
+  'Unified Translation Cache Level-2',
+  'Efficiency Arbiter',
+  'Render Backend Memory Interface',
+  'SDMA',
+  'Command Processor -  Fetcher',
+  'Command Processor -  Compute',
+  'Command Processor - Graphics',
+];
 
 const CHART_DEFAULTS = {
   animation: false,
@@ -18,7 +43,8 @@ const CHART_DEFAULTS = {
       borderWidth: 1,
       titleColor: '#e6edf3',
       bodyColor: '#8b949e',
-    }
+    },
+    annotation: { annotations: {} }
   },
   scales: {
     x: {
@@ -49,24 +75,27 @@ function makeDataset(label, color, data) {
 
 // ── State ────────────────────────────────────────────────────────────────────
 const state = {
-  cur: -1,   // active GPU tab index
-  n:    0,   // total GPU count (once known)
-  hist: [],  // per-GPU history objects
-  charts: {} // keyed by "i-name"
+  cur:    -1,
+  n:       0,
+  hist:   [],
+  charts: {}
 };
 
 function makeHist() {
-  const labels = Array(HISTORY).fill('');
   return {
-    labels,
+    labels: Array(HISTORY).fill(''),
     gfx:    Array(HISTORY).fill(null),
     mem:    Array(HISTORY).fill(null),
     media:  Array(HISTORY).fill(null),
-    vram:   Array(HISTORY).fill(null),
+    vram:   Array(HISTORY).fill(null),  // VRAM+GTT combined used MiB
     pwr:    Array(HISTORY).fill(null),
     tempE:  Array(HISTORY).fill(null),
-    tempJ:  Array(HISTORY).fill(null),
-    vramMax: 1,
+    tempC:  Array(HISTORY).fill(null),  // CPU Tctl
+    tempS:  Array(HISTORY).fill(null),  // SoC (gpu_metrics)
+    sclk:   Array(HISTORY).fill(null),
+    mclk:   Array(HISTORY).fill(null),
+    fclk:   Array(HISTORY).fill(null),
+    vramMax: 1,  // VRAM+GTT combined total MiB
   };
 }
 
@@ -79,13 +108,11 @@ function el(tag, cls, text) {
 }
 
 function setConnStatus(status, label) {
-  const dot  = document.getElementById('conn-dot');
-  const span = document.getElementById('conn-label');
-  dot.className  = 'conn-dot ' + status;
-  span.textContent = label;
+  document.getElementById('conn-dot').className = 'conn-dot ' + status;
+  document.getElementById('conn-label').textContent = label;
 }
 
-// ── Build DOM (once) ─────────────────────────────────────────────────────────
+// ── Build DOM (once per device-count change) ─────────────────────────────────
 function buildDom(devices) {
   const tabs = document.getElementById('tabs');
   const main = document.getElementById('main');
@@ -113,19 +140,20 @@ function buildDom(devices) {
 
     // ── Stat cards ──
     const cards = el('div', 'cards');
-
     const cardDefs = [
-      { id: `c-gfx-${i}`,   cls: 'c-gfx',   label: 'GFX',        unit: '%',   bar: true },
-      { id: `c-mem-${i}`,   cls: 'c-mem',   label: 'Memory',     unit: '%',   bar: true },
-      { id: `c-media-${i}`, cls: 'c-media', label: 'Media',      unit: '%',   bar: true },
-      { id: `c-vram-${i}`,  cls: 'c-vram',  label: 'VRAM',       unit: 'MiB', bar: true },
-      { id: `c-gtt-${i}`,   cls: 'c-gtt',   label: 'GTT Used',   unit: 'MiB', bar: false },
-      { id: `c-sclk-${i}`,  cls: 'c-sclk',  label: 'GFX Clock',  unit: 'MHz', bar: false },
-      { id: `c-mclk-${i}`,  cls: 'c-mclk',  label: 'Mem Clock',  unit: 'MHz', bar: false },
-      { id: `c-pwr-${i}`,   cls: 'c-pwr',   label: 'Power',      unit: 'W',   bar: false },
-      { id: `c-etmp-${i}`,  cls: 'c-etmp',  label: 'Edge Temp',  unit: '°C',  bar: false },
-      { id: `c-jtmp-${i}`,  cls: 'c-jtmp',  label: 'Jnct Temp',  unit: '°C',  bar: false },
-      { id: `c-fan-${i}`,   cls: 'c-fan',   label: 'Fan',        unit: 'RPM', bar: false },
+      { id: `c-gfx-${i}`,    cls: 'c-gfx',    label: 'GFX',       unit: '%',   bar: true  },
+      { id: `c-mem-${i}`,    cls: 'c-mem',    label: 'Memory',    unit: '%',   bar: true  },
+      { id: `c-media-${i}`,  cls: 'c-media',  label: 'Media',     unit: '%',   bar: true  },
+      { id: `c-vram-${i}`,   cls: 'c-vram',   label: 'VRAM',      unit: 'MiB', bar: true  },
+      { id: `c-gtt-${i}`,    cls: 'c-gtt',    label: 'GTT Used',  unit: 'MiB', bar: true  },
+      { id: `c-sclk-${i}`,   cls: 'c-sclk',   label: 'GFX Clock', unit: 'MHz', bar: false },
+      { id: `c-mclk-${i}`,   cls: 'c-mclk',   label: 'Mem Clock', unit: 'MHz', bar: false },
+      { id: `c-fclk-${i}`,   cls: 'c-fclk',   label: 'FCLK',      unit: 'MHz', bar: false },
+      { id: `c-pwr-${i}`,    cls: 'c-pwr',    label: 'Power',     unit: 'W',   bar: false },
+      { id: `c-etmp-${i}`,   cls: 'c-etmp',   label: 'Edge Temp', unit: '°C',  bar: false },
+      { id: `c-jtmp-${i}`,   cls: 'c-jtmp',   label: 'Jnct Temp', unit: '°C',  bar: false },
+      { id: `c-cputmp-${i}`, cls: 'c-cputmp', label: 'CPU Tctl',  unit: '°C',  bar: false },
+      { id: `c-fan-${i}`,    cls: 'c-fan',    label: 'Fan',       unit: 'RPM', bar: false },
     ];
 
     cardDefs.forEach(def => {
@@ -140,51 +168,49 @@ function buildDom(devices) {
       `;
       cards.appendChild(card);
     });
-
     panel.appendChild(cards);
 
     // ── Charts ──
     const chartGrid = el('div', 'charts');
+    const h = state.hist[i];
 
     const chartDefs = [
       {
-        key: 'activity', title: 'GPU Activity (%)',
-        height: 160,
-        yMax: 100,
-        datasets: (h) => [
+        key: 'activity', title: 'GPU Activity (%)', height: 160, yMax: 100,
+        datasets: () => [
           makeDataset('GFX',    '#e85d04', h.gfx),
           makeDataset('Memory', '#388bfd', h.mem),
           makeDataset('Media',  '#bc8cff', h.media),
         ]
       },
       {
-        key: 'vram', title: 'VRAM Usage (MiB)',
-        height: 160,
-        yMax: null,
-        datasets: (h) => [
-          makeDataset('VRAM', '#3fb950', h.vram),
+        key: 'vram', title: 'VRAM + GTT Usage (MiB)', height: 160, yMax: null,
+        datasets: () => [makeDataset('VRAM+GTT', '#3fb950', h.vram)]
+      },
+      {
+        key: 'power', title: 'Power (W)', height: 160, yMax: null,
+        datasets: () => [makeDataset('Power', '#e3b341', h.pwr)]
+      },
+      {
+        key: 'temp', title: 'Temperature (°C)', height: 160, yMax: null,
+        datasets: () => [
+          makeDataset('Edge',    '#f85149', h.tempE),
+          makeDataset('CPU Tctl','#e3b341', h.tempC),
+          makeDataset('SoC',     '#bc8cff', h.tempS),
         ]
       },
       {
-        key: 'power', title: 'Power (W)',
-        height: 160,
-        yMax: null,
-        datasets: (h) => [
-          makeDataset('Power', '#e3b341', h.pwr),
-        ]
-      },
-      {
-        key: 'temp', title: 'Temperature (°C)',
-        height: 160,
-        datasets: (h) => [
-          makeDataset('Edge',     '#f85149', h.tempE),
-          makeDataset('Junction', '#ff8080', h.tempJ),
+        key: 'clocks', title: 'Clocks (MHz)', height: 160, yMax: null, wide: true,
+        datasets: () => [
+          makeDataset('SCLK', '#e85d04', h.sclk),
+          makeDataset('MCLK', '#388bfd', h.mclk),
+          makeDataset('FCLK', '#3fb950', h.fclk),
         ]
       },
     ];
 
     chartDefs.forEach(def => {
-      const box    = el('div', 'chart-box');
+      const box    = el('div', 'chart-box' + (def.wide ? ' chart-wide' : ''));
       const title  = el('div', 'chart-title', def.title);
       const wrap   = el('div');
       wrap.style.height = (def.height || 160) + 'px';
@@ -194,29 +220,51 @@ function buildDom(devices) {
       box.appendChild(wrap);
       chartGrid.appendChild(box);
 
-      const h   = state.hist[i];
       const cfg = JSON.parse(JSON.stringify(CHART_DEFAULTS));
-
-      // y-axis max
-      if (def.yMax != null) {
-        cfg.scales.y.max = def.yMax;
-        cfg.scales.y.min = 0;
-      } else {
-        cfg.scales.y.min = 0;
-      }
+      cfg.scales.y.min = 0;
+      if (def.yMax != null) cfg.scales.y.max = def.yMax;
 
       state.charts[`${i}-${def.key}`] = new Chart(canvas, {
         type: 'line',
-        data: { labels: h.labels, datasets: def.datasets(h) },
+        data: { labels: h.labels, datasets: def.datasets() },
         options: cfg,
       });
     });
 
     panel.appendChild(chartGrid);
 
+    // ── GRBM / GRBM2 performance counters ──
+    const grbmSec = el('div', 'grbm-section');
+    grbmSec.appendChild(el('div', 'section-title', 'Performance Counters'));
+    const grbmGrid = el('div', 'grbm-grid');
+
+    const buildPCCol = (colTitle, keys, prefix, barCls) => {
+      const col = el('div', 'grbm-col');
+      col.appendChild(el('div', 'grbm-col-title', colTitle));
+      keys.forEach((key, ki) => {
+        const label = key.length > 30 ? key.slice(0, 28) + '…' : key;
+        const item = el('div', 'grbm-item');
+        item.innerHTML = `
+          <div class="grbm-item-header">
+            <span class="grbm-item-label" title="${key}">${label}</span>
+            <span class="grbm-item-val" id="${prefix}-val-${i}-${ki}">—</span>
+          </div>
+          <div class="grbm-bar-wrap">
+            <div class="grbm-bar ${barCls}" id="${prefix}-bar-${i}-${ki}"></div>
+          </div>`;
+        col.appendChild(item);
+      });
+      return col;
+    };
+
+    grbmGrid.appendChild(buildPCCol('GRBM',  GRBM_KEYS,  'grbm',  'grbm-orange'));
+    grbmGrid.appendChild(buildPCCol('GRBM2', GRBM2_KEYS, 'grbm2', 'grbm-blue'));
+    grbmSec.appendChild(grbmGrid);
+    panel.appendChild(grbmSec);
+
     // ── Process table ──
     const procSec = el('div', 'proc-section');
-    procSec.appendChild(el('div', 'proc-title', 'GPU Processes'));
+    procSec.appendChild(el('div', 'section-title', 'GPU Processes'));
     const tbl = el('table', 'proc-table');
     tbl.innerHTML = `
       <thead>
@@ -226,8 +274,7 @@ function buildDom(devices) {
           <th>GFX%</th><th>Compute%</th><th>Media%</th><th>DMA%</th>
         </tr>
       </thead>
-      <tbody id="proc-body-${i}"></tbody>
-    `;
+      <tbody id="proc-body-${i}"></tbody>`;
     procSec.appendChild(tbl);
     panel.appendChild(procSec);
 
@@ -239,13 +286,8 @@ function buildDom(devices) {
 
 function switchTab(idx) {
   if (idx === state.cur) return;
-
-  document.querySelectorAll('.tab-btn').forEach((btn, i) => {
-    btn.classList.toggle('active', i === idx);
-  });
-  document.querySelectorAll('.gpu-panel').forEach((p, i) => {
-    p.classList.toggle('active', i === idx);
-  });
+  document.querySelectorAll('.tab-btn').forEach((btn, i) => btn.classList.toggle('active', i === idx));
+  document.querySelectorAll('.gpu-panel').forEach((p,  i) => p.classList.toggle('active',  i === idx));
   state.cur = idx;
 }
 
@@ -259,12 +301,12 @@ function v(obj, key) {
 
 function fmt(val, decimals) {
   if (val == null) return '—';
-  return decimals != null ? val.toFixed(decimals) : String(val);
+  return decimals != null ? val.toFixed(decimals) : String(Math.round(val));
 }
 
 function setCard(id, value, decimals) {
-  const el = document.getElementById(id);
-  if (el) el.textContent = fmt(value, decimals);
+  const e = document.getElementById(id);
+  if (e) e.textContent = fmt(value, decimals);
 }
 
 function setBar(id, pct) {
@@ -277,70 +319,138 @@ function pushHistory(arr, val) {
   arr.push(val);
 }
 
+function setAnnotations(chart, ...arrays) {
+  const allVals = arrays.flat().filter(x => x != null);
+  const annotations = {};
+  if (allVals.length >= 2) {
+    const minVal = Math.min(...allVals);
+    const maxVal = Math.max(...allVals);
+    const color  = 'rgba(139,148,158,0.6)';
+    const fmtA   = x => (Math.abs(x) >= 100 ? x.toFixed(0) : x.toFixed(1));
+    annotations.minLine = {
+      type: 'line', yMin: minVal, yMax: minVal,
+      borderColor: color, borderWidth: 1, borderDash: [3, 3],
+      label: { display: true, content: fmtA(minVal), position: 'start', color, font: { size: 9 }, backgroundColor: 'transparent', padding: 2 }
+    };
+    if (maxVal !== minVal) {
+      annotations.maxLine = {
+        type: 'line', yMin: maxVal, yMax: maxVal,
+        borderColor: color, borderWidth: 1, borderDash: [3, 3],
+        label: { display: true, content: fmtA(maxVal), position: 'end', color, font: { size: 9 }, backgroundColor: 'transparent', padding: 2 }
+      };
+    }
+  }
+  chart.options.plugins.annotation.annotations = annotations;
+}
+
 function updateDevice(i, dev) {
-  const h    = state.hist[i];
-  const act  = dev.gpu_activity || {};
-  const vram = dev.VRAM || {};
-  const sens = dev.Sensors || {};
+  const h     = state.hist[i];
+  const act   = dev.gpu_activity || {};
+  const vram  = dev.VRAM         || {};
+  const sens  = dev.Sensors      || {};
+  const grbm  = dev.GRBM         || {};
+  const grbm2 = dev.GRBM2        || {};
 
   // ── Read values ──
-  const gfx    = v(act, 'GFX');
-  const mem    = v(act, 'Memory');
-  const media  = v(act, 'MediaEngine');
+  const gfx    = v(act,  'GFX');
+  const mem    = v(act,  'Memory');
+  const media  = v(act,  'MediaEngine');
   const vramU  = v(vram, 'Total VRAM Usage');
   const vramT  = v(vram, 'Total VRAM');
   const gttU   = v(vram, 'Total GTT Usage');
+  const gttT   = v(vram, 'Total GTT');
   const sclk   = v(sens, 'GFX_SCLK');
   const mclk   = v(sens, 'GFX_MCLK');
+  const fclk   = v(sens, 'FCLK');
   const pwr    = v(sens, 'GFX Power') ?? v(sens, 'Average Power') ?? v(sens, 'Input Power');
   const tempE  = v(sens, 'Edge Temperature');
-  const tempJ  = v(sens, 'Junction Temperature');
+  const cputmp = v(sens, 'CPU Tctl');
+  const tempS  = dev.gpu_metrics?.temperature_soc ?? null;
   const fan    = v(sens, 'Fan');
 
+  const combinedU = (vramU != null && gttU != null) ? vramU + gttU
+                  : (vramU ?? gttU);
+  const combinedT = (vramT != null && gttT != null) ? vramT + gttT
+                  : (vramT ?? gttT);
+
   // ── Stat cards ──
-  setCard(`c-gfx-${i}`,   gfx);
-  setCard(`c-mem-${i}`,   mem);
-  setCard(`c-media-${i}`, media);
-  setCard(`c-sclk-${i}`,  sclk);
-  setCard(`c-mclk-${i}`,  mclk);
-  setCard(`c-pwr-${i}`,   pwr, 1);
-  setCard(`c-etmp-${i}`,  tempE);
-  setCard(`c-jtmp-${i}`,  tempJ);
-  setCard(`c-fan-${i}`,   fan);
-  setCard(`c-gtt-${i}`,   gttU);
+  setCard(`c-gfx-${i}`,    gfx);
+  setCard(`c-mem-${i}`,    mem);
+  setCard(`c-media-${i}`,  media);
+  setCard(`c-sclk-${i}`,   sclk);
+  setCard(`c-mclk-${i}`,   mclk);
+  setCard(`c-fclk-${i}`,   fclk);
+  setCard(`c-pwr-${i}`,    pwr,    1);
+  setCard(`c-etmp-${i}`,   tempE,  1);
+  setCard(`c-jtmp-${i}`,   tempJ,  1);
+  setCard(`c-cputmp-${i}`, cputmp, 1);
+  setCard(`c-fan-${i}`,    fan);
 
-  // VRAM card: "used / total"
+  // VRAM card: "used / total MiB"
   const vramEl = document.getElementById(`c-vram-${i}`);
-  if (vramEl) {
-    vramEl.textContent = (vramU != null ? vramU : '—') + ' / ' + (vramT != null ? vramT : '—');
-  }
+  if (vramEl) vramEl.textContent =
+    (vramU != null ? Math.round(vramU) : '—') + ' / ' + (vramT != null ? Math.round(vramT) : '—');
 
-  // Progress bars (percentage-based)
+  // GTT card: "used / total MiB"
+  const gttEl = document.getElementById(`c-gtt-${i}`);
+  if (gttEl) gttEl.textContent =
+    (gttU != null ? Math.round(gttU) : '—') + ' / ' + (gttT != null ? Math.round(gttT) : '—');
+
+  // Progress bars
   setBar(`c-gfx-${i}`,   gfx);
   setBar(`c-mem-${i}`,   mem);
   setBar(`c-media-${i}`, media);
-  setBar(`c-vram-${i}`,  vramT != null && vramU != null ? (vramU / vramT * 100) : null);
+  setBar(`c-vram-${i}`,  vramT  > 0 ? vramU  / vramT  * 100 : null);
+  setBar(`c-gtt-${i}`,   gttT   > 0 ? gttU   / gttT   * 100 : null);
 
   // ── History ──
   pushHistory(h.gfx,   gfx);
   pushHistory(h.mem,   mem);
   pushHistory(h.media, media);
-  pushHistory(h.vram,  vramU);
+  pushHistory(h.vram,  combinedU);
   pushHistory(h.pwr,   pwr);
   pushHistory(h.tempE, tempE);
-  pushHistory(h.tempJ, tempJ);
+  pushHistory(h.tempC, cputmp);
+  pushHistory(h.tempS, tempS);
+  pushHistory(h.sclk,  sclk);
+  pushHistory(h.mclk,  mclk);
+  pushHistory(h.fclk,  fclk);
 
-  if (vramT != null) h.vramMax = vramT;
+  if (combinedT != null && combinedT > 0) h.vramMax = combinedT;
 
   // ── Charts ──
   const cAct  = state.charts[`${i}-activity`];
   const cVram = state.charts[`${i}-vram`];
   const cPwr  = state.charts[`${i}-power`];
   const cTemp = state.charts[`${i}-temp`];
+  const cClk  = state.charts[`${i}-clocks`];
 
   if (cVram) cVram.options.scales.y.max = h.vramMax;
 
-  [cAct, cVram, cPwr, cTemp].forEach(c => { if (c) c.update('none'); });
+  if (cAct)  setAnnotations(cAct,  h.gfx, h.mem, h.media);
+  if (cVram) setAnnotations(cVram, h.vram);
+  if (cPwr)  setAnnotations(cPwr,  h.pwr);
+  if (cTemp) setAnnotations(cTemp, h.tempE, h.tempC, h.tempS);
+  if (cClk)  setAnnotations(cClk,  h.sclk, h.mclk, h.fclk);
+
+  [cAct, cVram, cPwr, cTemp, cClk].forEach(c => { if (c) c.update('none'); });
+
+  // ── GRBM performance counters ──
+  GRBM_KEYS.forEach((key, ki) => {
+    const val = v(grbm, key);
+    const ve  = document.getElementById(`grbm-val-${i}-${ki}`);
+    const be  = document.getElementById(`grbm-bar-${i}-${ki}`);
+    if (ve) ve.textContent = val != null ? val.toFixed(0) + '%' : '—';
+    if (be) be.style.width = (val != null ? Math.min(100, Math.max(0, val)) : 0) + '%';
+  });
+
+  GRBM2_KEYS.forEach((key, ki) => {
+    const val = v(grbm2, key);
+    const ve  = document.getElementById(`grbm2-val-${i}-${ki}`);
+    const be  = document.getElementById(`grbm2-bar-${i}-${ki}`);
+    if (ve) ve.textContent = val != null ? val.toFixed(0) + '%' : '—';
+    if (be) be.style.width = (val != null ? Math.min(100, Math.max(0, val)) : 0) + '%';
+  });
 
   // ── Process table ──
   const tbody = document.getElementById(`proc-body-${i}`);
@@ -354,7 +464,6 @@ function updateDevice(i, dev) {
     return;
   }
 
-  // Sort by VRAM usage descending
   pids.sort((a, b) => {
     const av = v(fdinfo[a].usage, 'VRAM') ?? 0;
     const bv = v(fdinfo[b].usage, 'VRAM') ?? 0;
@@ -365,7 +474,6 @@ function updateDevice(i, dev) {
     const proc  = fdinfo[pid];
     const u     = proc.usage || {};
     const media = v(u, 'Media') ?? v(u, 'VCN_Unified');
-
     return `<tr>
       <td class="proc-pid">${pid}</td>
       <td class="proc-name">${proc.name || '?'}</td>
@@ -380,15 +488,13 @@ function updateDevice(i, dev) {
 }
 
 // ── WebSocket ────────────────────────────────────────────────────────────────
-let ws        = null;
-let retryMs   = 1000;
+let ws      = null;
+let retryMs = 1000;
 const MAX_RETRY = 30000;
 
 function connect() {
   setConnStatus('connecting', 'Connecting…');
-
-  const url = `ws://${location.host}/ws`;
-  ws = new WebSocket(url);
+  ws = new WebSocket(`ws://${location.host}/ws`);
 
   ws.addEventListener('open', () => {
     retryMs = 1000;
@@ -400,24 +506,11 @@ function connect() {
     try { data = JSON.parse(evt.data); } catch { return; }
     if (!data || !Array.isArray(data.devices)) return;
 
-    // Update title
     if (data.title) document.getElementById('page-title').textContent = data.title;
+    document.getElementById('period-label').textContent = new Date().toLocaleTimeString();
 
-    // Update period label
-    if (data.period) {
-      document.getElementById('period-label').textContent =
-        `${data.period.duration} ${data.period.unit}`;
-    }
-
-    const devices = data.devices;
-
-    // Build DOM once
-    if (state.n !== devices.length) {
-      buildDom(devices);
-    }
-
-    // Update each device
-    devices.forEach((dev, i) => updateDevice(i, dev));
+    if (state.n !== data.devices.length) buildDom(data.devices);
+    data.devices.forEach((dev, i) => updateDevice(i, dev));
   });
 
   ws.addEventListener('close', () => {
@@ -426,9 +519,27 @@ function connect() {
     retryMs = Math.min(retryMs * 2, MAX_RETRY);
   });
 
-  ws.addEventListener('error', () => {
-    ws.close();
+  ws.addEventListener('error', () => ws.close());
+}
+
+// ── Interval control ─────────────────────────────────────────────────────────
+function initIntervalCtrl() {
+  fetch('/api/config')
+    .then(r => r.json())
+    .then(cfg => { document.getElementById('interval-input').value = cfg.interval_ms; })
+    .catch(() => {});
+
+  const apply = () => {
+    const ms = parseInt(document.getElementById('interval-input').value, 10);
+    if (isNaN(ms) || ms < 50 || ms > 60000) return;
+    fetch(`/api/interval?ms=${ms}`, { method: 'POST' });
+  };
+
+  document.getElementById('interval-btn').addEventListener('click', apply);
+  document.getElementById('interval-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter') apply();
   });
 }
 
+initIntervalCtrl();
 connect();

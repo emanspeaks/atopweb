@@ -46,7 +46,6 @@ header h1 {
 header .period {
   font-size: 12px;
   color: var(--muted);
-  margin-left: auto;
 }
 
 .conn-status {
@@ -67,6 +66,50 @@ header .period {
 .conn-dot.connected    { background: var(--green); }
 .conn-dot.connecting   { background: var(--yellow); }
 .conn-dot.disconnected { background: var(--red); }
+
+/* ── Interval control ────────────────────────────────────────────── */
+.interval-ctrl {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+  margin-left: auto;
+}
+
+.interval-ctrl label { color: var(--muted); cursor: default; }
+
+.interval-ctrl input {
+  width: 70px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  padding: 3px 6px;
+  font-size: 12px;
+  text-align: right;
+}
+
+.interval-ctrl input:focus {
+  outline: none;
+  border-color: var(--orange);
+}
+
+.interval-ctrl button {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  cursor: pointer;
+  padding: 3px 8px;
+  font-size: 12px;
+  transition: border-color 0.2s, color 0.2s;
+}
+
+.interval-ctrl button:hover {
+  border-color: var(--orange);
+  color: var(--orange);
+}
 
 /* ── Tabs ────────────────────────────────────────────────────────── */
 #tabs {
@@ -136,6 +179,12 @@ main { padding: 20px; }
   line-height: 1.2;
 }
 
+/* compact value for cards showing "used / total" */
+.c-vram .card-value,
+.c-gtt  .card-value {
+  font-size: 14px;
+}
+
 .card-unit {
   font-size: 11px;
   color: var(--muted);
@@ -165,15 +214,18 @@ main { padding: 20px; }
 .c-gtt    .card-value { color: var(--green); }
 .c-sclk   .card-value { color: var(--orange); }
 .c-mclk   .card-value { color: var(--blue); }
+.c-fclk   .card-value { color: var(--blue); }
 .c-pwr    .card-value { color: var(--yellow); }
 .c-etmp   .card-value { color: var(--red); }
 .c-jtmp   .card-value { color: var(--red); }
+.c-cputmp .card-value { color: var(--yellow); }
 .c-fan    .card-value { color: var(--muted); }
 
 .c-gfx   .card-bar { background: var(--orange); }
 .c-mem   .card-bar { background: var(--blue); }
 .c-media .card-bar { background: var(--purple); }
 .c-vram  .card-bar { background: var(--green); }
+.c-gtt   .card-bar { background: var(--green); }
 
 /* ── Charts ──────────────────────────────────────────────────────── */
 .charts {
@@ -194,6 +246,9 @@ main { padding: 20px; }
   padding: 14px;
 }
 
+/* span both columns (e.g. clocks chart) */
+.chart-wide { grid-column: 1 / -1; }
+
 .chart-title {
   font-size: 12px;
   font-weight: 600;
@@ -205,15 +260,8 @@ main { padding: 20px; }
 
 .chart-box canvas { display: block; }
 
-/* ── Process table ───────────────────────────────────────────────── */
-.proc-section {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  overflow: hidden;
-}
-
-.proc-title {
+/* ── Shared section style ────────────────────────────────────────── */
+.section-title {
   font-size: 12px;
   font-weight: 600;
   text-transform: uppercase;
@@ -221,6 +269,89 @@ main { padding: 20px; }
   color: var(--muted);
   padding: 12px 16px;
   border-bottom: 1px solid var(--border);
+}
+
+/* ── GRBM / GRBM2 performance counters ──────────────────────────── */
+.grbm-section {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  margin-bottom: 20px;
+}
+
+.grbm-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+
+@media (max-width: 700px) {
+  .grbm-grid { grid-template-columns: 1fr; }
+}
+
+.grbm-col { padding: 12px 16px; }
+
+.grbm-col:first-child { border-right: 1px solid var(--border); }
+
+.grbm-col-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+
+.grbm-item { margin-bottom: 7px; }
+
+.grbm-item-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 3px;
+}
+
+.grbm-item-label {
+  font-size: 11px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: calc(100% - 44px);
+}
+
+.grbm-item-val {
+  font-size: 11px;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  min-width: 40px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.grbm-bar-wrap {
+  height: 3px;
+  background: var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.grbm-bar {
+  height: 100%;
+  border-radius: 2px;
+  width: 0%;
+  transition: width 0.3s ease;
+}
+
+.grbm-orange { background: var(--orange); }
+.grbm-blue   { background: var(--blue); }
+
+/* ── Process table ───────────────────────────────────────────────── */
+.proc-section {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
 }
 
 .proc-table {
