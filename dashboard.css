@@ -370,7 +370,7 @@ main { padding: 20px; }
 .grbm-chart-wrap {
   display: none;
   margin-top: 6px;
-  height: 55px;
+  height: 110px;
 }
 
 .grbm-item.expanded .grbm-chart-wrap { display: block; }
