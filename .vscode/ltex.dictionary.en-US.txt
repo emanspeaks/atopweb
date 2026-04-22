@@ -4,6 +4,7 @@ atopweb
 bg
 BlinkMacSystemFont
 chartjs
+coreclk
 cputmp
 etmp
 fclk

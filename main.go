@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -90,7 +91,11 @@ func runStreamer(binary string, baseArgs []string, h *hub) {
 
 		args := append(append([]string{}, baseArgs...), "-s", strconv.Itoa(ms))
 		ctx, cancel := context.WithCancel(context.Background())
-		cmd := exec.CommandContext(ctx, binary, args...)
+		cmd := exec.Command(binary, args...)
+		// Put the process in its own group so we can kill sudo + amdgpu_top
+		// together. exec.CommandContext only kills the named binary (sudo), but
+		// amdgpu_top inherits sudo's stdout pipe FD and keeps the scanner alive.
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 		var stderr bytes.Buffer
 		cmd.Stderr = &stderr
@@ -118,6 +123,13 @@ func runStreamer(binary string, baseArgs []string, h *hub) {
 			time.Sleep(5 * time.Second)
 			continue
 		}
+
+		go func() {
+			<-ctx.Done()
+			if cmd.Process != nil {
+				syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+			}
+		}()
 
 		scanner := bufio.NewScanner(stdout)
 		scanner.Buffer(make([]byte, 4<<20), 4<<20) // 4 MiB; JSON frames can be large

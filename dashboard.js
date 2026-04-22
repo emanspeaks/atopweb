@@ -95,6 +95,7 @@ const state = {
   hist:        [],
   charts:      {},
   powerLimits: { stapm_w: null, fast_w: null, slow_w: null },
+  lastDev0:    null,
 };
 
 function makeHist() {
@@ -103,16 +104,17 @@ function makeHist() {
     gfx:     Array(HISTORY).fill(null),
     mem:     Array(HISTORY).fill(null),
     media:   Array(HISTORY).fill(null),
-    vram:    Array(HISTORY).fill(null),  // VRAM+GTT combined used MiB
-    pwr:     Array(HISTORY).fill(null),  // total/package power
-    gfxPwr:  Array(HISTORY).fill(null),  // GFX engine power only
+    vram:    Array(HISTORY).fill(null),  // VRAM+GTT combined used GiB
+    pwr:     Array(HISTORY).fill(null),
     tempE:   Array(HISTORY).fill(null),
-    tempC:   Array(HISTORY).fill(null),  // CPU Tctl
-    tempS:   Array(HISTORY).fill(null),  // SoC (gpu_metrics)
+    tempC:   Array(HISTORY).fill(null),
+    tempS:   Array(HISTORY).fill(null),
     sclk:    Array(HISTORY).fill(null),
     mclk:    Array(HISTORY).fill(null),
     fclk:    Array(HISTORY).fill(null),
-    vramMax: 1,  // VRAM+GTT combined total MiB
+    corePwr: Array.from({length: 16}, () => Array(HISTORY).fill(null)),
+    coreClk: Array.from({length: 16}, () => Array(HISTORY).fill(null)),
+    vramMax: 1,  // VRAM+GTT combined total GiB
   };
 }
 
@@ -160,8 +162,8 @@ function buildDom(devices) {
     const cardDefs = [
       { id: `c-gfx-${i}`,    cls: 'c-gfx',    label: 'GFX',       unit: '%',   bar: true  },
       { id: `c-media-${i}`,  cls: 'c-media',  label: 'Media',     unit: '%',   bar: true  },
-      { id: `c-vram-${i}`,   cls: 'c-vram',   label: 'VRAM',      unit: 'MiB', bar: true  },
-      { id: `c-gtt-${i}`,    cls: 'c-gtt',    label: 'GTT Used',  unit: 'MiB', bar: true  },
+      { id: `c-vram-${i}`,   cls: 'c-vram',   label: 'VRAM',      unit: 'GiB', bar: true  },
+      { id: `c-gtt-${i}`,    cls: 'c-gtt',    label: 'GTT Used',  unit: 'GiB', bar: true  },
       { id: `c-sclk-${i}`,   cls: 'c-sclk',   label: 'GFX Clock', unit: 'MHz', bar: false },
       { id: `c-mclk-${i}`,   cls: 'c-mclk',   label: 'Mem Clock', unit: 'MHz', bar: false },
       { id: `c-fclk-${i}`,   cls: 'c-fclk',   label: 'FCLK',      unit: 'MHz', bar: false },
@@ -198,7 +200,7 @@ function buildDom(devices) {
         ]
       },
       {
-        key: 'vram', title: 'VRAM + GTT Usage (MiB)', height: 140, yMax: null,
+        key: 'vram', title: 'VRAM + GTT Usage (GiB)', height: 140, yMax: null,
         datasets: () => [makeDataset('VRAM+GTT', '#3fb950', h.vram)]
       },
       {
@@ -210,8 +212,17 @@ function buildDom(devices) {
         ]
       },
       {
-        key: 'gfx-power', title: 'GFX Engine Power (W)', height: 140, yMax: null,
-        datasets: () => [makeDataset('GFX Power', '#e85d04', h.gfxPwr)]
+        key: 'core-pwr', title: 'Core Power (W)', height: 140, yMax: null, hideLegend: true,
+        datasets: () => Array.from({length: 16}, (_, j) => ({
+          label: `Core ${j}`,
+          data: h.corePwr[j],
+          borderColor: `hsl(${Math.round(j * 22.5)}, 65%, 55%)`,
+          backgroundColor: 'transparent',
+          fill: false,
+          tension: 0.25,
+          pointRadius: 0,
+          borderWidth: 1,
+        }))
       },
       {
         key: 'gfx-clk', title: 'Clocks (MHz)', height: 140, yMax: null,
@@ -220,6 +231,19 @@ function buildDom(devices) {
           makeDataset('MCLK', '#388bfd', h.mclk),
           makeDataset('FCLK', '#3fb950', h.fclk),
         ]
+      },
+      {
+        key: 'core-clk', title: 'Core Clocks (MHz)', height: 140, yMax: null, hideLegend: true,
+        datasets: () => Array.from({length: 16}, (_, j) => ({
+          label: `Core ${j}`,
+          data: h.coreClk[j],
+          borderColor: `hsl(${Math.round(j * 22.5)}, 65%, 55%)`,
+          backgroundColor: 'transparent',
+          fill: false,
+          tension: 0.25,
+          pointRadius: 0,
+          borderWidth: 1,
+        }))
       },
       {
         key: 'power', title: 'Package Power (W)', height: 140, yMax: null, wide: true,
@@ -241,6 +265,7 @@ function buildDom(devices) {
       const cfg = JSON.parse(JSON.stringify(CHART_DEFAULTS));
       cfg.scales.y.min = 0;
       if (def.yMax != null) cfg.scales.y.max = def.yMax;
+      if (def.hideLegend) cfg.plugins.legend.display = false;
 
       state.charts[`${i}-${def.key}`] = new Chart(canvas, {
         type: 'line',
@@ -288,8 +313,7 @@ function buildDom(devices) {
       <thead>
         <tr>
           <th>PID</th><th>Name</th>
-          <th>VRAM (MiB)</th><th>GTT (MiB)</th>
-          <th>GFX%</th><th>Compute%</th><th>Media%</th><th>DMA%</th>
+          <th>VRAM (GiB)</th><th>GTT (GiB)</th><th>CPU%</th>
         </tr>
       </thead>
       <tbody id="proc-body-${i}"></tbody>`;
@@ -314,6 +338,7 @@ function v(obj, key) {
   if (!obj || obj[key] == null) return null;
   const entry = obj[key];
   if (typeof entry === 'object' && 'value' in entry) return entry.value;
+  if (typeof entry === 'number') return entry;
   return null;
 }
 
@@ -397,6 +422,7 @@ function setAnnotations(chart, extra, ...arrays) {
 }
 
 function updateDevice(i, dev) {
+  if (i === 0) { state.lastDev0 = dev; updateDeviceInfoHeader(dev); }
   const h     = state.hist[i];
   const act   = dev.gpu_activity || {};
   const vram  = dev.VRAM         || {};
@@ -436,15 +462,15 @@ function updateDevice(i, dev) {
   setCard(`c-etmp-${i}`,   tempE,  1);
   setCard(`c-cputmp-${i}`, cputmp, 1);
 
-  // VRAM card: "used / total MiB"
+  // VRAM card: "used / total GiB"
   const vramEl = document.getElementById(`c-vram-${i}`);
   if (vramEl) vramEl.textContent =
-    (vramU != null ? Math.round(vramU) : '—') + ' / ' + (vramT != null ? Math.round(vramT) : '—');
+    (vramU != null ? (vramU/1024).toFixed(1) : '—') + ' / ' + (vramT != null ? (vramT/1024).toFixed(1) : '—');
 
-  // GTT card: "used / total MiB"
+  // GTT card: "used / total GiB"
   const gttEl = document.getElementById(`c-gtt-${i}`);
   if (gttEl) gttEl.textContent =
-    (gttU != null ? Math.round(gttU) : '—') + ' / ' + (gttT != null ? Math.round(gttT) : '—');
+    (gttU != null ? (gttU/1024).toFixed(1) : '—') + ' / ' + (gttT != null ? (gttT/1024).toFixed(1) : '—');
 
   // Progress bars
   setBar(`c-gfx-${i}`,   gfx);
@@ -453,36 +479,56 @@ function updateDevice(i, dev) {
   setBar(`c-gtt-${i}`,   gttT   > 0 ? gttU   / gttT   * 100 : null);
 
   // ── History ──
-  pushHistory(h.gfx,    gfx);
-  pushHistory(h.mem,    mem);
-  pushHistory(h.media,  media);
-  pushHistory(h.vram,   combinedU);
-  pushHistory(h.pwr,    pwr);
-  pushHistory(h.gfxPwr, gfxPwr);
-  pushHistory(h.tempE,  tempE);
-  pushHistory(h.tempC,  cputmp);
-  pushHistory(h.tempS,  tempS);
-  pushHistory(h.sclk,   sclk);
-  pushHistory(h.mclk,   mclk);
-  pushHistory(h.fclk,   fclk);
+  pushHistory(h.gfx,   gfx);
+  pushHistory(h.mem,   mem);
+  pushHistory(h.media, media);
+  pushHistory(h.vram,  combinedU != null ? combinedU / 1024 : null);  // MiB → GiB
+  pushHistory(h.pwr,   pwr);
+  pushHistory(h.tempE, tempE);
+  pushHistory(h.tempC, cputmp);
+  pushHistory(h.tempS, tempS);
+  pushHistory(h.sclk,  sclk);
+  pushHistory(h.mclk,  mclk);
+  pushHistory(h.fclk,  fclk);
 
-  if (combinedT != null && combinedT > 0) h.vramMax = combinedT;
+  const gm = dev.gpu_metrics || {};
+  const avgCorePwr = Array.isArray(gm.average_core_power) ? gm.average_core_power : [];
+  const curCoreClk = Array.isArray(gm.current_coreclk)   ? gm.current_coreclk   : [];
+  for (let j = 0; j < 16; j++) {
+    const pwrMW  = (avgCorePwr[j] != null && avgCorePwr[j] < 65535) ? avgCorePwr[j] : null;
+    const clkMHz = (curCoreClk[j] != null && curCoreClk[j] < 65535) ? curCoreClk[j] : null;
+    pushHistory(h.corePwr[j], pwrMW  != null ? pwrMW / 1000 : null);
+    pushHistory(h.coreClk[j], clkMHz);
+  }
+
+  if (combinedT != null && combinedT > 0) h.vramMax = combinedT / 1024;  // MiB → GiB
 
   // ── Chart options (scale/annotations) — rendering is batched via scheduleRender ──
   const cAct    = state.charts[`${i}-activity`];
   const cVram   = state.charts[`${i}-vram`];
   const cPwr    = state.charts[`${i}-power`];
   const cTemp   = state.charts[`${i}-temp`];
-  const cGfxPwr = state.charts[`${i}-gfx-power`];
   const cGfxClk = state.charts[`${i}-gfx-clk`];
 
   if (cVram) cVram.options.scales.y.max = h.vramMax;
+
+  // Ensure power chart y-axis includes the ryzenadj limit lines.
+  if (cPwr) {
+    const limitMax = Math.max(
+      state.powerLimits.stapm_w ?? 0,
+      state.powerLimits.fast_w  ?? 0,
+      state.powerLimits.slow_w  ?? 0,
+    );
+    if (limitMax > 0) {
+      const dataMax = Math.max(...h.pwr.filter(x => x != null), 0);
+      cPwr.options.scales.y.max = Math.max(limitMax, dataMax) * 1.1;
+    }
+  }
 
   if (cAct)    setAnnotations(cAct,    {},                      h.gfx, h.mem, h.media);
   if (cVram)   setAnnotations(cVram,   {},                      h.vram);
   if (cPwr)    setAnnotations(cPwr,    powerLimitAnnotations(), h.pwr);
   if (cTemp)   setAnnotations(cTemp,   {},                      h.tempE, h.tempC, h.tempS);
-  if (cGfxPwr) setAnnotations(cGfxPwr, {},                     h.gfxPwr);
   if (cGfxClk) setAnnotations(cGfxClk, {},                     h.sclk, h.mclk, h.fclk);
 
   scheduleRender();
@@ -520,25 +566,24 @@ function updateDevice(i, dev) {
   // a nested "usage" key depending on version; try both.
   const getUsage = (p) => p.usage || p;
 
-  pids.sort((a, b) => {
-    const av = v(getUsage(fdinfo[a]), 'VRAM') ?? 0;
-    const bv = v(getUsage(fdinfo[b]), 'VRAM') ?? 0;
-    return bv - av;
-  });
+  const getVramMiB = (proc) => {
+    const u = getUsage(proc);
+    return v(u, 'VRAM') ?? v(u, 'vram_usage') ?? v(u, 'vram') ?? 0;
+  };
+  pids.sort((a, b) => getVramMiB(fdinfo[b]) - getVramMiB(fdinfo[a]));
 
   tbody.innerHTML = pids.map(pid => {
-    const proc  = fdinfo[pid];
-    const u     = getUsage(proc);
-    const media = v(u, 'Media') ?? v(u, 'VCN_Unified');
+    const proc    = fdinfo[pid];
+    const u       = getUsage(proc);
+    const vramMiB = v(u, 'VRAM')  ?? v(u, 'vram_usage') ?? v(u, 'vram');
+    const gttMiB  = v(u, 'GTT')   ?? v(u, 'gtt_usage')  ?? v(u, 'gtt');
+    const cpu     = v(u, 'CPU')   ?? v(u, 'cpu_usage')   ?? v(u, 'cpu');
     return `<tr>
       <td class="proc-pid">${pid}</td>
       <td class="proc-name">${proc.name || '?'}</td>
-      <td>${fmt(v(u, 'VRAM'))}</td>
-      <td>${fmt(v(u, 'GTT'))}</td>
-      <td>${fmt(v(u, 'GFX'))}</td>
-      <td>${fmt(v(u, 'Compute'))}</td>
-      <td>${fmt(media)}</td>
-      <td>${fmt(v(u, 'DMA'))}</td>
+      <td>${fmt(vramMiB != null ? vramMiB / 1024 : null, 2)}</td>
+      <td>${fmt(gttMiB  != null ? gttMiB  / 1024 : null, 2)}</td>
+      <td>${fmt(cpu, 1)}</td>
     </tr>`;
   }).join('');
 }
@@ -580,6 +625,28 @@ function connect() {
   ws.addEventListener('error', () => ws.close());
 }
 
+// ── Device info header ───────────────────────────────────────────────────────
+function updateDeviceInfoHeader(dev) {
+  const el = document.getElementById('device-info');
+  if (!el) return;
+  const info = dev.Info || {};
+  const name = info.DeviceName || info['ASIC Name'] || '';
+  const asic = info['ASIC Name'] || '';
+  const nameStr = (name && asic && asic !== name) ? `${name} — ${asic}` : (name || asic);
+
+  const { stapm_w, fast_w, slow_w } = state.powerLimits;
+  let limitsHtml = '';
+  if (stapm_w != null || fast_w != null || slow_w != null) {
+    const parts = [];
+    if (stapm_w != null) parts.push(`<span class="di-limit-stapm">STAPM ${stapm_w.toFixed(0)}W</span>`);
+    if (fast_w  != null) parts.push(`<span class="di-limit-fast">Fast ${fast_w.toFixed(0)}W</span>`);
+    if (slow_w  != null) parts.push(`<span class="di-limit-slow">Slow ${slow_w.toFixed(0)}W</span>`);
+    limitsHtml = `<div class="di-limits">${parts.join('  ')}</div>`;
+  }
+
+  el.innerHTML = (nameStr ? `<div class="di-name">${nameStr}</div>` : '') + limitsHtml;
+}
+
 // ── Power limits ─────────────────────────────────────────────────────────────
 function fetchPowerLimits() {
   fetch('/api/power-limits')
@@ -588,6 +655,8 @@ function fetchPowerLimits() {
       state.powerLimits.stapm_w = d.stapm_w ?? null;
       state.powerLimits.fast_w  = d.fast_w  ?? null;
       state.powerLimits.slow_w  = d.slow_w  ?? null;
+      // Refresh header once limits are loaded (device may already be shown).
+      if (state.hist.length > 0 && state.lastDev0) updateDeviceInfoHeader(state.lastDev0);
     })
     .catch(() => {});
 }
