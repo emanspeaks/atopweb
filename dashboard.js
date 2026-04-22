@@ -101,6 +101,7 @@ const state = {
 function makeHist() {
   return {
     labels:  Array(HISTORY).fill(''),
+    times:   Array(HISTORY).fill(null),  // epoch ms per slot for tooltip
     gfx:     Array(HISTORY).fill(null),
     mem:     Array(HISTORY).fill(null),
     media:   Array(HISTORY).fill(null),
@@ -129,6 +130,35 @@ function el(tag, cls, text) {
 function setConnStatus(status, label) {
   document.getElementById('conn-dot').className = 'conn-dot ' + status;
   document.getElementById('conn-label').textContent = label;
+}
+
+// ── Chart tooltip / tick helpers ─────────────────────────────────────────────
+function makeChartCallbacks(h) {
+  return {
+    title(items) {
+      const idx = items[0]?.dataIndex;
+      if (idx == null) return '';
+      const ts = h.times[idx];
+      if (ts == null) return '';
+      const t   = new Date(ts);
+      const abs = t.toLocaleTimeString([], { hour12: false }) + '.' +
+                  String(t.getMilliseconds()).padStart(3, '0');
+      const ago = ((Date.now() - ts) / 1000).toFixed(3) + 's ago';
+      return [abs, ago];
+    },
+    label(item) {
+      if (item.raw == null) return null;
+      const raw = Number(item.raw);
+      const str = isNaN(raw) ? String(item.raw) :
+        (Number.isInteger(raw) ? String(raw) : raw.toFixed(1));
+      return ` ${item.dataset.label}: ${str}`;
+    },
+  };
+}
+
+function fmtTick(v) {
+  if (typeof v !== 'number') return String(v);
+  return Number.isInteger(v) ? String(v) : v.toFixed(1);
 }
 
 // ── Build DOM (once per device-count change) ─────────────────────────────────
@@ -266,6 +296,8 @@ function buildDom(devices) {
       cfg.scales.y.min = 0;
       if (def.yMax != null) cfg.scales.y.max = def.yMax;
       if (def.hideLegend) cfg.plugins.legend.display = false;
+      cfg.plugins.tooltip.callbacks = makeChartCallbacks(h);
+      cfg.scales.y.ticks.callback   = fmtTick;
 
       state.charts[`${i}-${def.key}`] = new Chart(canvas, {
         type: 'line',
@@ -307,13 +339,13 @@ function buildDom(devices) {
 
     // ── Process table ──
     const procSec = el('div', 'proc-section');
-    procSec.appendChild(el('div', 'section-title', 'GPU Processes'));
+    procSec.appendChild(el('div', 'section-title', 'GPU / NPU Processes'));
     const tbl = el('table', 'proc-table');
     tbl.innerHTML = `
       <thead>
         <tr>
           <th>PID</th><th>Name</th>
-          <th>VRAM (GiB)</th><th>GTT (GiB)</th><th>CPU%</th>
+          <th>VRAM (GiB)</th><th>GTT (GiB)</th><th>CPU%</th><th>NPU%</th>
         </tr>
       </thead>
       <tbody id="proc-body-${i}"></tbody>`;
@@ -374,13 +406,13 @@ function minMaxAnnotations(...arrays) {
     out.minLine = {
       type: 'line', yMin: minVal, yMax: minVal,
       borderColor: color, borderWidth: 1, borderDash: [3, 3],
-      label: { display: true, content: fmtA(minVal), position: 'start', color, font: { size: 9 }, backgroundColor: 'transparent', padding: 2 }
+      label: { display: true, content: fmtA(minVal), position: 'start', color, font: { size: 9 }, backgroundColor: 'transparent', padding: 2, yAdjust: 10 }
     };
     if (maxVal !== minVal) {
       out.maxLine = {
         type: 'line', yMin: maxVal, yMax: maxVal,
         borderColor: color, borderWidth: 1, borderDash: [3, 3],
-        label: { display: true, content: fmtA(maxVal), position: 'end', color, font: { size: 9 }, backgroundColor: 'transparent', padding: 2 }
+        label: { display: true, content: fmtA(maxVal), position: 'end', color, font: { size: 9 }, backgroundColor: 'transparent', padding: 2, yAdjust: -10 }
       };
     }
   }
@@ -445,7 +477,8 @@ function updateDevice(i, dev) {
   const pwr    = v(sens, 'Average Power') ?? v(sens, 'Socket Power') ?? v(sens, 'Input Power') ?? gfxPwr;
   const tempE  = v(sens, 'Edge Temperature');
   const cputmp = v(sens, 'CPU Tctl');
-  const tempS  = dev.gpu_metrics?.temperature_soc ?? null;
+  const tempSRaw = dev.gpu_metrics?.temperature_soc ?? null;
+  const tempS    = tempSRaw != null ? tempSRaw / 100 : null;
 
   const combinedU = (vramU != null && gttU != null) ? vramU + gttU
                   : (vramU ?? gttU);
@@ -479,6 +512,7 @@ function updateDevice(i, dev) {
   setBar(`c-gtt-${i}`,   gttT   > 0 ? gttU   / gttT   * 100 : null);
 
   // ── History ──
+  pushHistory(h.times, Date.now());
   pushHistory(h.gfx,   gfx);
   pushHistory(h.mem,   mem);
   pushHistory(h.media, media);
@@ -554,36 +588,49 @@ function updateDevice(i, dev) {
   const tbody = document.getElementById(`proc-body-${i}`);
   if (!tbody) return;
 
-  const fdinfo = dev.fdinfo || {};
-  const pids   = Object.keys(fdinfo);
-
-  if (pids.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="8" class="proc-empty" style="padding:12px 16px">No GPU processes</td></tr>`;
-    return;
-  }
-
   // amdgpu_top may store per-process fields directly on the object or under
   // a nested "usage" key depending on version; try both.
   const getUsage = (p) => p.usage || p;
 
-  const getVramMiB = (proc) => {
-    const u = getUsage(proc);
+  // Merge GPU fdinfo and XDNA (NPU) fdinfo by PID into a single map.
+  const fdinfo     = dev.fdinfo      || {};
+  const xdnaFdinfo = dev.xdna_fdinfo || {};
+  const procMap    = {};
+  for (const [pid, proc] of Object.entries(fdinfo))     procMap[pid] = { gpuProc: proc, npuProc: null };
+  for (const [pid, proc] of Object.entries(xdnaFdinfo)) {
+    if (procMap[pid]) procMap[pid].npuProc = proc;
+    else              procMap[pid] = { gpuProc: null, npuProc: proc };
+  }
+
+  const pids = Object.keys(procMap);
+  if (pids.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="6" class="proc-empty" style="padding:12px 16px">No GPU / NPU processes</td></tr>`;
+    return;
+  }
+
+  const gpuVram = (gpuProc) => {
+    if (!gpuProc) return 0;
+    const u = getUsage(gpuProc);
     return v(u, 'VRAM') ?? v(u, 'vram_usage') ?? v(u, 'vram') ?? 0;
   };
-  pids.sort((a, b) => getVramMiB(fdinfo[b]) - getVramMiB(fdinfo[a]));
+  pids.sort((a, b) => gpuVram(procMap[b].gpuProc) - gpuVram(procMap[a].gpuProc));
 
   tbody.innerHTML = pids.map(pid => {
-    const proc    = fdinfo[pid];
-    const u       = getUsage(proc);
-    const vramMiB = v(u, 'VRAM')  ?? v(u, 'vram_usage') ?? v(u, 'vram');
-    const gttMiB  = v(u, 'GTT')   ?? v(u, 'gtt_usage')  ?? v(u, 'gtt');
-    const cpu     = v(u, 'CPU')   ?? v(u, 'cpu_usage')   ?? v(u, 'cpu');
+    const { gpuProc, npuProc } = procMap[pid];
+    const proc    = gpuProc || npuProc;
+    const u       = gpuProc ? getUsage(gpuProc) : null;
+    const nu      = npuProc ? getUsage(npuProc) : null;
+    const vramMiB = u  ? (v(u,  'VRAM')  ?? v(u,  'vram_usage') ?? v(u,  'vram'))  : null;
+    const gttMiB  = u  ? (v(u,  'GTT')   ?? v(u,  'gtt_usage')  ?? v(u,  'gtt'))   : null;
+    const cpu     = u  ? (v(u,  'CPU')   ?? v(u,  'cpu_usage')   ?? v(u,  'cpu'))   : null;
+    const npu     = nu ? v(nu, 'NPU') : null;
     return `<tr>
       <td class="proc-pid">${pid}</td>
       <td class="proc-name">${proc.name || '?'}</td>
       <td>${fmt(vramMiB != null ? vramMiB / 1024 : null, 2)}</td>
       <td>${fmt(gttMiB  != null ? gttMiB  / 1024 : null, 2)}</td>
       <td>${fmt(cpu, 1)}</td>
+      <td>${fmt(npu, 1)}</td>
     </tr>`;
   }).join('');
 }
