@@ -128,7 +128,7 @@ const CHART_DEFAULTS = {
 // JSON.stringify silently drops functions, so externalTooltip must be re-applied
 // after each clone — never rely on CHART_DEFAULTS to carry it directly.
 function cloneDefaults() {
-  const cfg = cloneDefaults();
+  const cfg = JSON.parse(JSON.stringify(CHART_DEFAULTS));
   cfg.plugins.tooltip.external = externalTooltip;
   return cfg;
 }
@@ -166,7 +166,8 @@ function scheduleRender() {
       const widthMs    = isCoreFreq ? state.coreTimeWidthMs : state.timeWidthMs;
       c.options.scales.x.min = now - widthMs;
       c.options.scales.x.max = now;
-      c.update('none');
+      // Skip canvas repaint for charts belonging to inactive device tabs.
+      if (state.n <= 1 || parseInt(key, 10) === state.cur) c.update('none');
     }
   });
 }
@@ -192,8 +193,8 @@ function getHistorySize()     { return Math.max(2, Math.ceil(state.timeWidthMs  
 function getCoreHistorySize() { return Math.max(2, Math.ceil(state.coreTimeWidthMs / state.intervalMs)); }
 
 function makeHist(size, coreSize) {
-  const a  = n => Array(n).fill(null);
-  const a2 = (rows, n) => Array.from({length: rows}, () => Array(n).fill(null));
+  const a  = n => new Array(n).fill(NaN);
+  const a2 = (rows, n) => Array.from({length: rows}, () => new Array(n).fill(NaN));
   // Pre-fill times with evenly-spaced epoch ms so the x-axis is valid before
   // real data arrives.  pushHistory overwrites them as samples come in.
   const now = Date.now();
@@ -327,7 +328,7 @@ function makeCoreChartCallbacks(h, getArrays, unit) {
           ((Date.now() - ts) / 1000).toFixed(3) + 's ago',
         );
       }
-      const vals = getArrays().map(arr => arr[idx]).filter(v => v != null);
+      const vals = getArrays().map(arr => arr[idx]).filter(Number.isFinite);
       if (vals.length) {
         lines.push(`Min: ${Math.min(...vals).toFixed(1)} ${unit}`);
         lines.push(`Max: ${Math.max(...vals).toFixed(1)} ${unit}`);
@@ -620,45 +621,46 @@ function buildDom(devices) {
           </div>`;
 
         const chartWrap = el('div', 'grbm-chart-wrap');
-        const canvas    = el('canvas');
-        chartWrap.appendChild(canvas);
         item.appendChild(chartWrap);
 
         const chartKey = `${i}-${prefix}-${ki}`;
         item.addEventListener('click', () => {
           item.classList.toggle('expanded');
           if (item.classList.contains('expanded')) {
-            state.charts[chartKey]?.resize();
-            state.charts[chartKey]?.update('none');
+            // Lazy-create the chart on first expand.
+            if (!state.charts[chartKey]) {
+              const canvas = el('canvas');
+              chartWrap.appendChild(canvas);
+              const pcCfg = cloneDefaults();
+              pcCfg.scales.y.min = 0;
+              pcCfg.scales.y.max = 100;
+              pcCfg.plugins.legend.display = false;
+              pcCfg.plugins.tooltip.callbacks = makeChartCallbacks(h);
+              pcCfg.scales.y.ticks.callback = fmtTick;
+              pcCfg.scales.y.ticks.font = { size: 9 };
+              pcCfg.scales.y.ticks.maxTicksLimit = 3;
+              state.charts[chartKey] = new Chart(canvas, {
+                type: 'line',
+                data: {
+                  labels: h.times,
+                  datasets: [{
+                    label: key,
+                    data: histArr[ki],
+                    sourcePath: `devices[${i}].${srcObj}['${key}']`,
+                    borderColor: color,
+                    backgroundColor: color + '1a',
+                    fill: true,
+                    tension: 0.25,
+                    pointRadius: 0,
+                    borderWidth: 1.5,
+                  }],
+                },
+                options: pcCfg,
+              });
+            }
+            state.charts[chartKey].resize();
+            state.charts[chartKey].update('none');
           }
-        });
-
-        const pcCfg = cloneDefaults();
-        pcCfg.scales.y.min = 0;
-        pcCfg.scales.y.max = 100;
-        pcCfg.plugins.legend.display = false;
-        pcCfg.plugins.tooltip.callbacks = makeChartCallbacks(h);
-        pcCfg.scales.y.ticks.callback = fmtTick;
-        pcCfg.scales.y.ticks.font = { size: 9 };
-        pcCfg.scales.y.ticks.maxTicksLimit = 3;
-
-        state.charts[chartKey] = new Chart(canvas, {
-          type: 'line',
-          data: {
-            labels: h.times,
-            datasets: [{
-              label: key,
-              data: histArr[ki],
-              sourcePath: `devices[${i}].${srcObj}['${key}']`,
-              borderColor: color,
-              backgroundColor: color + '1a',
-              fill: true,
-              tension: 0.25,
-              pointRadius: 0,
-              borderWidth: 1.5,
-            }],
-          },
-          options: pcCfg,
         });
 
         col.appendChild(item);
@@ -699,6 +701,15 @@ function switchTab(idx) {
   document.querySelectorAll('.tab-btn').forEach((btn, i) => btn.classList.toggle('active', i === idx));
   document.querySelectorAll('.gpu-panel').forEach((p,  i) => p.classList.toggle('active',  i === idx));
   state.cur = idx;
+  // Render newly visible tab's charts immediately (they may have skipped updates while hidden).
+  const now = Date.now();
+  for (const [key, c] of Object.entries(state.charts)) {
+    if (parseInt(key, 10) !== idx) continue;
+    const isCoreFreq = key.includes('-cpu-core-');
+    c.options.scales.x.min = now - (isCoreFreq ? state.coreTimeWidthMs : state.timeWidthMs);
+    c.options.scales.x.max = now;
+    c.update('none');
+  }
 }
 
 // ── Update helpers ───────────────────────────────────────────────────────────
@@ -726,8 +737,8 @@ function setBar(id, pct) {
 }
 
 function pushHistory(arr, val) {
-  arr.shift();
-  arr.push(val);
+  arr.copyWithin(0, 1);
+  arr[arr.length - 1] = (val == null || !Number.isFinite(val)) ? NaN : val;
 }
 
 // Builds one vertical-line annotation for a process start/stop event.
@@ -788,7 +799,7 @@ function minMaxAnnotations(times, windowStart, ...arrays) {
   for (const arr of arrays) {
     for (let k = 0; k < arr.length; k++) {
       const v = arr[k];
-      if (v == null) continue;
+      if (!Number.isFinite(v)) continue;
       if (windowStart != null && (times[k] == null || times[k] < windowStart)) continue;
       if (v < minVal) minVal = v;
       if (v > maxVal) maxVal = v;
@@ -1140,11 +1151,13 @@ function updateDevice(i, dev) {
 }
 
 // ── WebSocket ────────────────────────────────────────────────────────────────
-let ws      = null;
-let retryMs = 1000;
+let ws         = null;
+let retryMs    = 1000;
+let retryTimer = null;
 const MAX_RETRY = 30000;
 
 function connect() {
+  if (ws && ws.readyState < 2) ws.close(); // CONNECTING or OPEN → close before replacing
   setConnStatus('connecting', 'Connecting…');
   ws = new WebSocket(`ws://${location.host}/ws`);
 
@@ -1170,12 +1183,22 @@ function connect() {
 
   ws.addEventListener('close', () => {
     setConnStatus('disconnected', `Reconnecting in ${(retryMs / 1000).toFixed(0)}s…`);
-    setTimeout(connect, retryMs);
+    retryTimer = setTimeout(connect, retryMs);
     retryMs = Math.min(retryMs * 2, MAX_RETRY);
   });
 
   ws.addEventListener('error', () => ws.close());
 }
+
+// When the tab becomes visible again, skip the remaining backoff and reconnect
+// immediately rather than waiting up to MAX_RETRY (30 s) for the timer to fire.
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && (!ws || ws.readyState >= 2)) {
+    clearTimeout(retryTimer);
+    retryMs = 1000;
+    connect();
+  }
+});
 
 // ── Device info header ───────────────────────────────────────────────────────
 function updateDeviceInfoHeader(dev) {
