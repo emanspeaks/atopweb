@@ -168,8 +168,12 @@ function scheduleRender() {
       const widthMs    = isCoreFreq ? state.coreTimeWidthMs : state.timeWidthMs;
       c.options.scales.x.min = now - widthMs;
       c.options.scales.x.max = now;
-      // Skip repaint when paused or when overlay is covering the main view.
-      if (!state.paused && !hasOverlay && (state.n <= 1 || parseInt(key, 10) === state.cur))
+      // Skip repaint when paused, when overlay is covering the main view,
+      // or when this chart has received no finite data within 10% of its window.
+      const debounceMs  = widthMs * 0.1;
+      const chartActive = (now - (state.chartLastData[key] || 0)) <= debounceMs;
+      if (!state.paused && !hasOverlay && chartActive &&
+          (state.n <= 1 || parseInt(key, 10) === state.cur))
         c.update('none');
     }
     if (hasOverlay && !state.paused) {
@@ -196,6 +200,7 @@ const state = {
   paused:          false,
   overlayChart:    null,
   overlayWidthMs:  0,
+  chartLastData:   {},   // chartKey → ms timestamp of last tick with any finite data
 };
 
 // History size = time window / update interval, so the x-axis always shows a
@@ -362,8 +367,11 @@ function buildDom(devices) {
   state.n = devices.length;
   state.hist = devices.map(() => makeHist(getHistorySize(), getCoreHistorySize()));
   state.charts = {};
+  state.chartLastData = {};
 
   if (devices.length > 1) tabs.classList.add('visible');
+  updateStickyOffset();
+  updateOverlayPosition();
 
   devices.forEach((dev, i) => {
     const name = (dev.Info && (dev.Info.DeviceName || dev.Info['ASIC Name'])) || `GPU ${i}`;
@@ -1059,6 +1067,17 @@ function updateDevice(i, dev) {
   if (cNpuClk)  setAnnotations(cNpuClk,  h.times, {},                         h.npuClk, h.npuMpClk);
   if (cNpuBw)   setAnnotations(cNpuBw,   h.times, {},                         h.npuReads, h.npuWrites);
 
+  // Mark which charts received finite data this tick so scheduleRender can
+  // skip charts that are entirely idle (e.g. NPU on a non-NPU system).
+  const devPrefix = `${i}-`;
+  for (const [key, chart] of Object.entries(state.charts)) {
+    if (!key.startsWith(devPrefix)) continue;
+    const hasData = chart.config.data.datasets.some(
+      ds => ds.data?.length && Number.isFinite(ds.data[ds.data.length - 1])
+    );
+    if (hasData) state.chartLastData[key] = nowMs;
+  }
+
   scheduleRender();
 
   // ── GRBM performance counters ──
@@ -1306,6 +1325,16 @@ function fetchPowerLimits() {
       state.powerLimits.thm_soc_c  = d.thm_soc_c  ?? null;
       // Refresh header once limits are loaded (device may already be shown).
       if (state.hist.length > 0 && state.lastDev0) updateDeviceInfoHeader(state.lastDev0);
+      const pl = state.powerLimits;
+      const parts = [];
+      if (pl.stapm_w    != null) parts.push(`STAPM ${pl.stapm_w.toFixed(0)}W`);
+      if (pl.fast_w     != null) parts.push(`Fast ${pl.fast_w.toFixed(0)}W`);
+      if (pl.slow_w     != null) parts.push(`Slow ${pl.slow_w.toFixed(0)}W`);
+      if (pl.apu_slow_w != null) parts.push(`APU Slow ${pl.apu_slow_w.toFixed(0)}W`);
+      if (pl.thm_core_c != null) parts.push(`THM Core ${pl.thm_core_c.toFixed(0)}°C`);
+      if (pl.thm_gfx_c  != null) parts.push(`THM GFX ${pl.thm_gfx_c.toFixed(0)}°C`);
+      if (pl.thm_soc_c  != null) parts.push(`THM SoC ${pl.thm_soc_c.toFixed(0)}°C`);
+      if (parts.length) appendLog(`Power limits: ${parts.join('  ')}`);
     })
     .catch(() => {});
 }
@@ -1378,6 +1407,7 @@ function initIntervalCtrl() {
     localStorage.setItem('atopweb.intervalMs', ms);
     if (state.lastDevices) buildDom(state.lastDevices);
     fetch(`/api/interval?ms=${ms}`, { method: 'POST' });
+    appendLog(`Interval set to ${ms}ms`);
   };
 
   document.getElementById('interval-btn').addEventListener('click', apply);
@@ -1394,6 +1424,8 @@ function initPlotWidthCtrl() {
     state[stateKey] = s * 1000;
     localStorage.setItem(`atopweb.${stateKey}`, state[stateKey]);
     if (state.lastDevices) buildDom(state.lastDevices);
+    const label = stateKey === 'coreTimeWidthMs' ? 'Core clock width' : 'Plot width';
+    appendLog(`${label} set to ${s}s`);
   };
   const bind = (stateKey, inputId, btnId) => {
     document.getElementById(btnId).addEventListener('click', () => applyWidth(stateKey, inputId));
@@ -1409,8 +1441,128 @@ function initPauseBtn() {
     state.paused = !state.paused;
     btn.textContent = state.paused ? '▶' : '⏸';
     btn.classList.toggle('paused', state.paused);
+    appendLog(state.paused ? 'Paused' : 'Resumed');
     if (!state.paused) scheduleRender();
   });
+}
+
+// ── Status bar ────────────────────────────────────────────────────────────────
+function appendLog(msg, cls) {
+  const log = document.getElementById('status-log');
+  if (!log) return;
+  const atBottom = log.scrollHeight - log.scrollTop <= log.clientHeight + 4;
+  const now = new Date();
+  const ts  = now.toLocaleTimeString([], { hour12: false }) + '.' +
+              String(now.getMilliseconds()).padStart(3, '0');
+  const span = document.createElement('span');
+  span.className = 'log-line' + (cls ? ' ' + cls : '');
+  span.textContent = `[${ts}]  ${msg}`;
+  log.appendChild(span);
+  if (atBottom) log.scrollTop = log.scrollHeight;
+  const el = document.getElementById('status-bar-text');
+  if (el) el.textContent = msg;
+}
+
+function initStatusBar() {
+  document.getElementById('status-bar-main').addEventListener('click', () => {
+    const bar = document.getElementById('status-bar');
+    bar.classList.toggle('expanded');
+    if (bar.classList.contains('expanded'))
+      document.getElementById('status-log').scrollTop =
+        document.getElementById('status-log').scrollHeight;
+  });
+
+  const handle = document.getElementById('status-resize-handle');
+  let startY = 0, startH = 180;
+  handle.addEventListener('mousedown', e => {
+    e.preventDefault();
+    startY = e.clientY;
+    startH = parseInt(getComputedStyle(document.documentElement)
+      .getPropertyValue('--log-height'), 10) || 180;
+    handle.classList.add('dragging');
+    const onMove = ev => {
+      const h = Math.max(60, Math.min(500, startH + (startY - ev.clientY)));
+      document.documentElement.style.setProperty('--log-height', h + 'px');
+    };
+    const onUp = () => {
+      handle.classList.remove('dragging');
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  });
+
+  const bar = document.getElementById('status-bar');
+  new ResizeObserver(() => {
+    document.body.style.paddingBottom = bar.offsetHeight + 'px';
+    updateOverlayPosition();
+  }).observe(bar);
+}
+
+// ── Sticky card offset ────────────────────────────────────────────────────────
+function updateStickyOffset() {
+  const headerH = document.querySelector('header')?.offsetHeight || 0;
+  const tabsH   = document.getElementById('tabs')?.offsetHeight  || 0;
+  document.documentElement.style.setProperty('--sticky-top', (headerH + tabsH) + 'px');
+}
+
+// ── Plot maximize overlay ─────────────────────────────────────────────────────
+function updateOverlayPosition() {
+  const overlay = document.getElementById('plot-overlay');
+  if (!overlay) return;
+  const headerH = document.querySelector('header')?.offsetHeight || 0;
+  const tabsH   = document.getElementById('tabs')?.offsetHeight  || 0;
+  const statusH = document.getElementById('status-bar')?.offsetHeight || 0;
+  overlay.style.top    = (headerH + tabsH) + 'px';
+  overlay.style.bottom = statusH + 'px';
+}
+
+function openOverlay(chartKey, title) {
+  const src = state.charts[chartKey];
+  if (!src) return;
+
+  if (state.overlayChart) { state.overlayChart.destroy(); state.overlayChart = null; }
+
+  document.getElementById('plot-overlay-title').textContent = title;
+  const overlay = document.getElementById('plot-overlay');
+  overlay.hidden = false;
+  updateOverlayPosition();
+
+  const canvas = document.getElementById('plot-overlay-canvas');
+  const srcOpts = JSON.parse(JSON.stringify(src.options));
+  srcOpts.plugins.tooltip.external = externalTooltip;
+  srcOpts.layout.padding = { top: 20, right: 12, bottom: 24, left: 12 };
+
+  state.overlayChart = new Chart(canvas, {
+    type: src.config.type,
+    data: src.config.data,
+    options: srcOpts,
+    plugins: src.config.plugins || [],
+  });
+
+  const isCoreFreq = chartKey.includes('-cpu-core-');
+  state.overlayWidthMs = isCoreFreq ? state.coreTimeWidthMs : state.timeWidthMs;
+  appendLog(`Maximized: ${title}`);
+}
+
+function closeOverlay() {
+  document.getElementById('plot-overlay').hidden = true;
+  if (state.overlayChart) { state.overlayChart.destroy(); state.overlayChart = null; }
+  scheduleRender();
+  appendLog('Closed maximized plot');
+}
+
+function initOverlay() {
+  document.getElementById('plot-overlay-close').addEventListener('click', closeOverlay);
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && !document.getElementById('plot-overlay').hidden) closeOverlay();
+  });
+  new ResizeObserver(() => { updateStickyOffset(); updateOverlayPosition(); })
+    .observe(document.querySelector('header'));
+  new ResizeObserver(() => { updateStickyOffset(); updateOverlayPosition(); })
+    .observe(document.getElementById('tabs'));
+  window.addEventListener('resize', updateOverlayPosition);
 }
 
 loadSavedSettings();
@@ -1418,6 +1570,9 @@ initDataSrcTooltip();
 initIntervalCtrl();
 initPlotWidthCtrl();
 initPauseBtn();
+initStatusBar();
+initOverlay();
+updateStickyOffset();
 fetchPowerLimits();
 setInterval(fetchPowerLimits, 300_000);
 fetchCoreRanks();
