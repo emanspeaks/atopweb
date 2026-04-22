@@ -374,22 +374,47 @@ type powerLimitsInfo struct {
 }
 
 // parseRyzenAdjInfo extracts STAPM, fast-PPT, and slow-PPT limits from the
-// table printed by `ryzenadj -i`. Values may be in mW or W; both are handled.
+// table printed by `ryzenadj -i`.
+//
+// Modern ryzenadj output uses a leading "|" on every data row:
+//   | STAPM LIMIT | 45000 | (bias) | (min) | (max) | mW |
+// Older/alternative output may omit the leading "|":
+//   stapm_limit | 45000 | mW
+//
+// Both formats are handled by detecting whether parts[0] is empty.
+// The unit is found by scanning all columns after the value for "mw"/"w".
+// Name matching is case-insensitive substring-based.
 func parseRyzenAdjInfo(output string) (stapm, fast, slow *float64) {
 	for _, line := range strings.Split(output, "\n") {
 		parts := strings.Split(line, "|")
-		if len(parts) < 2 {
+		if len(parts) < 3 {
 			continue
 		}
-		name   := strings.TrimSpace(parts[0])
-		valStr := strings.TrimSpace(parts[1])
-		unit   := ""
-		if len(parts) >= 3 {
-			unit = strings.ToLower(strings.TrimSpace(parts[2]))
+		// Leading "|" makes parts[0] empty — shift past it.
+		off := 0
+		if strings.TrimSpace(parts[0]) == "" {
+			off = 1
+		}
+		if off+1 >= len(parts) {
+			continue
+		}
+		name   := strings.TrimSpace(parts[off])
+		valStr := strings.TrimSpace(parts[off+1])
+		if name == "" || name == "Name" {
+			continue
 		}
 		val, err := strconv.ParseFloat(valStr, 64)
 		if err != nil || val <= 0 {
 			continue
+		}
+		// Scan remaining columns for the unit.
+		unit := ""
+		for idx := off + 2; idx < len(parts); idx++ {
+			u := strings.ToLower(strings.TrimSpace(parts[idx]))
+			if u == "mw" || u == "w" {
+				unit = u
+				break
+			}
 		}
 		var watts float64
 		switch unit {
@@ -398,15 +423,23 @@ func parseRyzenAdjInfo(output string) (stapm, fast, slow *float64) {
 		case "w":
 			watts = val
 		default:
-			continue
+			// Heuristic: APU limits are typically expressed in mW (> 500).
+			if val > 500 {
+				watts = val / 1000.0
+			} else {
+				watts = val
+			}
 		}
 		w := watts
-		switch name {
-		case "stapm_limit":
+		n := strings.ToLower(name)
+		// Require "limit" in the name to avoid matching VALUE rows that appear
+		// directly below each LIMIT row in the ryzenadj table.
+		switch {
+		case strings.Contains(n, "stapm") && strings.Contains(n, "limit"):
 			stapm = &w
-		case "fast_ppt_limit":
+		case strings.Contains(n, "fast") && strings.Contains(n, "ppt") && strings.Contains(n, "limit"):
 			fast = &w
-		case "slow_ppt_limit":
+		case strings.Contains(n, "slow") && strings.Contains(n, "ppt") && strings.Contains(n, "limit"):
 			slow = &w
 		}
 	}
@@ -419,9 +452,12 @@ func (h *hub) servePowerLimits(w http.ResponseWriter, r *http.Request) {
 	if len(h.ryzenAdjArgs) > 0 {
 		out, err := exec.Command(h.ryzenAdjArgs[0], h.ryzenAdjArgs[1:]...).Output()
 		if err != nil {
-			log.Printf("ryzenadj: %v", err)
+			log.Printf("ryzenadj error: %v", err)
 		} else {
 			result.STAPMWatts, result.FastWatts, result.SlowWatts = parseRyzenAdjInfo(string(out))
+			if result.STAPMWatts == nil && result.FastWatts == nil && result.SlowWatts == nil {
+				log.Printf("ryzenadj: parsed no limits; raw output:\n%s", string(out))
+			}
 		}
 	}
 
