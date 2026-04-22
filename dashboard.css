@@ -92,10 +92,15 @@ header .period {
 .device-info .di-name   { color: var(--text); font-weight: 500; }
 .device-info .di-meta   { color: var(--muted); font-size: 10px; }
 .device-info .di-specs  { color: var(--muted); font-size: 9px; }
-.device-info .di-limits { color: var(--muted); }
-.device-info .di-limit-stapm { color: var(--yellow); }
-.device-info .di-limit-fast  { color: var(--red); }
-.device-info .di-limit-slow  { color: var(--green); }
+.device-info .di-limits      { color: var(--muted); }
+.device-info .di-limit-label { color: var(--muted); font-size: 9px; }
+.device-info .di-limit-stapm     { color: var(--yellow); }
+.device-info .di-limit-fast      { color: var(--red); }
+.device-info .di-limit-slow      { color: var(--green); }
+.device-info .di-limit-apu-slow  { color: var(--purple); }
+.device-info .di-limit-thm-core  { color: var(--yellow); }
+.device-info .di-limit-thm-gfx   { color: var(--red); }
+.device-info .di-limit-thm-soc   { color: var(--blue); }
 
 /* ── Interval control ────────────────────────────────────────────── */
 .interval-ctrl {
