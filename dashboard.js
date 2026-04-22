@@ -103,15 +103,12 @@ const CHART_DEFAULTS = {
   interaction: { mode: 'index', intersect: false },
   plugins: {
     legend: {
-      labels: { color: '#8b949e', boxWidth: 10, font: { size: 11 } }
+      labels: { color: '#8b949e', boxWidth: 8, padding: 8, font: { size: 10 } }
     },
-    tooltip: {
-      enabled:  false,
-      external: externalTooltip,
-    },
+    tooltip: { enabled: false },
     annotation: { drawTime: 'afterDraw', annotations: {} }
   },
-  layout: { padding: 15 },
+  layout: { padding: { top: 2, right: 6, bottom: 4, left: 6 } },
   scales: {
     x: {
       type:   'linear',
@@ -126,6 +123,15 @@ const CHART_DEFAULTS = {
     }
   }
 };
+
+// Deep-clone CHART_DEFAULTS and restore non-serialisable function references.
+// JSON.stringify silently drops functions, so externalTooltip must be re-applied
+// after each clone — never rely on CHART_DEFAULTS to carry it directly.
+function cloneDefaults() {
+  const cfg = cloneDefaults();
+  cfg.plugins.tooltip.external = externalTooltip;
+  return cfg;
+}
 
 function makeDataset(label, color, data, sourcePath, decimals) {
   return {
@@ -514,7 +520,7 @@ function buildDom(devices) {
       box.appendChild(wrap);
       chartGrid.appendChild(box);
 
-      const cfg = JSON.parse(JSON.stringify(CHART_DEFAULTS));
+      const cfg = cloneDefaults();
       if (!def.noYMin) cfg.scales.y.min = 0;
       cfg.scales.y.grace = '20%';
       if (def.yMax != null) cfg.scales.y.max = def.yMax;
@@ -540,14 +546,14 @@ function buildDom(devices) {
       const box    = el('div', 'chart-box');
       const title  = el('div', 'chart-title', `${coreLabel(j)} Clocks`);
       const wrap   = el('div');
-      wrap.style.height = '70px';
+      wrap.style.height = '125px';
       const canvas = el('canvas');
       wrap.appendChild(canvas);
       box.appendChild(title);
       box.appendChild(wrap);
       coreFreqGrid.appendChild(box);
 
-      const coreCfg = JSON.parse(JSON.stringify(CHART_DEFAULTS));
+      const coreCfg = cloneDefaults();
       coreCfg.scales.y.grace = '25%';
       coreCfg.scales.x.grid = { display: false };
       coreCfg.scales.y.grid = { display: false };
@@ -606,7 +612,7 @@ function buildDom(devices) {
         const item = el('div', 'grbm-item');
         item.innerHTML = `
           <div class="grbm-item-header">
-            <span class="grbm-item-label" title="${key}">${label}</span>
+            <span class="grbm-item-label" data-src="devices[${i}].${srcObj}['${key}']">${label}</span>
             <span class="grbm-item-val" id="${prefix}-val-${i}-${ki}">—</span>
           </div>
           <div class="grbm-bar-wrap">
@@ -627,7 +633,7 @@ function buildDom(devices) {
           }
         });
 
-        const pcCfg = JSON.parse(JSON.stringify(CHART_DEFAULTS));
+        const pcCfg = cloneDefaults();
         pcCfg.scales.y.min = 0;
         pcCfg.scales.y.max = 100;
         pcCfg.plugins.legend.display = false;
@@ -792,7 +798,7 @@ function minMaxAnnotations(times, windowStart, ...arrays) {
   if (count < 2) return {};
   const color    = 'rgba(139,148,158,0.6)';
   const fmtA     = x => (Math.abs(x) >= 100 ? x.toFixed(0) : x.toFixed(1));
-  const labelBase = { color, font: { size: 9 }, backgroundColor: 'transparent', padding: 2 };
+  const labelBase = { color, font: { size: 9 }, backgroundColor: 'rgba(22,27,34,0.92)', borderColor: 'transparent', borderWidth: 0, padding: { x: 3, y: 1 } };
   const out = {};
   out.minLine = {
     type: 'line', yMin: minVal, yMax: minVal, drawTime: 'afterDraw',
@@ -1225,7 +1231,7 @@ function updateDeviceInfoHeader(dev) {
 
 function coreLabel(j) {
   const rank = state.coreRanks[j];
-  return rank != null ? `Core ${j} (Rank ${rank})` : `Core ${j}`;
+  return rank != null ? `C${j} (R#${rank})` : `C${j}`;
 }
 
 function fetchCoreRanks() {
