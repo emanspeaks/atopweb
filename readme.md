@@ -1,12 +1,13 @@
 # atopweb
 
-Live AMD GPU web dashboard powered by [amdgpu_top](https://github.com/Umio-Yasuno/amdgpu_top).
+Live AMD GPU / NPU web dashboard powered by [amdgpu_top](https://github.com/Umio-Yasuno/amdgpu_top).
 
 `atopweb` is a small Go binary that runs `amdgpu_top` in JSON streaming mode,
 forwards each update over a WebSocket, and serves a browser dashboard at a
 configurable HTTP port.  The dashboard shows live metrics for all detected AMD
-GPUs: activity (GFX / Memory / Media), VRAM, clocks, power, temperatures, fan
-speed, and per-process fdinfo usage.
+GPUs: activity (GFX / Memory / Media), VRAM + GTT usage, clocks, temperatures,
+package power with APU power-limit annotations, per-core GPU power and clock
+charts, GRBM / GRBM2 performance counters, and a merged GPU + NPU process table.
 
 ---
 
@@ -19,6 +20,8 @@ amdgpu_top -J  →  atopweb  →  WebSocket (/ws)  →  browser dashboard (/)
 `atopweb` does not contain any GPU driver code.  It shells out to the stock
 `amdgpu_top` binary and relays its newline-delimited JSON stream to every
 connected browser.  If `amdgpu_top` exits it restarts automatically after 5 s.
+The dashboard also polls `ryzenadj -i` (when configured) to read APU power
+limits (STAPM, fast-PPT, slow-PPT) and overlays them on the power chart.
 
 ---
 
@@ -45,6 +48,12 @@ atopweb --no-pc
 
 # faster updates
 atopweb -s 500
+
+# run amdgpu_top as root via sudo (required for full fdinfo + perf counters)
+atopweb --sudo
+
+# APU power limits overlay on the power chart
+atopweb --sudo --ryzenadj /run/current-system/sw/bin/ryzenadj
 ```
 
 Then open `http://localhost:5899` in a browser.
@@ -57,6 +66,9 @@ Then open `http://localhost:5899` in a browser.
 | --- | --- | --- |
 | `--port` | `5899` | TCP port to listen on |
 | `--amdgpu-top` | *(search PATH)* | Path to the `amdgpu_top` binary |
+| `--sudo` | `false` | Launch `amdgpu_top` (and `ryzenadj`) via `sudo -n` instead of running atopweb as root |
+| `--sudo-bin` | `sudo` | Path to the sudo binary (NixOS: `/run/wrappers/bin/sudo`) |
+| `--ryzenadj` | | Path to `ryzenadj`; when set, polls `ryzenadj -i` for APU power limits |
 | `-s <ms>` | `1000` | amdgpu_top refresh period in milliseconds |
 | `-u <sec>` | `5` | amdgpu_top fdinfo update interval in seconds |
 | `-i <idx>` | *(all)* | Select a single GPU by instance index |
@@ -100,10 +112,12 @@ whenever `go.mod` changes.
         atopweb.nixosModules.default
         {
           services.atopweb = {
-            enable   = true;
-            port     = 5899;   # optional
-            # nopc   = true;   # skip perf counters
-            # interval = 500;  # 500 ms updates
+            enable       = true;
+            port         = 5899;         # optional
+            sudo         = true;         # run amdgpu_top as root via sudo
+            ryzenAdjBin  = "${pkgs.ryzenadj}/bin/ryzenadj";  # APU power limits
+            # nopc       = true;         # skip perf counters
+            # interval   = 500;          # 500 ms updates
           };
         }
       ];
@@ -132,20 +146,33 @@ http://<server-ip>:5899
 | --- | --- | --- | --- |
 | `services.atopweb.enable` | `bool` | `false` | Enable the service |
 | `services.atopweb.port` | `port` | `5899` | TCP port |
+| `services.atopweb.sudo` | `bool` | `false` | Run `amdgpu_top` (and `ryzenadj`) via `sudo -n`; automatically adds a NOPASSWD sudoers rule for the `atopweb` user |
 | `services.atopweb.nopc` | `bool` | `false` | Skip perf counter reads |
 | `services.atopweb.interval` | `int` | `1000` | Refresh period in ms |
-| `services.atopweb.amdgpuTopBin` | `str` | nix store | `amdgpu_top` binary path; override with a setuid wrapper (see below) |
+| `services.atopweb.amdgpuTopBin` | `str` | nix store | `amdgpu_top` binary path |
+| `services.atopweb.ryzenAdjBin` | `str` | `""` | `ryzenadj` binary path; when set, polls for APU power limits and adds a NOPASSWD sudoers rule |
 | `services.atopweb.extraArgs` | `[str]` | `[]` | Extra flags passed to atopweb (e.g. `[ "-i" "0" ]`) |
 | `services.atopweb.package` | `package` | flake default | Override the atopweb package |
 
-The module defaults `amdgpuTopBin` to `${pkgs.amdgpu_top}/bin/amdgpu_top` from
-the same nixpkgs revision, so the service never relies on `$PATH`.
+### Running amdgpu_top as root
 
-### Running amdgpu_top as root (setuid wrapper)
+`amdgpu_top` needs elevated privileges to read GPU performance counters and
+full fdinfo data.  The recommended approach is `sudo = true` in the module,
+which:
 
-`amdgpu_top` needs elevated privileges to read GPU performance counters.  The
-recommended NixOS approach is a `security.wrappers` setuid wrapper that lets the
-unprivileged `atopweb` service user exec `amdgpu_top` as root:
+- passes `--sudo --sudo-bin /run/wrappers/bin/sudo` to atopweb
+- automatically adds a NOPASSWD sudoers entry so the `atopweb` service user
+  can run `amdgpu_top` (and `ryzenadj` if configured) without a password
+
+```nix
+services.atopweb = {
+  enable      = true;
+  sudo        = true;
+  ryzenAdjBin = "${pkgs.ryzenadj}/bin/ryzenadj";
+};
+```
+
+Alternatively, a `security.wrappers` setuid wrapper works too:
 
 ```nix
 security.wrappers.amdgpu_top = {

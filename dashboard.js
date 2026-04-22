@@ -339,13 +339,13 @@ function buildDom(devices) {
 
     // ── Process table ──
     const procSec = el('div', 'proc-section');
-    procSec.appendChild(el('div', 'section-title', 'GPU Processes'));
+    procSec.appendChild(el('div', 'section-title', 'GPU / NPU Processes'));
     const tbl = el('table', 'proc-table');
     tbl.innerHTML = `
       <thead>
         <tr>
           <th>PID</th><th>Name</th>
-          <th>VRAM (GiB)</th><th>GTT (GiB)</th><th>CPU%</th>
+          <th>VRAM (GiB)</th><th>GTT (GiB)</th><th>CPU%</th><th>NPU%</th>
         </tr>
       </thead>
       <tbody id="proc-body-${i}"></tbody>`;
@@ -588,36 +588,49 @@ function updateDevice(i, dev) {
   const tbody = document.getElementById(`proc-body-${i}`);
   if (!tbody) return;
 
-  const fdinfo = dev.fdinfo || {};
-  const pids   = Object.keys(fdinfo);
-
-  if (pids.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="8" class="proc-empty" style="padding:12px 16px">No GPU processes</td></tr>`;
-    return;
-  }
-
   // amdgpu_top may store per-process fields directly on the object or under
   // a nested "usage" key depending on version; try both.
   const getUsage = (p) => p.usage || p;
 
-  const getVramMiB = (proc) => {
-    const u = getUsage(proc);
+  // Merge GPU fdinfo and XDNA (NPU) fdinfo by PID into a single map.
+  const fdinfo     = dev.fdinfo      || {};
+  const xdnaFdinfo = dev.xdna_fdinfo || {};
+  const procMap    = {};
+  for (const [pid, proc] of Object.entries(fdinfo))     procMap[pid] = { gpuProc: proc, npuProc: null };
+  for (const [pid, proc] of Object.entries(xdnaFdinfo)) {
+    if (procMap[pid]) procMap[pid].npuProc = proc;
+    else              procMap[pid] = { gpuProc: null, npuProc: proc };
+  }
+
+  const pids = Object.keys(procMap);
+  if (pids.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="6" class="proc-empty" style="padding:12px 16px">No GPU / NPU processes</td></tr>`;
+    return;
+  }
+
+  const gpuVram = (gpuProc) => {
+    if (!gpuProc) return 0;
+    const u = getUsage(gpuProc);
     return v(u, 'VRAM') ?? v(u, 'vram_usage') ?? v(u, 'vram') ?? 0;
   };
-  pids.sort((a, b) => getVramMiB(fdinfo[b]) - getVramMiB(fdinfo[a]));
+  pids.sort((a, b) => gpuVram(procMap[b].gpuProc) - gpuVram(procMap[a].gpuProc));
 
   tbody.innerHTML = pids.map(pid => {
-    const proc    = fdinfo[pid];
-    const u       = getUsage(proc);
-    const vramMiB = v(u, 'VRAM')  ?? v(u, 'vram_usage') ?? v(u, 'vram');
-    const gttMiB  = v(u, 'GTT')   ?? v(u, 'gtt_usage')  ?? v(u, 'gtt');
-    const cpu     = v(u, 'CPU')   ?? v(u, 'cpu_usage')   ?? v(u, 'cpu');
+    const { gpuProc, npuProc } = procMap[pid];
+    const proc    = gpuProc || npuProc;
+    const u       = gpuProc ? getUsage(gpuProc) : null;
+    const nu      = npuProc ? getUsage(npuProc) : null;
+    const vramMiB = u  ? (v(u,  'VRAM')  ?? v(u,  'vram_usage') ?? v(u,  'vram'))  : null;
+    const gttMiB  = u  ? (v(u,  'GTT')   ?? v(u,  'gtt_usage')  ?? v(u,  'gtt'))   : null;
+    const cpu     = u  ? (v(u,  'CPU')   ?? v(u,  'cpu_usage')   ?? v(u,  'cpu'))   : null;
+    const npu     = nu ? v(nu, 'NPU') : null;
     return `<tr>
       <td class="proc-pid">${pid}</td>
       <td class="proc-name">${proc.name || '?'}</td>
       <td>${fmt(vramMiB != null ? vramMiB / 1024 : null, 2)}</td>
       <td>${fmt(gttMiB  != null ? gttMiB  / 1024 : null, 2)}</td>
       <td>${fmt(cpu, 1)}</td>
+      <td>${fmt(npu, 1)}</td>
     </tr>`;
   }).join('');
 }

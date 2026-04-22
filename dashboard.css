@@ -277,8 +277,7 @@ main { padding: 20px; }
 .chart-title {
   font-size: 12px;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.03em;
   color: var(--muted);
   margin-bottom: 10px;
 }
@@ -289,8 +288,7 @@ main { padding: 20px; }
 .section-title {
   font-size: 12px;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.03em;
   color: var(--muted);
   padding: 12px 16px;
   border-bottom: 1px solid var(--border);
@@ -321,8 +319,7 @@ main { padding: 20px; }
 .grbm-col-title {
   font-size: 11px;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.03em;
   color: var(--muted);
   margin-bottom: 10px;
 }
@@ -390,8 +387,7 @@ main { padding: 20px; }
   padding: 8px 16px;
   font-size: 11px;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.03em;
   color: var(--muted);
   border-bottom: 1px solid var(--border);
   white-space: nowrap;

@@ -41,3 +41,6 @@ sysfs
 Tctl
 toml
 upgrader
+XDNA
+
+sudoers
