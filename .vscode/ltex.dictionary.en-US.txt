@@ -5,10 +5,12 @@ bg
 BlinkMacSystemFont
 chartjs
 Clk
+CLOEXEC
 coreclk
 cputmp
 degc
 etmp
+fanotify
 fclk
 fdinfo
 Freqs

@@ -112,7 +112,7 @@ const CHART_DEFAULTS = {
   scales: {
     x: {
       type:   'linear',
-      ticks:  { display: false, stepSize: 5000 },
+      ticks:  { display: false },
       grid:   { color: '#21262d' },
       border: { color: '#30363d' }
     },
@@ -214,6 +214,8 @@ const state = {
 // fixed duration regardless of how fast samples arrive.
 function getHistorySize()     { return Math.max(2, Math.ceil(state.timeWidthMs     / state.intervalMs)); }
 function getCoreHistorySize() { return Math.max(2, Math.ceil(state.coreTimeWidthMs / state.intervalMs)); }
+// x-axis tick count: one tick per 5 s, plus 1 for the fencepost.
+function xTicksLimit(widthMs) { return Math.round(widthMs / 5000) + 1; }
 
 function makeHist(size, coreSize) {
   const a  = n => new Array(n).fill(NaN);
@@ -261,8 +263,9 @@ function makeHist(size, coreSize) {
     coreClk:       a2(16, coreSize), // CPU core SMU clocks — per-core charts
     cpuScalingClk: a2(16, coreSize), // CPU core cpufreq scaling — per-core charts
     vramMax:       1,
-    events:        [],         // [{timeMs, type:'start'|'stop', name}]
-    prevProcNames: new Map(),  // pid → name, previous tick
+    events:           [],         // [{timeMs, type:'start'|'stop', name, pid}]
+    prevProcNames:    new Map(),  // pid → name, previous tick
+    earlyStartedPids: new Set(),  // pids emitted via server proc_event; skip fdinfo re-emit
   };
 }
 
@@ -549,8 +552,11 @@ function buildDom(devices) {
       chartGrid.appendChild(box);
 
       const cfg = cloneDefaults();
-      if (!def.noYMin) cfg.scales.y.min = 0;
-      cfg.scales.y.grace = '20%';
+      cfg.scales.x.ticks.maxTicksLimit = xTicksLimit(state.timeWidthMs);
+      if (!def.noYMin) {
+        if (def.yMax != null) cfg.scales.y.min = 0;
+        else                  cfg.scales.y.suggestedMin = 0;
+      }
       if (def.yMax != null) cfg.scales.y.max = def.yMax;
       if (def.hideLegend) cfg.plugins.legend.display = false;
       cfg.plugins.tooltip.callbacks = def.coreData
@@ -583,6 +589,7 @@ function buildDom(devices) {
       coreFreqGrid.appendChild(box);
 
       const coreCfg = cloneDefaults();
+      coreCfg.scales.x.ticks.maxTicksLimit = xTicksLimit(state.coreTimeWidthMs);
       coreCfg.scales.y.min = 0;
       coreCfg.scales.y.max = 6000;
       coreCfg.scales.x.grid = { color: '#21262d' };
@@ -662,6 +669,7 @@ function buildDom(devices) {
               const canvas = el('canvas');
               chartWrap.appendChild(canvas);
               const pcCfg = cloneDefaults();
+              pcCfg.scales.x.ticks.maxTicksLimit = xTicksLimit(state.timeWidthMs);
               pcCfg.scales.y.min = 0;
               pcCfg.scales.y.max = 100;
               pcCfg.plugins.legend.display = false;
@@ -784,12 +792,12 @@ function makeEventAnnotation(ev, isCoreChart) {
     borderColor: lineColor, borderWidth: 1, borderDash: [3, 2],
     label: {
       display: !isCoreChart,
-      content:  `${ev.type}: ${ev.name}`,
+      content:  `${ev.type}: ${ev.name}${ev.pid != null ? ` (${ev.pid})` : ''}`,
       rotation: -90,
-      position: 'end',
+      position: 'start',
       yAdjust:  0,
       color:    labelColor,
-      font:     { size: 9 },
+      font:     { size: 10 },
       backgroundColor: 'rgba(22,27,34,0.85)',
       padding:  { x: 3, y: 2 },
       xAdjust:  -8,
@@ -871,8 +879,10 @@ function makeLimitLine(val, label, color, unit) {
       position: 'center',
       color,
       font: { size: 9 },
-      backgroundColor: 'transparent',
-      padding: 2,
+      backgroundColor: 'rgba(22,27,34,0.85)',
+      borderColor: 'transparent',
+      borderWidth: 0,
+      padding: { x: 4, y: 2 },
     },
   };
 }
@@ -897,10 +907,20 @@ function temperatureLimitAnnotations() {
 }
 
 function setAnnotations(chart, times, extra, ...arrays) {
-  chart.options.plugins.annotation.annotations = {
-    ...minMaxAnnotations(times, chart.options.scales.x.min, ...arrays),
-    ...extra,
-  };
+  const mm = minMaxAnnotations(times, chart.options.scales.x.min, ...arrays);
+  chart.options.plugins.annotation.annotations = { ...mm, ...extra };
+
+  // Always re-apply 20%-of-range grace so annotation labels never clip,
+  // even when updateDevice has just overwritten the scale bounds this tick.
+  const opts = chart.options.scales.y;
+  if (mm.minLine || mm.maxLine) {
+    const lo    = mm.minLine ? mm.minLine.yMin : mm.maxLine.yMax;
+    const hi    = mm.maxLine ? mm.maxLine.yMax : mm.minLine.yMin;
+    const range = (hi - lo) || Math.max(Math.abs(hi), 1);
+    const pad   = range * 0.20;
+    if (opts.min == null) opts.suggestedMin = lo - pad;
+    if (opts.max == null) opts.suggestedMax = Math.max(hi + pad, opts.suggestedMax ?? 0);
+  }
 }
 
 function updateDevice(i, dev) {
@@ -927,8 +947,8 @@ function updateDevice(i, dev) {
   const pwr    = v(sens, 'Average Power') ?? v(sens, 'Socket Power') ?? v(sens, 'Input Power') ?? gfxPwr;
   const tempE  = v(sens, 'Edge Temperature');
   const cputmp = v(sens, 'CPU Tctl');
-  const vddgfx = v(sens, 'VDDGFX');
-  const vddnb  = v(sens, 'VDDNB');
+  const vddgfx = v(sens, 'VDDGFX') || null;  // 0 = sensor not populated, treat as no-data
+  const vddnb  = v(sens, 'VDDNB')  || null;
   const gm = dev.gpu_metrics || {};
   const tempSRaw   = gm.temperature_soc     ?? null;
   const tempS      = tempSRaw   != null ? tempSRaw   / 100 : null;
@@ -1042,7 +1062,7 @@ function updateDevice(i, dev) {
   const cNpuClk  = state.charts[`${i}-npu-clk`];
   const cNpuBw   = state.charts[`${i}-npu-bw`];
 
-  if (cVram) cVram.options.scales.y.max = h.vramMax;
+  if (cVram) cVram.options.scales.y.suggestedMax = h.vramMax;
 
   // Ensure power chart y-axis includes the ryzenadj limit lines.
   if (cPwr) {
@@ -1134,12 +1154,14 @@ function updateDevice(i, dev) {
     currentProcNames.set(pid, proc?.name || `PID ${pid}`);
   }
   for (const [pid] of currentProcNames) {
-    if (!h.prevProcNames.has(pid))
-      h.events.push({ timeMs: nowMs, type: 'start', name: currentProcNames.get(pid) });
+    if (!h.prevProcNames.has(pid) && !h.earlyStartedPids.has(pid))
+      h.events.push({ timeMs: nowMs, type: 'start', name: currentProcNames.get(pid), pid: Number(pid) });
   }
   for (const [pid, name] of h.prevProcNames) {
-    if (!currentProcNames.has(pid))
-      h.events.push({ timeMs: nowMs, type: 'stop', name });
+    if (!currentProcNames.has(pid)) {
+      h.events.push({ timeMs: nowMs, type: 'stop', name, pid: Number(pid) });
+      h.earlyStartedPids.delete(pid); // allow re-detection if PID is reused
+    }
   }
   h.prevProcNames = currentProcNames;
   const oldest = nowMs - Math.max(state.timeWidthMs, state.coreTimeWidthMs);
@@ -1216,7 +1238,22 @@ function connect() {
   ws.addEventListener('message', evt => {
     let data;
     try { data = JSON.parse(evt.data); } catch { return; }
-    if (!data || !Array.isArray(data.devices)) return;
+    if (!data) return;
+
+    // Server-side early process detection (KFD watcher / known-proc watcher).
+    if (data.type === 'proc_event' && data.event === 'start') {
+      const pidStr = String(data.pid);
+      for (const h of state.hist) {
+        if (!h.earlyStartedPids.has(pidStr)) {
+          h.earlyStartedPids.add(pidStr);
+          h.events.push({ timeMs: data.time_ms, type: 'start', name: data.name, pid: data.pid });
+        }
+      }
+      appendLog(`Process start (early): ${data.name} (${data.pid})`);
+      return;
+    }
+
+    if (!Array.isArray(data.devices)) return;
 
     const _t = new Date();
     document.getElementById('period-label').textContent =
@@ -1543,10 +1580,21 @@ function openOverlay(chartKey, title) {
   const canvas = document.getElementById('plot-overlay-canvas');
   const srcOpts = JSON.parse(JSON.stringify(src.options));
   // Restore functions stripped by JSON round-trip
-  srcOpts.plugins.tooltip.external   = externalTooltip;
-  srcOpts.plugins.tooltip.itemSort   = tooltipItemSort;
-  srcOpts.plugins.tooltip.callbacks  = src.options.plugins.tooltip.callbacks;
-  srcOpts.scales.y.ticks.callback    = src.options.scales.y.ticks.callback;
+  srcOpts.plugins.tooltip.external = externalTooltip;
+  srcOpts.plugins.tooltip.itemSort = tooltipItemSort;
+  srcOpts.scales.y.ticks.callback  = src.options.scales.y.ticks.callback;
+
+  // coreData charts (core-pwr, npu-act) use a compact aggregate tooltip to
+  // save space in the small inline chart.  In the full-screen overlay there's
+  // room to show all series individually, so switch to the standard callbacks.
+  const isCoreData = src.config.plugins?.some(p => p.id === 'verticalLine');
+  if (isCoreData) {
+    const devIdx = parseInt(chartKey, 10);
+    srcOpts.plugins.tooltip.callbacks = makeChartCallbacks(state.hist[devIdx]);
+    srcOpts.plugins.tooltip.mode = 'index';
+  } else {
+    srcOpts.plugins.tooltip.callbacks = src.options.plugins.tooltip.callbacks;
+  }
   // Give the larger overlay canvas more breathing room for annotation labels
   srcOpts.layout.padding = { top: 20, right: 12, bottom: 24, left: 12 };
 

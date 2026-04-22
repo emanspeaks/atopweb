@@ -47,17 +47,19 @@ header {
 }
 
 .header-right {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 3px;
+  display: grid;
+  grid-template-columns: auto auto;
+  column-gap: 16px;
+  row-gap: 3px;
   justify-self: end;
+  justify-items: end;
+  align-items: center;
 }
 
-.header-right-row {
+.header-pause-ts {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 6px;
 }
 
 .title-block {
