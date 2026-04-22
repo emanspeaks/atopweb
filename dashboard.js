@@ -1136,7 +1136,6 @@ function updateDevice(i, dev) {
   h.prevProcNames = currentProcNames;
   const oldest = nowMs - Math.max(state.timeWidthMs, state.coreTimeWidthMs);
   while (h.events.length && h.events[0].timeMs < oldest) h.events.shift();
-  const devPrefix = `${i}-`;
   for (const [key, chart] of Object.entries(state.charts)) {
     if (key.startsWith(devPrefix))
       syncEventAnnotations(chart, h.events, key.includes('-cpu-core-'));
