@@ -11,38 +11,68 @@
 <body>
 
 <header>
-  <div class="title-block">
-    <h1 id="page-title">atopweb</h1>
-    <div class="page-subtitle" id="page-subtitle"></div>
+  <div class="header-left">
+    <div class="title-block">
+      <h1 id="page-title">atopweb</h1>
+      <div class="page-subtitle" id="page-subtitle"></div>
+    </div>
+    <span class="conn-status">
+      <span class="conn-dot" id="conn-dot"></span>
+      <span id="conn-label">Connecting…</span>
+    </span>
   </div>
-  <span class="conn-status">
-    <span class="conn-dot" id="conn-dot"></span>
-    <span id="conn-label">Connecting…</span>
-  </span>
   <div class="device-info" id="device-info"></div>
-  <div class="interval-ctrl">
-    <label for="interval-input">Interval</label>
-    <input type="number" id="interval-input" min="50" max="60000" step="50" value="1000">
-    <span>ms</span>
-    <button id="interval-btn">Apply</button>
+  <div class="header-right">
+    <div class="header-right-row">
+      <button id="pause-btn" class="pause-btn" title="Pause/resume chart updates">⏸</button>
+      <span class="period" id="period-label"></span>
+      <div class="interval-ctrl">
+        <label for="interval-input">Interval</label>
+        <input type="number" id="interval-input" min="50" max="60000" step="50" value="1000">
+        <span>ms</span>
+        <button id="interval-btn">Apply</button>
+      </div>
+    </div>
+    <div class="header-right-row">
+      <div class="interval-ctrl">
+        <label for="plotwidth-input">Plot width</label>
+        <input type="number" id="plotwidth-input" min="5" max="3600" step="5" value="120">
+        <span>s</span>
+        <button id="plotwidth-btn">Apply</button>
+      </div>
+      <div class="interval-ctrl">
+        <label for="corewidth-input">Core clock width</label>
+        <input type="number" id="corewidth-input" min="5" max="3600" step="5" value="60">
+        <span>s</span>
+        <button id="corewidth-btn">Apply</button>
+      </div>
+    </div>
   </div>
-  <div class="interval-ctrl">
-    <label for="plotwidth-input">Plot width</label>
-    <input type="number" id="plotwidth-input" min="5" max="3600" step="5" value="120">
-    <span>s</span>
-    <button id="plotwidth-btn">Apply</button>
-  </div>
-  <div class="interval-ctrl">
-    <label for="corewidth-input">Core width</label>
-    <input type="number" id="corewidth-input" min="5" max="3600" step="5" value="60">
-    <span>s</span>
-    <button id="corewidth-btn">Apply</button>
-  </div>
-  <span class="period" id="period-label"></span>
 </header>
 
 <nav id="tabs"></nav>
 <main id="main"></main>
+
+<div id="plot-overlay" hidden>
+  <div id="plot-overlay-header">
+    <span id="plot-overlay-title"></span>
+    <button id="plot-overlay-close" title="Close (Esc)">✕</button>
+  </div>
+  <div id="plot-overlay-body">
+    <canvas id="plot-overlay-canvas"></canvas>
+  </div>
+</div>
+
+<div id="status-bar">
+  <div id="status-log-wrapper">
+    <div id="status-resize-handle"></div>
+    <div id="status-log" tabindex="-1"></div>
+  </div>
+  <div id="status-bar-main">
+    <span id="status-bar-text">Connecting…</span>
+    <span id="status-bar-chevron">▲</span>
+  </div>
+</div>
 
 <script src="/dashboard.js"></script>
 </body>
