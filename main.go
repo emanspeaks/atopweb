@@ -10,8 +10,11 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"os/exec"
 	"os/user"
+	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -371,18 +374,21 @@ func (h *hub) serveGPUPct(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(result)
 }
 
-// ── /api/power-limits ────────────────────────────────────────────────────────
-// Returns APU power limits in watts from ryzenadj -i output.
+// ── /api/limits ──────────────────────────────────────────────────────────────
+// Returns ryzenadj limits (power and thermal) from the cached ryzenadj -i output.
 // Any field is omitted when ryzenadj is not configured or the value is absent.
 
 type powerLimitsInfo struct {
-	STAPMWatts *float64 `json:"stapm_w,omitempty"`
-	FastWatts  *float64 `json:"fast_w,omitempty"`
-	SlowWatts  *float64 `json:"slow_w,omitempty"`
+	STAPMWatts     *float64 `json:"stapm_w,omitempty"`
+	FastWatts      *float64 `json:"fast_w,omitempty"`
+	SlowWatts      *float64 `json:"slow_w,omitempty"`
+	APUSlowWatts   *float64 `json:"apu_slow_w,omitempty"`
+	THMCoreCelsius *float64 `json:"thm_core_c,omitempty"`
+	THMGFXCelsius  *float64 `json:"thm_gfx_c,omitempty"`
+	THMSOCCelsius  *float64 `json:"thm_soc_c,omitempty"`
 }
 
-// parseRyzenAdjInfo extracts STAPM, fast-PPT, and slow-PPT limits from the
-// table printed by `ryzenadj -i`.
+// parseRyzenAdjInfo extracts power and thermal limits from `ryzenadj -i` output.
 //
 // Modern ryzenadj output uses a leading "|" on every data row:
 //   | STAPM LIMIT | 45000 | (bias) | (min) | (max) | mW |
@@ -390,9 +396,10 @@ type powerLimitsInfo struct {
 //   stapm_limit | 45000 | mW
 //
 // Both formats are handled by detecting whether parts[0] is empty.
-// The unit is found by scanning all columns after the value for "mw"/"w".
+// The unit is found by scanning all columns after the value.
 // Name matching is case-insensitive substring-based.
-func parseRyzenAdjInfo(output string) (stapm, fast, slow *float64) {
+func parseRyzenAdjInfo(output string) powerLimitsInfo {
+	var result powerLimitsInfo
 	for _, line := range strings.Split(output, "\n") {
 		parts := strings.Split(line, "|")
 		if len(parts) < 3 {
@@ -419,39 +426,83 @@ func parseRyzenAdjInfo(output string) (stapm, fast, slow *float64) {
 		unit := ""
 		for idx := off + 2; idx < len(parts); idx++ {
 			u := strings.ToLower(strings.TrimSpace(parts[idx]))
-			if u == "mw" || u == "w" {
+			if u == "mw" || u == "w" || u == "mdegc" || u == "degc" {
 				unit = u
 				break
 			}
 		}
-		var watts float64
-		switch unit {
-		case "mw":
-			watts = val / 1000.0
-		case "w":
-			watts = val
-		default:
-			// Heuristic: APU limits are typically expressed in mW (> 500).
-			if val > 500 {
-				watts = val / 1000.0
-			} else {
-				watts = val
-			}
-		}
-		w := watts
 		n := strings.ToLower(name)
 		// Require "limit" in the name to avoid matching VALUE rows that appear
 		// directly below each LIMIT row in the ryzenadj table.
+		if !strings.Contains(n, "limit") {
+			continue
+		}
 		switch {
-		case strings.Contains(n, "stapm") && strings.Contains(n, "limit"):
-			stapm = &w
-		case strings.Contains(n, "fast") && strings.Contains(n, "ppt") && strings.Contains(n, "limit"):
-			fast = &w
-		case strings.Contains(n, "slow") && strings.Contains(n, "ppt") && strings.Contains(n, "limit"):
-			slow = &w
+		case strings.Contains(n, "stapm"):
+			if w := toWatts(val, unit); w != nil {
+				result.STAPMWatts = w
+			}
+		case strings.Contains(n, "fast") && strings.Contains(n, "ppt"):
+			if w := toWatts(val, unit); w != nil {
+				result.FastWatts = w
+			}
+		case strings.Contains(n, "slow") && strings.Contains(n, "ppt"):
+			if w := toWatts(val, unit); w != nil {
+				result.SlowWatts = w
+			}
+		case strings.Contains(n, "apu") && strings.Contains(n, "slow"):
+			if w := toWatts(val, unit); w != nil {
+				result.APUSlowWatts = w
+			}
+		case strings.Contains(n, "thm") && strings.Contains(n, "core"):
+			if c := toCelsius(val, unit); c != nil {
+				result.THMCoreCelsius = c
+			}
+		case strings.Contains(n, "thm") && strings.Contains(n, "gfx"):
+			if c := toCelsius(val, unit); c != nil {
+				result.THMGFXCelsius = c
+			}
+		case strings.Contains(n, "thm") && strings.Contains(n, "soc"):
+			if c := toCelsius(val, unit); c != nil {
+				result.THMSOCCelsius = c
+			}
 		}
 	}
-	return
+	return result
+}
+
+func toWatts(val float64, unit string) *float64 {
+	var w float64
+	switch unit {
+	case "mw":
+		w = val / 1000.0
+	case "w":
+		w = val
+	default:
+		if val > 500 {
+			w = val / 1000.0
+		} else {
+			w = val
+		}
+	}
+	return &w
+}
+
+func toCelsius(val float64, unit string) *float64 {
+	var c float64
+	switch unit {
+	case "mdegc":
+		c = val / 1000.0
+	case "degc":
+		c = val
+	default:
+		if val > 1000 {
+			c = val / 1000.0
+		} else {
+			c = val
+		}
+	}
+	return &c
 }
 
 // refreshPowerLimits runs ryzenadj and updates the cached result.
@@ -465,7 +516,7 @@ func (h *hub) refreshPowerLimits() {
 	if err != nil {
 		log.Printf("ryzenadj error: %v", err)
 	} else {
-		result.STAPMWatts, result.FastWatts, result.SlowWatts = parseRyzenAdjInfo(string(out))
+		result = parseRyzenAdjInfo(string(out))
 		if result.STAPMWatts == nil && result.FastWatts == nil && result.SlowWatts == nil {
 			log.Printf("ryzenadj: parsed no limits; raw output:\n%s", string(out))
 		}
@@ -475,7 +526,7 @@ func (h *hub) refreshPowerLimits() {
 	h.mu.Unlock()
 }
 
-func (h *hub) servePowerLimits(w http.ResponseWriter, r *http.Request) {
+func (h *hub) serveLimits(w http.ResponseWriter, r *http.Request) {
 	h.mu.Lock()
 	result := h.powerCache
 	h.mu.Unlock()
@@ -483,6 +534,72 @@ func (h *hub) servePowerLimits(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	json.NewEncoder(w).Encode(result)
+}
+
+// ── CPU core performance ranks ────────────────────────────────────────────────
+
+var (
+	coreRanksOnce sync.Once
+	coreRanksData []int
+)
+
+// readCoreRanks reads /sys/devices/system/cpu/cpu*/acpi_cppc/highest_perf and
+// returns a slice where ranks[j] is the performance rank of core j (1 = best).
+// Ties are broken by core number (lower = better rank).  Returns nil on error.
+func readCoreRanks() []int {
+	paths, _ := filepath.Glob("/sys/devices/system/cpu/cpu*/acpi_cppc/highest_perf")
+	if len(paths) == 0 {
+		return nil
+	}
+	type entry struct{ core, perf int }
+	var entries []entry
+	for _, p := range paths {
+		cpuDir := filepath.Base(filepath.Dir(filepath.Dir(p)))
+		n, err := strconv.Atoi(strings.TrimPrefix(cpuDir, "cpu"))
+		if err != nil {
+			continue
+		}
+		data, err := os.ReadFile(p)
+		if err != nil {
+			continue
+		}
+		perf, err := strconv.Atoi(strings.TrimSpace(string(data)))
+		if err != nil {
+			continue
+		}
+		entries = append(entries, entry{n, perf})
+	}
+	if len(entries) == 0 {
+		return nil
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].perf != entries[j].perf {
+			return entries[i].perf > entries[j].perf
+		}
+		return entries[i].core < entries[j].core
+	})
+	maxCore := 0
+	for _, e := range entries {
+		if e.core > maxCore {
+			maxCore = e.core
+		}
+	}
+	ranks := make([]int, maxCore+1)
+	for rank, e := range entries {
+		ranks[e.core] = rank + 1
+	}
+	return ranks
+}
+
+func serveCoreRanks(w http.ResponseWriter, r *http.Request) {
+	coreRanksOnce.Do(func() { coreRanksData = readCoreRanks() })
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	ranks := coreRanksData
+	if ranks == nil {
+		ranks = []int{}
+	}
+	json.NewEncoder(w).Encode(map[string][]int{"ranks": ranks})
 }
 
 // ── static files ─────────────────────────────────────────────────────────────
@@ -583,7 +700,7 @@ func main() {
 	}()
 
 	// Dashboard: log each browser connection and refresh the ryzenadj cache so
-	// the /api/power-limits call the browser makes after loading gets fresh data.
+	// the /api/limits call the browser makes after loading gets fresh data.
 	dashHandler := serveStatic("dashboard.html", "text/html; charset=utf-8")
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {
@@ -600,7 +717,8 @@ func main() {
 	http.HandleFunc("/api/interval",     h.serveSetInterval)
 	http.HandleFunc("/api/vram",         h.serveVRAM)
 	http.HandleFunc("/api/gpu-pct",      h.serveGPUPct)
-	http.HandleFunc("/api/power-limits", h.servePowerLimits)
+	http.HandleFunc("/api/limits",       h.serveLimits)
+	http.HandleFunc("/api/cpu-ranks",    serveCoreRanks)
 	http.HandleFunc("/ws",               h.serveWS)
 
 	addr := fmt.Sprintf(":%d", *port)
