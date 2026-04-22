@@ -112,7 +112,7 @@ const CHART_DEFAULTS = {
   scales: {
     x: {
       type:   'linear',
-      ticks:  { display: false },
+      ticks:  { display: false, stepSize: 5000 },
       grid:   { color: '#21262d' },
       border: { color: '#30363d' }
     },
@@ -129,8 +129,15 @@ const CHART_DEFAULTS = {
 // after each clone — never rely on CHART_DEFAULTS to carry it directly.
 function cloneDefaults() {
   const cfg = JSON.parse(JSON.stringify(CHART_DEFAULTS));
-  cfg.plugins.tooltip.external = externalTooltip;
+  cfg.plugins.tooltip.external  = externalTooltip;
+  cfg.plugins.tooltip.itemSort  = tooltipItemSort;
   return cfg;
+}
+
+function tooltipItemSort(a, b) {
+  const av = Number.isFinite(a.raw) ? a.raw : -Infinity;
+  const bv = Number.isFinite(b.raw) ? b.raw : -Infinity;
+  return bv - av;
 }
 
 function makeDataset(label, color, data, sourcePath, decimals) {
@@ -423,7 +430,7 @@ function buildDom(devices) {
 
     const chartDefs = [
       {
-        key: 'temp', title: 'Temperature (°C)', height: 140, yMax: null, wide: true, noYMin: true,
+        key: 'temp', title: 'Temperature (°C)', height: 175, yMax: null, wide: true, noYMin: true,
         datasets: () => [
           makeDataset('Edge',     '#f85149', h.tempE,   `devices[${i}].Sensors['Edge Temperature']`),
           makeDataset('CPU Tctl', '#e3b341', h.tempC,   `devices[${i}].Sensors['CPU Tctl']`),
@@ -434,7 +441,7 @@ function buildDom(devices) {
         ]
       },
       {
-        key: 'activity', title: 'GPU Activity (%)', height: 140, yMax: 100,
+        key: 'activity', title: 'GPU Activity (%)', height: 175, yMax: 100,
         datasets: () => [
           makeDataset('GFX',    '#e85d04', h.gfx,   `devices[${i}].gpu_activity['GFX']`),
           makeDataset('Memory', '#388bfd', h.mem,   `devices[${i}].gpu_activity['Memory']`),
@@ -442,7 +449,7 @@ function buildDom(devices) {
         ]
       },
       {
-        key: 'vram', title: 'VRAM + GTT Usage (GiB)', height: 140, yMax: null,
+        key: 'vram', title: 'VRAM + GTT Usage (GiB)', height: 175, yMax: null,
         tickFmt: v => (typeof v === 'number' ? v.toFixed(3) : String(v)),
         datasets: () => [
           makeDataset('Total', '#3fb950', h.vram,    `devices[${i}].VRAM: Total VRAM Usage + Total GTT Usage`, 3),
@@ -451,7 +458,7 @@ function buildDom(devices) {
         ]
       },
       {
-        key: 'core-pwr', title: 'CPU Core Power (W)', height: 140, yMax: null,
+        key: 'core-pwr', title: 'CPU Core Power (W)', height: 175, yMax: null,
         coreData: () => h.corePwr, coreUnit: 'W',
         datasets: () => Array.from({length: 16}, (_, j) => ({
           label: `CPU ${coreLabel(j)}`,
@@ -466,7 +473,7 @@ function buildDom(devices) {
         }))
       },
       {
-        key: 'gfx-clk', title: 'Clocks (MHz)', height: 140, yMax: null,
+        key: 'gfx-clk', title: 'Clocks (MHz)', height: 175, yMax: null,
         datasets: () => [
           makeDataset('SCLK',     '#e85d04', h.sclk,    `devices[${i}].Sensors['GFX_SCLK']`),
           makeDataset('MCLK',     '#388bfd', h.mclk,    `devices[${i}].Sensors['GFX_MCLK']`),
@@ -477,7 +484,7 @@ function buildDom(devices) {
         ]
       },
       {
-        key: 'power', title: 'Package Power (W)', height: 140, yMax: null,
+        key: 'power', title: 'Package Power (W)', height: 175, yMax: null,
         datasets: () => [
           makeDataset('Power',     '#ffffff', h.pwr,    `devices[${i}].Sensors['Average Power']`),
           makeDataset('CPU Cores', '#388bfd', h.cpuPwr, `devices[${i}].gpu_metrics.average_all_core_power / 1000`),
@@ -485,21 +492,21 @@ function buildDom(devices) {
         ]
       },
       {
-        key: 'voltage', title: 'Voltage (mV)', height: 140, yMax: null,
+        key: 'voltage', title: 'Voltage (mV)', height: 175, yMax: null,
         datasets: () => [
           makeDataset('VDDGFX', '#e3b341', h.vddgfx, `devices[${i}].Sensors['VDDGFX']`),
           makeDataset('VDDNB',  '#8b949e', h.vddnb,  `devices[${i}].Sensors['VDDNB']`),
         ]
       },
       {
-        key: 'dram-bw', title: 'DRAM Bandwidth (MB/s)', height: 140, yMax: null,
+        key: 'dram-bw', title: 'DRAM Bandwidth (MB/s)', height: 175, yMax: null,
         datasets: () => [
           makeDataset('Reads',  '#3fb950', h.dramReads,  `devices[${i}].gpu_metrics.average_dram_reads`),
           makeDataset('Writes', '#f85149', h.dramWrites, `devices[${i}].gpu_metrics.average_dram_writes`),
         ]
       },
       {
-        key: 'npu-act', title: 'NPU Tile Activity (%)', height: 140, yMax: 100,
+        key: 'npu-act', title: 'NPU Tile Activity (%)', height: 175, yMax: 100,
         coreData: () => h.npuBusy, coreUnit: '%',
         datasets: () => Array.from({length: 8}, (_, j) => ({
           label: `NPU Tile ${j}`,
@@ -514,14 +521,14 @@ function buildDom(devices) {
         }))
       },
       {
-        key: 'npu-clk', title: 'NPU Clocks (MHz)', height: 140, yMax: null,
+        key: 'npu-clk', title: 'NPU Clocks (MHz)', height: 175, yMax: null,
         datasets: () => [
           makeDataset('NPU Clk',    '#bc8cff', h.npuClk,   `devices[${i}].npu_metrics.npuclk_freq`),
           makeDataset('MP-NPU Clk', '#8b949e', h.npuMpClk, `devices[${i}].npu_metrics.mpnpuclk_freq`),
         ]
       },
       {
-        key: 'npu-bw', title: 'NPU Bandwidth (MB/s)', height: 140, yMax: null,
+        key: 'npu-bw', title: 'NPU Bandwidth (MB/s)', height: 175, yMax: null,
         datasets: () => [
           makeDataset('Reads',  '#3fb950', h.npuReads,  `devices[${i}].npu_metrics.npu_reads`),
           makeDataset('Writes', '#f85149', h.npuWrites, `devices[${i}].npu_metrics.npu_writes`),
@@ -565,10 +572,10 @@ function buildDom(devices) {
     const coreFreqGrid = el('div', 'charts-cores');
     for (let j = 0; j < 16; j++) {
       const box    = el('div', 'chart-box');
-      const title  = el('div', 'chart-title', `${coreLabel(j)} Clocks`);
-      title.addEventListener('click', () => openOverlay(`${i}-cpu-core-${j}`, `${coreLabel(j)} Clocks`));
+      const title  = el('div', 'chart-title', `${coreLabel(j)} Clocks (MHz)`);
+      title.addEventListener('click', () => openOverlay(`${i}-cpu-core-${j}`, `${coreLabel(j)} Clocks (MHz)`));
       const wrap   = el('div');
-      wrap.style.height = '125px';
+      wrap.style.height = '156px';
       const canvas = el('canvas');
       wrap.appendChild(canvas);
       box.appendChild(title);
@@ -578,13 +585,14 @@ function buildDom(devices) {
       const coreCfg = cloneDefaults();
       coreCfg.scales.y.min = 0;
       coreCfg.scales.y.max = 6000;
-      coreCfg.scales.x.grid = { display: false };
+      coreCfg.scales.x.grid = { color: '#21262d' };
       coreCfg.scales.y.grid = { display: true, color: 'rgba(48,54,61,0.8)' };
       coreCfg.plugins.legend.display = false;
       coreCfg.plugins.tooltip.callbacks = makeChartCallbacks({ times: h.coreTimes });
       coreCfg.scales.y.ticks.callback = fmtTick;
       coreCfg.scales.y.ticks.font = { size: 9 };
-      coreCfg.scales.y.ticks.maxTicksLimit = 3;
+      coreCfg.scales.y.ticks.maxTicksLimit = 7;
+      coreCfg.scales.y.ticks.stepSize = 1000;
 
       const hue = Math.round(j * 137.5) % 360;
       state.charts[`${i}-cpu-core-${j}`] = new Chart(canvas, {
@@ -602,7 +610,6 @@ function buildDom(devices) {
               tension: 0.25,
               pointRadius: 0,
               borderWidth: 1.5,
-              borderDash: [3, 3],
             },
             {
               label: 'System Mgmt Unit',
@@ -614,6 +621,7 @@ function buildDom(devices) {
               tension: 0.25,
               pointRadius: 0,
               borderWidth: 1.5,
+              borderDash: [3, 3],
             },
           ],
         },
@@ -779,12 +787,12 @@ function makeEventAnnotation(ev, isCoreChart) {
       content:  `${ev.type}: ${ev.name}`,
       rotation: -90,
       position: 'end',
-      yAdjust:  -6,
+      yAdjust:  0,
       color:    labelColor,
-      font:     { size: 8 },
+      font:     { size: 9 },
       backgroundColor: 'rgba(22,27,34,0.85)',
       padding:  { x: 3, y: 2 },
-      xAdjust:  8,
+      xAdjust:  -8,
     },
   };
   if (isCoreChart) {
@@ -1510,10 +1518,14 @@ function updateStickyOffset() {
 function updateOverlayPosition() {
   const overlay = document.getElementById('plot-overlay');
   if (!overlay) return;
-  const headerH = document.querySelector('header')?.offsetHeight || 0;
-  const tabsH   = document.getElementById('tabs')?.offsetHeight  || 0;
+  // Use the bottom of the sticky cards (viewport-relative) so the overlay
+  // never covers the digitals.  Fall back to header bottom if cards aren't
+  // built yet.
+  const cardsEl = document.querySelector('.gpu-panel.active .cards');
+  const anchorEl = cardsEl || document.querySelector('header');
+  const topPx = anchorEl ? anchorEl.getBoundingClientRect().bottom : 0;
   const statusH = document.getElementById('status-bar')?.offsetHeight || 0;
-  overlay.style.top    = (headerH + tabsH) + 'px';
+  overlay.style.top    = Math.round(topPx) + 'px';
   overlay.style.bottom = statusH + 'px';
 }
 
@@ -1530,7 +1542,12 @@ function openOverlay(chartKey, title) {
 
   const canvas = document.getElementById('plot-overlay-canvas');
   const srcOpts = JSON.parse(JSON.stringify(src.options));
-  srcOpts.plugins.tooltip.external = externalTooltip;
+  // Restore functions stripped by JSON round-trip
+  srcOpts.plugins.tooltip.external   = externalTooltip;
+  srcOpts.plugins.tooltip.itemSort   = tooltipItemSort;
+  srcOpts.plugins.tooltip.callbacks  = src.options.plugins.tooltip.callbacks;
+  srcOpts.scales.y.ticks.callback    = src.options.scales.y.ticks.callback;
+  // Give the larger overlay canvas more breathing room for annotation labels
   srcOpts.layout.padding = { top: 20, right: 12, bottom: 24, left: 12 };
 
   state.overlayChart = new Chart(canvas, {
@@ -1562,6 +1579,9 @@ function initOverlay() {
   new ResizeObserver(() => { updateStickyOffset(); updateOverlayPosition(); })
     .observe(document.getElementById('tabs'));
   window.addEventListener('resize', updateOverlayPosition);
+  window.addEventListener('scroll', () => {
+    if (!document.getElementById('plot-overlay').hidden) updateOverlayPosition();
+  }, { passive: true });
 }
 
 loadSavedSettings();
