@@ -39,8 +39,9 @@ type hub struct {
 	last           []byte
 	intervalMs     int
 	cancelFn       context.CancelFunc
-	atopVersion    string   // amdgpu_top version string
-	ryzenAdjArgs   []string // nil if not configured; includes sudo prefix when needed
+	atopVersion    string          // amdgpu_top version string
+	ryzenAdjArgs   []string        // nil if not configured; includes sudo prefix when needed
+	powerCache     powerLimitsInfo // last successful ryzenadj result
 }
 
 func (h *hub) add(c *websocket.Conn) {
@@ -129,6 +130,9 @@ func runStreamer(binary string, baseArgs []string, h *hub) {
 			if cmd.Process != nil {
 				syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 			}
+			// Close the read end of the pipe so the scanner unblocks
+			// immediately even if amdgpu_top (sudo's child) outlives sudo.
+			stdout.Close()
 		}()
 
 		scanner := bufio.NewScanner(stdout)
@@ -158,6 +162,10 @@ func runStreamer(binary string, baseArgs []string, h *hub) {
 			log.Printf("amdgpu_top stderr: %s", msg)
 		}
 		if wasKilled {
+			h.mu.Lock()
+			newMs := h.intervalMs
+			h.mu.Unlock()
+			log.Printf("amdgpu_top restarting at %d ms", newMs)
 			time.Sleep(200 * time.Millisecond)
 		} else {
 			log.Printf("amdgpu_top exited unexpectedly; retrying in 5s")
@@ -446,20 +454,31 @@ func parseRyzenAdjInfo(output string) (stapm, fast, slow *float64) {
 	return
 }
 
-func (h *hub) servePowerLimits(w http.ResponseWriter, r *http.Request) {
+// refreshPowerLimits runs ryzenadj and updates the cached result.
+// Safe to call concurrently; only one run is meaningful at a time but duplicates are harmless.
+func (h *hub) refreshPowerLimits() {
+	if len(h.ryzenAdjArgs) == 0 {
+		return
+	}
+	out, err := exec.Command(h.ryzenAdjArgs[0], h.ryzenAdjArgs[1:]...).Output()
 	var result powerLimitsInfo
-
-	if len(h.ryzenAdjArgs) > 0 {
-		out, err := exec.Command(h.ryzenAdjArgs[0], h.ryzenAdjArgs[1:]...).Output()
-		if err != nil {
-			log.Printf("ryzenadj error: %v", err)
-		} else {
-			result.STAPMWatts, result.FastWatts, result.SlowWatts = parseRyzenAdjInfo(string(out))
-			if result.STAPMWatts == nil && result.FastWatts == nil && result.SlowWatts == nil {
-				log.Printf("ryzenadj: parsed no limits; raw output:\n%s", string(out))
-			}
+	if err != nil {
+		log.Printf("ryzenadj error: %v", err)
+	} else {
+		result.STAPMWatts, result.FastWatts, result.SlowWatts = parseRyzenAdjInfo(string(out))
+		if result.STAPMWatts == nil && result.FastWatts == nil && result.SlowWatts == nil {
+			log.Printf("ryzenadj: parsed no limits; raw output:\n%s", string(out))
 		}
 	}
+	h.mu.Lock()
+	h.powerCache = result
+	h.mu.Unlock()
+}
+
+func (h *hub) servePowerLimits(w http.ResponseWriter, r *http.Request) {
+	h.mu.Lock()
+	result := h.powerCache
+	h.mu.Unlock()
 
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
@@ -554,8 +573,17 @@ func main() {
 		ryzenAdjArgs: ryzenAdjArgs,
 	}
 	go runStreamer(binary, atopArgs, h)
+	go h.refreshPowerLimits() // warm cache at startup
+	go func() {
+		t := time.NewTicker(15 * time.Minute)
+		defer t.Stop()
+		for range t.C {
+			h.refreshPowerLimits()
+		}
+	}()
 
-	// Dashboard: log each browser connection.
+	// Dashboard: log each browser connection and refresh the ryzenadj cache so
+	// the /api/power-limits call the browser makes after loading gets fresh data.
 	dashHandler := serveStatic("dashboard.html", "text/html; charset=utf-8")
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {
@@ -563,6 +591,7 @@ func main() {
 			return
 		}
 		log.Printf("dashboard opened from %s", r.RemoteAddr)
+		go h.refreshPowerLimits()
 		dashHandler(w, r)
 	})
 	http.HandleFunc("/dashboard.css", serveStatic("dashboard.css", "text/css; charset=utf-8"))
