@@ -2,7 +2,6 @@
 // chartjs-plugin-annotation auto-registers itself when loaded from CDN after Chart.js.
 
 // ── Constants ────────────────────────────────────────────────────────────────
-const HISTORY = 60;
 
 const GRBM_KEYS = [
   'Graphics Pipe',
@@ -47,8 +46,9 @@ const CHART_DEFAULTS = {
   },
   scales: {
     x: {
-      ticks: { display: false },
-      grid:  { color: '#21262d' },
+      type:   'linear',
+      ticks:  { display: false },
+      grid:   { color: '#21262d' },
       border: { color: '#30363d' }
     },
     y: {
@@ -84,60 +84,82 @@ function scheduleRender() {
   _rafPending = true;
   requestAnimationFrame(() => {
     _rafPending = false;
-    for (const c of Object.values(state.charts)) c.update('none');
+    const now = Date.now();
+    for (const [key, c] of Object.entries(state.charts)) {
+      const isCoreFreq = key.includes('-cpu-core-');
+      const widthMs    = isCoreFreq ? state.coreTimeWidthMs : state.timeWidthMs;
+      c.options.scales.x.min = now - widthMs;
+      c.options.scales.x.max = now;
+      c.update('none');
+    }
   });
 }
 
 // ── State ────────────────────────────────────────────────────────────────────
 const state = {
-  cur:         -1,
-  n:            0,
-  hist:        [],
-  charts:      {},
-  powerLimits: { stapm_w: null, fast_w: null, slow_w: null },
-  lastDev0:    null,
+  cur:             -1,
+  n:                0,
+  hist:            [],
+  charts:          {},
+  powerLimits:     { stapm_w: null, fast_w: null, slow_w: null },
+  lastDev0:        null,
+  lastDevices:     null,
+  intervalMs:      1000,
+  timeWidthMs:     120_000,
+  coreTimeWidthMs: 60_000,
 };
 
-function makeHist() {
+// History size = time window / update interval, so the x-axis always shows a
+// fixed duration regardless of how fast samples arrive.
+function getHistorySize()     { return Math.max(2, Math.ceil(state.timeWidthMs     / state.intervalMs)); }
+function getCoreHistorySize() { return Math.max(2, Math.ceil(state.coreTimeWidthMs / state.intervalMs)); }
+
+function makeHist(size, coreSize) {
+  const a  = n => Array(n).fill(null);
+  const a2 = (rows, n) => Array.from({length: rows}, () => Array(n).fill(null));
+  // Pre-fill times with evenly-spaced epoch ms so the x-axis is valid before
+  // real data arrives.  pushHistory overwrites them as samples come in.
+  const now = Date.now();
+  const ms  = state.intervalMs;
   return {
-    labels:   Array(HISTORY).fill(''),
-    times:    Array(HISTORY).fill(null),  // epoch ms per slot for tooltip
-    gfx:      Array(HISTORY).fill(null),
-    mem:      Array(HISTORY).fill(null),
-    media:    Array(HISTORY).fill(null),
-    vram:     Array(HISTORY).fill(null),  // VRAM+GTT combined used GiB
-    vramOnly: Array(HISTORY).fill(null),
-    gttOnly:  Array(HISTORY).fill(null),
-    pwr:      Array(HISTORY).fill(null),
-    cpuPwr:   Array(HISTORY).fill(null),  // average_all_core_power (W)
-    npuPwr:   Array(HISTORY).fill(null),  // average_ipu_power (W)
-    tempE:    Array(HISTORY).fill(null),
-    tempC:    Array(HISTORY).fill(null),
-    tempS:    Array(HISTORY).fill(null),
-    tempGfx:  Array(HISTORY).fill(null),  // temperature_gfx / 100
-    tempHot:  Array(HISTORY).fill(null),  // temperature_hotspot / 100
-    tempMem:  Array(HISTORY).fill(null),  // temperature_mem / 100
-    sclk:     Array(HISTORY).fill(null),
-    mclk:     Array(HISTORY).fill(null),
-    fclk:      Array(HISTORY).fill(null),
-    fclkAvg:   Array(HISTORY).fill(null),  // gpu_metrics.average_fclk_frequency
-    socClk:    Array(HISTORY).fill(null),  // gpu_metrics.average_socclk_frequency
-    vclk:      Array(HISTORY).fill(null),  // gpu_metrics.average_vclk_frequency
-    vddgfx:    Array(HISTORY).fill(null),  // Sensors.VDDGFX (mV)
-    vddnb:     Array(HISTORY).fill(null),  // Sensors.VDDNB  (mV)
-    dramReads:  Array(HISTORY).fill(null), // gpu_metrics.average_dram_reads (MB/s)
-    dramWrites: Array(HISTORY).fill(null), // gpu_metrics.average_dram_writes (MB/s)
-    npuBusy:    Array.from({length: 8}, () => Array(HISTORY).fill(null)), // npu_metrics.npu_busy (%)
-    npuClk:     Array(HISTORY).fill(null), // npu_metrics.npuclk_freq (MHz)
-    npuMpClk:   Array(HISTORY).fill(null), // npu_metrics.mpnpuclk_freq (MHz)
-    npuReads:   Array(HISTORY).fill(null), // npu_metrics.npu_reads (MB/s)
-    npuWrites:  Array(HISTORY).fill(null), // npu_metrics.npu_writes (MB/s)
-    grbm:          Array.from({length: GRBM_KEYS.length},  () => Array(HISTORY).fill(null)),
-    grbm2:         Array.from({length: GRBM2_KEYS.length}, () => Array(HISTORY).fill(null)),
-    corePwr:       Array.from({length: 16}, () => Array(HISTORY).fill(null)), // CPU cores
-    coreClk:       Array.from({length: 16}, () => Array(HISTORY).fill(null)), // CPU cores (SMU)
-    cpuScalingClk: Array.from({length: 16}, () => Array(HISTORY).fill(null)), // CPU cores (cpufreq)
-    vramMax:  1,  // VRAM+GTT combined total GiB
+    times:     Array.from({length: size},     (_, k) => now - (size - 1 - k) * ms),
+    coreTimes: Array.from({length: coreSize}, (_, k) => now - (coreSize - 1 - k) * ms),
+    gfx:      a(size),
+    mem:      a(size),
+    media:    a(size),
+    vram:     a(size),
+    vramOnly: a(size),
+    gttOnly:  a(size),
+    pwr:      a(size),
+    cpuPwr:   a(size),
+    npuPwr:   a(size),
+    tempE:    a(size),
+    tempC:    a(size),
+    tempS:    a(size),
+    tempGfx:  a(size),
+    tempHot:  a(size),
+    tempMem:  a(size),
+    sclk:     a(size),
+    mclk:     a(size),
+    fclk:     a(size),
+    fclkAvg:  a(size),
+    socClk:   a(size),
+    vclk:     a(size),
+    vddgfx:   a(size),
+    vddnb:    a(size),
+    dramReads:  a(size),
+    dramWrites: a(size),
+    npuBusy:   a2(8,  size),
+    npuClk:    a(size),
+    npuMpClk:  a(size),
+    npuReads:  a(size),
+    npuWrites: a(size),
+    grbm:          a2(GRBM_KEYS.length,  size),
+    grbm2:         a2(GRBM2_KEYS.length, size),
+    corePwr:       a2(16, size),     // CPU core power — global chart
+    coreClk:       a2(16, coreSize), // CPU core SMU clocks — per-core charts
+    cpuScalingClk: a2(16, coreSize), // CPU core cpufreq scaling — per-core charts
+    vramMax:  1,
   };
 }
 
@@ -240,7 +262,7 @@ function buildDom(devices) {
   main.innerHTML = '';
 
   state.n = devices.length;
-  state.hist = devices.map(() => makeHist());
+  state.hist = devices.map(() => makeHist(getHistorySize(), getCoreHistorySize()));
   state.charts = {};
 
   if (devices.length > 1) tabs.classList.add('visible');
@@ -295,6 +317,17 @@ function buildDom(devices) {
 
     const chartDefs = [
       {
+        key: 'temp', title: 'Temperature (°C)', height: 140, yMax: null, wide: true,
+        datasets: () => [
+          makeDataset('Edge',     '#f85149', h.tempE),
+          makeDataset('CPU Tctl', '#e3b341', h.tempC),
+          makeDataset('SoC',      '#bc8cff', h.tempS),
+          makeDataset('GFX',      '#388bfd', h.tempGfx),
+          makeDataset('Hotspot',  '#ff9500', h.tempHot),
+          makeDataset('Mem',      '#3fb950', h.tempMem),
+        ]
+      },
+      {
         key: 'activity', title: 'GPU Activity (%)', height: 140, yMax: 100,
         datasets: () => [
           makeDataset('GFX',    '#e85d04', h.gfx),
@@ -308,17 +341,6 @@ function buildDom(devices) {
           makeDataset('Total',   '#3fb950', h.vram),
           makeDataset('VRAM',    '#388bfd', h.vramOnly),
           makeDataset('GTT',     '#bc8cff', h.gttOnly),
-        ]
-      },
-      {
-        key: 'temp', title: 'Temperature (°C)', height: 140, yMax: null,
-        datasets: () => [
-          makeDataset('Edge',     '#f85149', h.tempE),
-          makeDataset('CPU Tctl', '#e3b341', h.tempC),
-          makeDataset('SoC',      '#bc8cff', h.tempS),
-          makeDataset('GFX',      '#388bfd', h.tempGfx),
-          makeDataset('Hotspot',  '#ff9500', h.tempHot),
-          makeDataset('Mem',      '#3fb950', h.tempMem),
         ]
       },
       {
@@ -421,7 +443,7 @@ function buildDom(devices) {
 
       state.charts[`${i}-${def.key}`] = new Chart(canvas, {
         type: 'line',
-        data: { labels: h.labels, datasets: def.datasets() },
+        data: { labels: h.times, datasets: def.datasets() },
         options: cfg,
         plugins: def.coreData ? [verticalLinePlugin] : [],
       });
@@ -433,7 +455,7 @@ function buildDom(devices) {
     const coreFreqGrid = el('div', 'charts-cores');
     for (let j = 0; j < 16; j++) {
       const box    = el('div', 'chart-box');
-      const title  = el('div', 'chart-title', `Core ${j}`);
+      const title  = el('div', 'chart-title', `Core ${j} Clocks`);
       const wrap   = el('div');
       wrap.style.height = '70px';
       const canvas = el('canvas');
@@ -444,8 +466,10 @@ function buildDom(devices) {
 
       const coreCfg = JSON.parse(JSON.stringify(CHART_DEFAULTS));
       coreCfg.scales.y.grace = '25%';
+      coreCfg.scales.x.grid = { display: false };
+      coreCfg.scales.y.grid = { display: false };
       coreCfg.plugins.legend.display = false;
-      coreCfg.plugins.tooltip.callbacks = makeChartCallbacks(h);
+      coreCfg.plugins.tooltip.callbacks = makeChartCallbacks({ times: h.coreTimes });
       coreCfg.scales.y.ticks.callback = fmtTick;
       coreCfg.scales.y.ticks.font = { size: 9 };
       coreCfg.scales.y.ticks.maxTicksLimit = 3;
@@ -454,7 +478,7 @@ function buildDom(devices) {
       state.charts[`${i}-cpu-core-${j}`] = new Chart(canvas, {
         type: 'line',
         data: {
-          labels: h.labels,
+          labels: h.coreTimes,
           datasets: [
             {
               label: 'Scaling',
@@ -468,7 +492,7 @@ function buildDom(devices) {
               borderDash: [3, 3],
             },
             {
-              label: 'SMU',
+              label: 'System Mgmt Unit',
               data: h.coreClk[j],
               borderColor: `hsl(${hue}, 65%, 55%)`,
               backgroundColor: 'transparent',
@@ -530,7 +554,7 @@ function buildDom(devices) {
         state.charts[chartKey] = new Chart(canvas, {
           type: 'line',
           data: {
-            labels: h.labels,
+            labels: h.times,
             datasets: [{
               label: key,
               data: histArr[ki],
@@ -749,7 +773,9 @@ function updateDevice(i, dev) {
   setBar(`c-gtt-${i}`,   gttT   > 0 ? gttU   / gttT   * 100 : null);
 
   // ── History ──
-  pushHistory(h.times, Date.now());
+  const nowMs = Date.now();
+  pushHistory(h.times,     nowMs);
+  pushHistory(h.coreTimes, nowMs);
   pushHistory(h.gfx,   gfx);
   pushHistory(h.mem,   mem);
   pushHistory(h.media, media);
@@ -959,6 +985,7 @@ function connect() {
     document.getElementById('period-label').textContent =
       _t.toLocaleTimeString([], { hour12: false }) + '.' + String(_t.getMilliseconds()).padStart(3, '0');
 
+    state.lastDevices = data.devices;
     if (state.n !== data.devices.length) buildDom(data.devices);
     data.devices.forEach((dev, i) => updateDevice(i, dev));
   });
@@ -992,11 +1019,15 @@ function updateDeviceInfoHeader(dev) {
   const vramType = info['VRAM Type'] ?? null;
   if (vramType) specsParts.push(vramType);
   const vramTotalMiB = (dev.VRAM ? (dev.VRAM['Total VRAM']?.value ?? dev.VRAM['Total VRAM'] ?? null) : null);
-  if (vramTotalMiB != null) specsParts.push(`${(vramTotalMiB / 1024).toFixed(0)} GiB VRAM`);
+  if (vramTotalMiB != null) {
+    const gib = vramTotalMiB / 1024;
+    specsParts.push(`${Number.isInteger(gib) ? gib.toFixed(0) : gib.toFixed(1)} GiB VRAM`);
+  }
   const bw = info['Memory Bandwidth'] ?? null;
   if (bw != null) specsParts.push(`${typeof bw === 'number' ? bw.toFixed(0) : bw} GB/s BW`);
-  const fp32 = info['Peak FP32'] ?? info['Peak GFLOPS'] ?? null;
-  if (fp32 != null) specsParts.push(`${(Number(fp32) / 1000).toFixed(1)} TFLOPS`);
+  const fp32Raw = v(info, 'Peak FP32') ?? v(info, 'Peak GFLOPS') ?? null;
+  const fp32Num = fp32Raw != null ? Number(fp32Raw) : null;
+  if (fp32Num != null && !isNaN(fp32Num)) specsParts.push(`${(fp32Num / 1000).toFixed(1)} TFLOPS`);
   const npuName = info['IPU'] ?? info['NPU'] ?? null;
   if (npuName) specsParts.push(`NPU: ${npuName}`);
   const specsHtml = specsParts.length ? `<div class="di-specs">${specsParts.join(' ◆ ')}</div>` : '';
@@ -1033,6 +1064,7 @@ function initIntervalCtrl() {
   fetch('/api/config')
     .then(r => r.json())
     .then(cfg => {
+      state.intervalMs = cfg.interval_ms;
       document.getElementById('interval-input').value = cfg.interval_ms;
       document.getElementById('page-title').textContent = 'atopweb ' + (cfg.atopweb_version || '');
       if (cfg.amdgpu_top_version) {
@@ -1044,6 +1076,8 @@ function initIntervalCtrl() {
   const apply = () => {
     const ms = parseInt(document.getElementById('interval-input').value, 10);
     if (isNaN(ms) || ms < 50 || ms > 60000) return;
+    state.intervalMs = ms;
+    if (state.lastDevices) buildDom(state.lastDevices);
     fetch(`/api/interval?ms=${ms}`, { method: 'POST' });
   };
 
@@ -1053,7 +1087,24 @@ function initIntervalCtrl() {
   });
 }
 
+// ── Plot / core width controls ────────────────────────────────────────────────
+function initPlotWidthCtrl() {
+  const applyWidth = (stateKey, inputId) => {
+    const s = parseInt(document.getElementById(inputId).value, 10);
+    if (isNaN(s) || s < 5 || s > 3600) return;
+    state[stateKey] = s * 1000;
+    if (state.lastDevices) buildDom(state.lastDevices);
+  };
+  const bind = (stateKey, inputId, btnId) => {
+    document.getElementById(btnId).addEventListener('click', () => applyWidth(stateKey, inputId));
+    document.getElementById(inputId).addEventListener('keydown', e => { if (e.key === 'Enter') applyWidth(stateKey, inputId); });
+  };
+  bind('timeWidthMs',     'plotwidth-input', 'plotwidth-btn');
+  bind('coreTimeWidthMs', 'corewidth-input', 'corewidth-btn');
+}
+
 initIntervalCtrl();
+initPlotWidthCtrl();
 fetchPowerLimits();
 setInterval(fetchPowerLimits, 300_000);
 connect();
