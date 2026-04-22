@@ -101,6 +101,7 @@ const state = {
 function makeHist() {
   return {
     labels:  Array(HISTORY).fill(''),
+    times:   Array(HISTORY).fill(null),  // epoch ms per slot for tooltip
     gfx:     Array(HISTORY).fill(null),
     mem:     Array(HISTORY).fill(null),
     media:   Array(HISTORY).fill(null),
@@ -129,6 +130,35 @@ function el(tag, cls, text) {
 function setConnStatus(status, label) {
   document.getElementById('conn-dot').className = 'conn-dot ' + status;
   document.getElementById('conn-label').textContent = label;
+}
+
+// ── Chart tooltip / tick helpers ─────────────────────────────────────────────
+function makeChartCallbacks(h) {
+  return {
+    title(items) {
+      const idx = items[0]?.dataIndex;
+      if (idx == null) return '';
+      const ts = h.times[idx];
+      if (ts == null) return '';
+      const t   = new Date(ts);
+      const abs = t.toLocaleTimeString([], { hour12: false }) + '.' +
+                  String(t.getMilliseconds()).padStart(3, '0');
+      const ago = ((Date.now() - ts) / 1000).toFixed(3) + 's ago';
+      return [abs, ago];
+    },
+    label(item) {
+      if (item.raw == null) return null;
+      const raw = Number(item.raw);
+      const str = isNaN(raw) ? String(item.raw) :
+        (Number.isInteger(raw) ? String(raw) : raw.toFixed(1));
+      return ` ${item.dataset.label}: ${str}`;
+    },
+  };
+}
+
+function fmtTick(v) {
+  if (typeof v !== 'number') return String(v);
+  return Number.isInteger(v) ? String(v) : v.toFixed(1);
 }
 
 // ── Build DOM (once per device-count change) ─────────────────────────────────
@@ -266,6 +296,8 @@ function buildDom(devices) {
       cfg.scales.y.min = 0;
       if (def.yMax != null) cfg.scales.y.max = def.yMax;
       if (def.hideLegend) cfg.plugins.legend.display = false;
+      cfg.plugins.tooltip.callbacks = makeChartCallbacks(h);
+      cfg.scales.y.ticks.callback   = fmtTick;
 
       state.charts[`${i}-${def.key}`] = new Chart(canvas, {
         type: 'line',
@@ -374,13 +406,13 @@ function minMaxAnnotations(...arrays) {
     out.minLine = {
       type: 'line', yMin: minVal, yMax: minVal,
       borderColor: color, borderWidth: 1, borderDash: [3, 3],
-      label: { display: true, content: fmtA(minVal), position: 'start', color, font: { size: 9 }, backgroundColor: 'transparent', padding: 2 }
+      label: { display: true, content: fmtA(minVal), position: 'start', color, font: { size: 9 }, backgroundColor: 'transparent', padding: 2, yAdjust: 10 }
     };
     if (maxVal !== minVal) {
       out.maxLine = {
         type: 'line', yMin: maxVal, yMax: maxVal,
         borderColor: color, borderWidth: 1, borderDash: [3, 3],
-        label: { display: true, content: fmtA(maxVal), position: 'end', color, font: { size: 9 }, backgroundColor: 'transparent', padding: 2 }
+        label: { display: true, content: fmtA(maxVal), position: 'end', color, font: { size: 9 }, backgroundColor: 'transparent', padding: 2, yAdjust: -10 }
       };
     }
   }
@@ -445,7 +477,8 @@ function updateDevice(i, dev) {
   const pwr    = v(sens, 'Average Power') ?? v(sens, 'Socket Power') ?? v(sens, 'Input Power') ?? gfxPwr;
   const tempE  = v(sens, 'Edge Temperature');
   const cputmp = v(sens, 'CPU Tctl');
-  const tempS  = dev.gpu_metrics?.temperature_soc ?? null;
+  const tempSRaw = dev.gpu_metrics?.temperature_soc ?? null;
+  const tempS    = tempSRaw != null ? tempSRaw / 100 : null;
 
   const combinedU = (vramU != null && gttU != null) ? vramU + gttU
                   : (vramU ?? gttU);
@@ -479,6 +512,7 @@ function updateDevice(i, dev) {
   setBar(`c-gtt-${i}`,   gttT   > 0 ? gttU   / gttT   * 100 : null);
 
   // ── History ──
+  pushHistory(h.times, Date.now());
   pushHistory(h.gfx,   gfx);
   pushHistory(h.mem,   mem);
   pushHistory(h.media, media);
