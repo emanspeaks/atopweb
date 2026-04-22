@@ -26,6 +26,76 @@ const GRBM2_KEYS = [
   'Command Processor - Graphics',
 ];
 
+// ── External DOM tooltip (can overflow chart canvas boundaries) ──────────────
+let _tooltipEl = null;
+
+function getTooltipEl() {
+  if (!_tooltipEl) {
+    _tooltipEl = document.createElement('div');
+    Object.assign(_tooltipEl.style, {
+      position:      'fixed',
+      pointerEvents: 'none',
+      zIndex:        '9999',
+      background:    '#1c2128',
+      border:        '1px solid #30363d',
+      borderRadius:  '4px',
+      padding:       '6px 8px',
+      fontSize:      '11px',
+      color:         '#8b949e',
+      whiteSpace:    'nowrap',
+      opacity:       '0',
+      transition:    'opacity 0.08s',
+    });
+    document.body.appendChild(_tooltipEl);
+  }
+  return _tooltipEl;
+}
+
+function externalTooltip({ chart, tooltip }) {
+  const el = getTooltipEl();
+  if (!tooltip.opacity) { el.style.opacity = '0'; return; }
+
+  const titles    = tooltip.title || [];
+  const bodyItems = tooltip.body  || [];
+
+  let html = '';
+  if (titles.length) {
+    html += '<div style="color:#e6edf3;line-height:1.6">' +
+      titles.map(t => `<div>${t}</div>`).join('') + '</div>';
+  }
+  if (bodyItems.length) {
+    if (titles.length) html += '<div style="margin-top:3px;border-top:1px solid #30363d;padding-top:3px">';
+    bodyItems.forEach((b, i) => {
+      const color = tooltip.labelColors?.[i]?.borderColor ?? '#8b949e';
+      b.lines.filter(Boolean).forEach(line => {
+        html += `<div><span style="display:inline-block;width:8px;height:8px;background:${color};` +
+          `border-radius:1px;margin-right:4px;vertical-align:middle"></span>${line.trim()}</div>`;
+      });
+      b.after.filter(Boolean).forEach(line => {
+        html += `<div style="color:#6e7681;font-size:9px;margin-left:12px">${line.trim()}</div>`;
+      });
+    });
+    if (titles.length) html += '</div>';
+  }
+  el.innerHTML = html;
+
+  const rect = chart.canvas.getBoundingClientRect();
+  const tw   = el.offsetWidth;
+  const th   = el.offsetHeight;
+  const cx   = rect.left + tooltip.caretX;
+  const cy   = rect.top  + tooltip.caretY;
+
+  let left = cx + 12;
+  let top  = cy - Math.round(th / 2);
+  if (left + tw > window.innerWidth  - 4) left = cx - tw - 12;
+  if (top < 4)                             top  = 4;
+  if (top + th > window.innerHeight  - 4) top  = window.innerHeight - th - 4;
+
+  el.style.left    = left + 'px';
+  el.style.top     = top  + 'px';
+  el.style.opacity = '1';
+}
+
 const CHART_DEFAULTS = {
   animation: false,
   responsive: true,
@@ -36,11 +106,8 @@ const CHART_DEFAULTS = {
       labels: { color: '#8b949e', boxWidth: 10, font: { size: 11 } }
     },
     tooltip: {
-      backgroundColor: '#1c2128',
-      borderColor: '#30363d',
-      borderWidth: 1,
-      titleColor: '#e6edf3',
-      bodyColor: '#8b949e',
+      enabled:  false,
+      external: externalTooltip,
     },
     annotation: { drawTime: 'afterDraw', annotations: {} }
   },
@@ -730,13 +797,13 @@ function minMaxAnnotations(times, windowStart, ...arrays) {
   out.minLine = {
     type: 'line', yMin: minVal, yMax: minVal, drawTime: 'afterDraw',
     borderColor: color, borderWidth: 1, borderDash: [3, 3],
-    label: { ...labelBase, display: true, content: fmtA(minVal), position: 'start', yAdjust: -9 },
+    label: { ...labelBase, display: true, content: fmtA(minVal), position: 'start', yAdjust: 9 },
   };
   if (maxVal !== minVal) {
     out.maxLine = {
       type: 'line', yMin: maxVal, yMax: maxVal, drawTime: 'afterDraw',
       borderColor: color, borderWidth: 1, borderDash: [3, 3],
-      label: { ...labelBase, display: true, content: fmtA(maxVal), position: 'end', yAdjust: 9 },
+      label: { ...labelBase, display: true, content: fmtA(maxVal), position: 'end', yAdjust: -9 },
     };
   }
   return out;
@@ -1051,17 +1118,17 @@ function updateDevice(i, dev) {
     return `<tr>
       <td class="proc-pid">${pid}</td>
       <td class="proc-name">${proc.name || '?'}</td>
-      <td>${fmt(vram,    1)}</td>
-      <td>${fmt(gtt,     1)}</td>
-      <td>${fmt(gfx,     1)}</td>
-      <td>${fmt(compute, 1)}</td>
-      <td>${fmt(dma,     1)}</td>
-      <td>${fmt(media,   1)}</td>
-      <td>${fmt(vcn,     1)}</td>
-      <td>${fmt(vpe,     1)}</td>
-      <td>${fmt(cpu,     1)}</td>
-      <td>${fmt(npu,     1)}</td>
-      <td>${fmt(npuMem,  1)}</td>
+      <td data-src="devices[${i}].fdinfo[${pid}].usage.VRAM">${fmt(vram,    1)}</td>
+      <td data-src="devices[${i}].fdinfo[${pid}].usage.GTT">${fmt(gtt,     1)}</td>
+      <td data-src="devices[${i}].fdinfo[${pid}].usage.GFX">${fmt(gfx,     1)}</td>
+      <td data-src="devices[${i}].fdinfo[${pid}].usage.Compute">${fmt(compute, 1)}</td>
+      <td data-src="devices[${i}].fdinfo[${pid}].usage.DMA">${fmt(dma,     1)}</td>
+      <td data-src="devices[${i}].fdinfo[${pid}].usage.Media">${fmt(media,   1)}</td>
+      <td data-src="devices[${i}].fdinfo[${pid}].usage.VCN_Unified">${fmt(vcn,     1)}</td>
+      <td data-src="devices[${i}].fdinfo[${pid}].usage.VPE">${fmt(vpe,     1)}</td>
+      <td data-src="devices[${i}].fdinfo[${pid}].usage.CPU">${fmt(cpu,     1)}</td>
+      <td data-src="devices[${i}].xdna_fdinfo[${pid}].usage.NPU">${fmt(npu,     1)}</td>
+      <td data-src="devices[${i}].xdna_fdinfo[${pid}].usage['NPU Mem']">${fmt(npuMem,  1)}</td>
     </tr>`;
   }).join('');
 }
@@ -1191,13 +1258,60 @@ function fetchPowerLimits() {
     .catch(() => {});
 }
 
+// ── [data-src] hover tooltips (process table cells) ──────────────────────────
+function initDataSrcTooltip() {
+  document.addEventListener('mouseover', e => {
+    const target = e.target.closest('[data-src]');
+    if (!target) return;
+    const el = getTooltipEl();
+    el.innerHTML = `<div style="color:#6e7681;font-size:10px">${target.dataset.src}</div>`;
+    const tw = el.offsetWidth;
+    const th = el.offsetHeight;
+    let left = e.clientX + 12;
+    let top  = e.clientY - Math.round(th / 2);
+    if (left + tw > window.innerWidth  - 4) left = e.clientX - tw - 12;
+    if (top < 4)                             top  = 4;
+    if (top + th > window.innerHeight  - 4) top  = window.innerHeight - th - 4;
+    el.style.left    = left + 'px';
+    el.style.top     = top  + 'px';
+    el.style.opacity = '1';
+  });
+  document.addEventListener('mouseout', e => {
+    if (!e.target.closest('[data-src]')) return;
+    if (e.relatedTarget?.closest('[data-src]')) return;
+    getTooltipEl().style.opacity = '0';
+  });
+}
+
+// ── Persist user settings across reloads (localStorage) ──────────────────────
+function loadSavedSettings() {
+  const iv  = parseInt(localStorage.getItem('atopweb.intervalMs'),      10);
+  const pw  = parseInt(localStorage.getItem('atopweb.timeWidthMs'),      10);
+  const cpw = parseInt(localStorage.getItem('atopweb.coreTimeWidthMs'), 10);
+  if (!isNaN(iv)  && iv  >= 50 && iv  <= 60000) {
+    state.intervalMs = iv;
+    document.getElementById('interval-input').value  = iv;
+    fetch(`/api/interval?ms=${iv}`, { method: 'POST' }).catch(() => {});
+  }
+  if (!isNaN(pw)  && pw  >= 5000 && pw  <= 3600000) {
+    state.timeWidthMs = pw;
+    document.getElementById('plotwidth-input').value = pw / 1000;
+  }
+  if (!isNaN(cpw) && cpw >= 5000 && cpw <= 3600000) {
+    state.coreTimeWidthMs = cpw;
+    document.getElementById('corewidth-input').value = cpw / 1000;
+  }
+}
+
 // ── Interval control ─────────────────────────────────────────────────────────
 function initIntervalCtrl() {
   fetch('/api/config')
     .then(r => r.json())
     .then(cfg => {
-      state.intervalMs = cfg.interval_ms;
-      document.getElementById('interval-input').value = cfg.interval_ms;
+      if (!localStorage.getItem('atopweb.intervalMs')) {
+        state.intervalMs = cfg.interval_ms;
+        document.getElementById('interval-input').value = cfg.interval_ms;
+      }
       document.getElementById('page-title').textContent = 'atopweb ' + (cfg.atopweb_version || '');
       if (cfg.amdgpu_top_version) {
         document.getElementById('page-subtitle').textContent = cfg.amdgpu_top_version;
@@ -1209,6 +1323,7 @@ function initIntervalCtrl() {
     const ms = parseInt(document.getElementById('interval-input').value, 10);
     if (isNaN(ms) || ms < 50 || ms > 60000) return;
     state.intervalMs = ms;
+    localStorage.setItem('atopweb.intervalMs', ms);
     if (state.lastDevices) buildDom(state.lastDevices);
     fetch(`/api/interval?ms=${ms}`, { method: 'POST' });
   };
@@ -1225,6 +1340,7 @@ function initPlotWidthCtrl() {
     const s = parseInt(document.getElementById(inputId).value, 10);
     if (isNaN(s) || s < 5 || s > 3600) return;
     state[stateKey] = s * 1000;
+    localStorage.setItem(`atopweb.${stateKey}`, state[stateKey]);
     if (state.lastDevices) buildDom(state.lastDevices);
   };
   const bind = (stateKey, inputId, btnId) => {
@@ -1235,6 +1351,8 @@ function initPlotWidthCtrl() {
   bind('coreTimeWidthMs', 'corewidth-input', 'corewidth-btn');
 }
 
+loadSavedSettings();
+initDataSrcTooltip();
 initIntervalCtrl();
 initPlotWidthCtrl();
 fetchPowerLimits();
