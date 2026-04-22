@@ -108,7 +108,7 @@ const CHART_DEFAULTS = {
     tooltip: { enabled: false },
     annotation: { drawTime: 'afterDraw', annotations: {} }
   },
-  layout: { padding: { top: 2, right: 6, bottom: 4, left: 6 } },
+  layout: { padding: { top: 14, right: 6, bottom: 18, left: 6 } },
   scales: {
     x: {
       type:   'linear',
@@ -156,6 +156,8 @@ function makeDataset(label, color, data, sourcePath, decimals) {
 // to the display refresh rate (60 fps) while still consuming every data point.
 let _rafPending = false;
 function scheduleRender() {
+  const hasOverlay = !!state.overlayChart;
+  if (state.paused && !hasOverlay) return;
   if (_rafPending) return;
   _rafPending = true;
   requestAnimationFrame(() => {
@@ -166,8 +168,14 @@ function scheduleRender() {
       const widthMs    = isCoreFreq ? state.coreTimeWidthMs : state.timeWidthMs;
       c.options.scales.x.min = now - widthMs;
       c.options.scales.x.max = now;
-      // Skip canvas repaint for charts belonging to inactive device tabs.
-      if (state.n <= 1 || parseInt(key, 10) === state.cur) c.update('none');
+      // Skip repaint when paused or when overlay is covering the main view.
+      if (!state.paused && !hasOverlay && (state.n <= 1 || parseInt(key, 10) === state.cur))
+        c.update('none');
+    }
+    if (hasOverlay && !state.paused) {
+      state.overlayChart.options.scales.x.min = now - state.overlayWidthMs;
+      state.overlayChart.options.scales.x.max = now;
+      state.overlayChart.update('none');
     }
   });
 }
@@ -185,6 +193,9 @@ const state = {
   intervalMs:      1000,
   timeWidthMs:     120_000,
   coreTimeWidthMs: 60_000,
+  paused:          false,
+  overlayChart:    null,
+  overlayWidthMs:  0,
 };
 
 // History size = time window / update interval, so the x-axis always shows a
@@ -432,7 +443,7 @@ function buildDom(devices) {
         ]
       },
       {
-        key: 'cpu-core-pwr', title: 'CPU Core Power (W)', height: 140, yMax: null,
+        key: 'core-pwr', title: 'CPU Core Power (W)', height: 140, yMax: null,
         coreData: () => h.corePwr, coreUnit: 'W',
         datasets: () => Array.from({length: 16}, (_, j) => ({
           label: `CPU ${coreLabel(j)}`,
@@ -513,6 +524,7 @@ function buildDom(devices) {
     chartDefs.forEach(def => {
       const box    = el('div', 'chart-box' + (def.wide ? ' chart-wide' : ''));
       const title  = el('div', 'chart-title', def.title);
+      title.addEventListener('click', () => openOverlay(`${i}-${def.key}`, def.title));
       const wrap   = el('div');
       wrap.style.height = (def.height || 160) + 'px';
       const canvas = el('canvas');
@@ -546,6 +558,7 @@ function buildDom(devices) {
     for (let j = 0; j < 16; j++) {
       const box    = el('div', 'chart-box');
       const title  = el('div', 'chart-title', `${coreLabel(j)} Clocks`);
+      title.addEventListener('click', () => openOverlay(`${i}-cpu-core-${j}`, `${coreLabel(j)} Clocks`));
       const wrap   = el('div');
       wrap.style.height = '125px';
       const canvas = el('canvas');
@@ -555,9 +568,10 @@ function buildDom(devices) {
       coreFreqGrid.appendChild(box);
 
       const coreCfg = cloneDefaults();
-      coreCfg.scales.y.grace = '25%';
+      coreCfg.scales.y.min = 0;
+      coreCfg.scales.y.max = 6000;
       coreCfg.scales.x.grid = { display: false };
-      coreCfg.scales.y.grid = { display: false };
+      coreCfg.scales.y.grid = { display: true, color: 'rgba(48,54,61,0.8)' };
       coreCfg.plugins.legend.display = false;
       coreCfg.plugins.tooltip.callbacks = makeChartCallbacks({ times: h.coreTimes });
       coreCfg.scales.y.ticks.callback = fmtTick;
@@ -780,6 +794,8 @@ function makeEventAnnotation(ev, isCoreChart) {
 
 // Keeps stable annotation objects for process events so hover state (label.display)
 // survives across ticks.  New events get fresh objects; existing keys are reused.
+// Also mutates chart.options.plugins.annotation.annotations in-place so event
+// lines are visible without a full setAnnotations call (needed for core charts).
 function syncEventAnnotations(chart, events, isCoreChart) {
   const prev = chart._eventAnnotations || {};
   const next = {};
@@ -788,6 +804,9 @@ function syncEventAnnotations(chart, events, isCoreChart) {
     next[key] = prev[key] || makeEventAnnotation(ev, isCoreChart);
   }
   chart._eventAnnotations = next;
+  const ann = chart.options.plugins.annotation.annotations;
+  for (const k of Object.keys(ann)) if (k.startsWith('ev_')) delete ann[k];
+  Object.assign(ann, next);
 }
 
 // Returns a min/max annotation object (does not modify the chart).
@@ -1000,7 +1019,7 @@ function updateDevice(i, dev) {
   const cPwr     = state.charts[`${i}-power`];
   const cTemp    = state.charts[`${i}-temp`];
   const cGfxClk  = state.charts[`${i}-gfx-clk`];
-  const cCorePwr = state.charts[`${i}-cpu-core-pwr`];
+  const cCorePwr = state.charts[`${i}-core-pwr`];
   const cVoltage = state.charts[`${i}-voltage`];
   const cDramBw  = state.charts[`${i}-dram-bw`];
   const cNpuAct  = state.charts[`${i}-npu-act`];
@@ -1164,6 +1183,7 @@ function connect() {
   ws.addEventListener('open', () => {
     retryMs = 1000;
     setConnStatus('connected', 'Connected');
+    appendLog('WebSocket connected', 'ok');
     fetchPowerLimits();
   });
 
@@ -1182,7 +1202,9 @@ function connect() {
   });
 
   ws.addEventListener('close', () => {
-    setConnStatus('disconnected', `Reconnecting in ${(retryMs / 1000).toFixed(0)}s…`);
+    const delaySec = (retryMs / 1000).toFixed(0);
+    setConnStatus('disconnected', `Reconnecting in ${delaySec}s…`);
+    appendLog(`WebSocket disconnected — reconnecting in ${delaySec}s`, 'warn');
     retryTimer = setTimeout(connect, retryMs);
     retryMs = Math.min(retryMs * 2, MAX_RETRY);
   });
@@ -1196,6 +1218,7 @@ document.addEventListener('visibilitychange', () => {
   if (!document.hidden && (!ws || ws.readyState >= 2)) {
     clearTimeout(retryTimer);
     retryMs = 1000;
+    appendLog('Tab visible — reconnecting immediately', 'warn');
     connect();
   }
 });
@@ -1380,10 +1403,21 @@ function initPlotWidthCtrl() {
   bind('coreTimeWidthMs', 'corewidth-input', 'corewidth-btn');
 }
 
+function initPauseBtn() {
+  const btn = document.getElementById('pause-btn');
+  btn.addEventListener('click', () => {
+    state.paused = !state.paused;
+    btn.textContent = state.paused ? '▶' : '⏸';
+    btn.classList.toggle('paused', state.paused);
+    if (!state.paused) scheduleRender();
+  });
+}
+
 loadSavedSettings();
 initDataSrcTooltip();
 initIntervalCtrl();
 initPlotWidthCtrl();
+initPauseBtn();
 fetchPowerLimits();
 setInterval(fetchPowerLimits, 300_000);
 fetchCoreRanks();
