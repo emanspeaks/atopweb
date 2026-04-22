@@ -33,6 +33,7 @@ header {
   padding: 10px 20px;
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 16px;
 }
 
@@ -90,6 +91,7 @@ header .period {
 
 .device-info .di-name   { color: var(--text); font-weight: 500; }
 .device-info .di-meta   { color: var(--muted); font-size: 10px; }
+.device-info .di-specs  { color: var(--muted); font-size: 9px; }
 .device-info .di-limits { color: var(--muted); }
 .device-info .di-limit-stapm { color: var(--yellow); }
 .device-info .di-limit-fast  { color: var(--red); }
@@ -246,6 +248,8 @@ main { padding: 20px; }
 .c-etmp   .card-value { color: var(--red); }
 .c-cputmp .card-value { color: var(--yellow); }
 .c-fan    .card-value { color: var(--muted); }
+.c-vddgfx .card-value { color: var(--yellow); }
+.c-vddnb  .card-value { color: var(--muted); }
 
 .c-gfx   .card-bar { background: var(--orange); }
 .c-mem   .card-bar { background: var(--blue); }
@@ -265,11 +269,33 @@ main { padding: 20px; }
   .charts { grid-template-columns: 1fr; }
 }
 
+/* ── Per-CPU-core frequency mini-charts (8 per row) ─────────────────── */
+.charts-cores {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+@media (max-width: 900px) {
+  .charts-cores { grid-template-columns: repeat(4, 1fr); }
+}
+
+.charts-cores .chart-box {
+  padding: 8px;
+}
+
+.charts-cores .chart-title {
+  font-size: 10px;
+  margin-bottom: 4px;
+}
+
 .chart-box {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 14px;
+  min-width: 0;
 }
 
 /* span both columns (e.g. clocks chart) */
@@ -311,6 +337,7 @@ main { padding: 20px; }
 
 @media (max-width: 700px) {
   .grbm-grid { grid-template-columns: 1fr; }
+  .grbm-col:first-child { border-right: none; border-bottom: 1px solid var(--border); }
 }
 
 .grbm-col { padding: 12px 16px; }
@@ -325,7 +352,23 @@ main { padding: 20px; }
   margin-bottom: 10px;
 }
 
-.grbm-item { margin-bottom: 7px; }
+.grbm-item {
+  margin-bottom: 7px;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background 0.15s;
+}
+
+.grbm-item:hover   { background: rgba(255,255,255,0.03); }
+.grbm-item.expanded { background: rgba(255,255,255,0.04); }
+
+.grbm-chart-wrap {
+  display: none;
+  margin-top: 6px;
+  height: 55px;
+}
+
+.grbm-item.expanded .grbm-chart-wrap { display: block; }
 
 .grbm-item-header {
   display: flex;
