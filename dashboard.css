@@ -79,6 +79,21 @@ header .period {
 .conn-dot.connecting   { background: var(--yellow); }
 .conn-dot.disconnected { background: var(--red); }
 
+/* ── Device info (center of header) ─────────────────────────────── */
+.device-info {
+  flex: 1;
+  font-size: 11px;
+  color: var(--muted);
+  text-align: center;
+  line-height: 1.5;
+}
+
+.device-info .di-name  { color: var(--text); font-weight: 500; }
+.device-info .di-limits { color: var(--muted); }
+.device-info .di-limit-stapm { color: var(--yellow); }
+.device-info .di-limit-fast  { color: var(--red); }
+.device-info .di-limit-slow  { color: var(--green); }
+
 /* ── Interval control ────────────────────────────────────────────── */
 .interval-ctrl {
   display: flex;
@@ -86,7 +101,6 @@ header .period {
   gap: 6px;
   font-size: 12px;
   color: var(--muted);
-  margin-left: auto;
 }
 
 .interval-ctrl label { color: var(--muted); cursor: default; }
@@ -174,19 +188,19 @@ main { padding: 20px; }
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 8px;
-  padding: 8px 12px;
+  padding: 6px 10px;
 }
 
 .card-label {
-  font-size: 10px;
+  font-size: 9px;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--muted);
-  margin-bottom: 2px;
+  margin-bottom: 1px;
 }
 
 .card-value {
-  font-size: 18px;
+  font-size: 15px;
   font-weight: 700;
   line-height: 1.2;
 }
