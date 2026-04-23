@@ -215,7 +215,12 @@ const state = {
 function getHistorySize()     { return Math.max(2, Math.ceil(state.timeWidthMs     / state.intervalMs)); }
 function getCoreHistorySize() { return Math.max(2, Math.ceil(state.coreTimeWidthMs / state.intervalMs)); }
 // x-axis tick count: one tick per 5 s, plus 1 for the fencepost.
-function xTicksLimit(widthMs) { return Math.round(widthMs / 5000) + 1; }
+// Pick the smallest "nice" step size (in ms) that yields ≤ 24 grid lines.
+function xStepSize(widthMs) {
+  const steps = [5000, 10000, 15000, 30000, 60000, 120000, 300000, 600000, 1800000, 3600000];
+  const target = widthMs / 24;
+  return steps.find(s => s >= target) ?? steps[steps.length - 1];
+}
 
 function makeHist(size, coreSize) {
   const a  = n => new Array(n).fill(NaN);
@@ -495,17 +500,17 @@ function buildDom(devices) {
         ]
       },
       {
-        key: 'voltage', title: 'Voltage (mV)', height: 175, yMax: null,
-        datasets: () => [
-          makeDataset('VDDGFX', '#e3b341', h.vddgfx, `devices[${i}].Sensors['VDDGFX']`),
-          makeDataset('VDDNB',  '#8b949e', h.vddnb,  `devices[${i}].Sensors['VDDNB']`),
-        ]
-      },
-      {
         key: 'dram-bw', title: 'DRAM Bandwidth (MB/s)', height: 175, yMax: null,
         datasets: () => [
           makeDataset('Reads',  '#3fb950', h.dramReads,  `devices[${i}].gpu_metrics.average_dram_reads`),
           makeDataset('Writes', '#f85149', h.dramWrites, `devices[${i}].gpu_metrics.average_dram_writes`),
+        ]
+      },
+      {
+        key: 'voltage', title: 'Voltage (mV)', height: 175, yMax: null,
+        datasets: () => [
+          makeDataset('VDDGFX', '#e3b341', h.vddgfx, `devices[${i}].Sensors['VDDGFX']`),
+          makeDataset('VDDNB',  '#8b949e', h.vddnb,  `devices[${i}].Sensors['VDDNB']`),
         ]
       },
       {
@@ -552,7 +557,7 @@ function buildDom(devices) {
       chartGrid.appendChild(box);
 
       const cfg = cloneDefaults();
-      cfg.scales.x.ticks.maxTicksLimit = xTicksLimit(state.timeWidthMs);
+      cfg.scales.x.ticks.stepSize = xStepSize(state.timeWidthMs);
       if (!def.noYMin) {
         if (def.yMax != null) cfg.scales.y.min = 0;
         else                  cfg.scales.y.suggestedMin = 0;
@@ -589,7 +594,7 @@ function buildDom(devices) {
       coreFreqGrid.appendChild(box);
 
       const coreCfg = cloneDefaults();
-      coreCfg.scales.x.ticks.maxTicksLimit = xTicksLimit(state.coreTimeWidthMs);
+      coreCfg.scales.x.ticks.stepSize = xStepSize(state.coreTimeWidthMs);
       coreCfg.scales.y.min = 0;
       coreCfg.scales.y.max = 6000;
       coreCfg.scales.x.grid = { color: '#21262d' };
@@ -669,7 +674,7 @@ function buildDom(devices) {
               const canvas = el('canvas');
               chartWrap.appendChild(canvas);
               const pcCfg = cloneDefaults();
-              pcCfg.scales.x.ticks.maxTicksLimit = xTicksLimit(state.timeWidthMs);
+              pcCfg.scales.x.ticks.stepSize = xStepSize(state.timeWidthMs);
               pcCfg.scales.y.min = 0;
               pcCfg.scales.y.max = 100;
               pcCfg.plugins.legend.display = false;
@@ -792,7 +797,7 @@ function makeEventAnnotation(ev, isCoreChart) {
     borderColor: lineColor, borderWidth: 1, borderDash: [3, 2],
     label: {
       display: !isCoreChart,
-      content:  `${ev.type}: ${ev.name}${ev.pid != null ? ` (${ev.pid})` : ''}`,
+      content:  ev.pid != null ? [ev.name, `PID ${ev.pid}`] : [ev.name],
       rotation: -90,
       position: 'start',
       yAdjust:  0,
