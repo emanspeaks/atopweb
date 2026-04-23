@@ -108,6 +108,28 @@
               '';
             };
 
+            gpuProcCache = lib.mkOption {
+              type = lib.types.bool;
+              default = true;
+              description = ''
+                Persist the GPU process name learning cache across restarts.
+                When enabled, atopweb stores known GPU process names in
+                /var/lib/atopweb/gpu-procs.json so the early-detection watcher
+                can fire before a familiar process touches the GPU.
+              '';
+            };
+
+            fanotify = lib.mkOption {
+              type = lib.types.bool;
+              default = false;
+              description = ''
+                Enable Linux fanotify-based GPU device node watcher for
+                zero-lag process start detection.  Requires CAP_SYS_ADMIN;
+                when enabled the systemd service is granted that capability
+                via AmbientCapabilities.
+              '';
+            };
+
             extraArgs = lib.mkOption {
               type = lib.types.listOf lib.types.str;
               default = [];
@@ -142,12 +164,19 @@
                   ++ lib.optional cfg.nopc "--no-pc"
                   ++ lib.optionals cfg.sudo [ "--sudo" "--sudo-bin" "/run/wrappers/bin/sudo" ]
                   ++ lib.optionals (cfg.ryzenAdjBin != "") [ "--ryzenadj" cfg.ryzenAdjBin ]
+                  ++ lib.optionals cfg.gpuProcCache [ "--proc-cache" "/var/lib/atopweb/gpu-procs.json" ]
+                  ++ lib.optional  cfg.fanotify    "--fanotify"
                   ++ cfg.extraArgs
                 );
 
                 User = "atopweb";
                 Group = "atopweb";
                 SupplementaryGroups = [ "render" "video" ];
+
+                StateDirectory = lib.mkIf cfg.gpuProcCache "atopweb";
+
+                AmbientCapabilities    = lib.mkIf cfg.fanotify "CAP_SYS_ADMIN";
+                CapabilityBoundingSet  = lib.mkIf cfg.fanotify "CAP_SYS_ADMIN";
 
                 Restart = "on-failure";
                 RestartSec = "5s";
