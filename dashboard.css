@@ -321,6 +321,12 @@ main { padding: 12px; }
 .c-etmp   .card-value { color: var(--red); }
 .c-cputmp .card-value { color: var(--yellow); }
 .c-fan    .card-value { color: var(--muted); }
+.c-ppt    .card-value { color: var(--orange); }
+.c-uptime .card-value {
+  color: var(--green);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
 .c-vddgfx .card-value { color: var(--yellow); }
 .c-vddnb  .card-value { color: var(--muted); }
 

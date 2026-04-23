@@ -499,20 +499,79 @@ func populateGPUProcCache(h *hub, cache *gpuProcCache) {
 // ── /api/config ───────────────────────────────────────────────────────────────
 
 type configInfo struct {
-	IntervalMs     int    `json:"interval_ms"`
-	AtopwebVersion string `json:"atopweb_version"`
-	AtopTopVersion string `json:"amdgpu_top_version"`
-	TotalRAMMiB    uint64 `json:"total_ram_mib"`
+	IntervalMs      int    `json:"interval_ms"`
+	AtopwebVersion  string `json:"atopweb_version"`
+	AtopTopVersion  string `json:"amdgpu_top_version"`
+	TotalRAMMiB     uint64 `json:"total_ram_mib"`
+	KernelVersion   string `json:"kernel_version,omitempty"`
+	NixosVersion    string `json:"nixos_version,omitempty"`
+	NixosGeneration int    `json:"nixos_generation,omitempty"`
+}
+
+// readKernelVersion returns the running kernel release string, e.g.
+// "6.6.63-nixos". Empty on non-Linux or when /proc is unavailable.
+func readKernelVersion() string {
+	return strings.TrimSpace(string(mustReadFileOrEmpty("/proc/sys/kernel/osrelease")))
+}
+
+func mustReadFileOrEmpty(path string) []byte {
+	b, _ := os.ReadFile(path)
+	return b
+}
+
+// readOsRelease parses /etc/os-release and returns key/value pairs with
+// shell-style quotes stripped.
+func readOsRelease() map[string]string {
+	m := map[string]string{}
+	b, err := os.ReadFile("/etc/os-release")
+	if err != nil {
+		return m
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		eq := strings.IndexByte(line, '=')
+		if eq <= 0 {
+			continue
+		}
+		k := line[:eq]
+		v := strings.Trim(line[eq+1:], `"`)
+		m[k] = v
+	}
+	return m
+}
+
+// readNixosInfo returns ("25.05", 42) on NixOS, or ("", 0) elsewhere.
+// Generation comes from the target of /nix/var/nix/profiles/system, which is
+// set to "system-<N>-link" after every `nixos-rebuild switch` / `boot`.
+func readNixosInfo() (version string, generation int) {
+	osr := readOsRelease()
+	if osr["ID"] != "nixos" {
+		return "", 0
+	}
+	version = osr["VERSION_ID"]
+	if version == "" {
+		version = osr["VERSION"]
+	}
+	if target, err := os.Readlink("/nix/var/nix/profiles/system"); err == nil {
+		name := strings.TrimPrefix(strings.TrimSuffix(target, "-link"), "system-")
+		if n, err := strconv.Atoi(name); err == nil {
+			generation = n
+		}
+	}
+	return version, generation
 }
 
 func (h *hub) serveConfig(w http.ResponseWriter, r *http.Request) {
 	total, _ := readMemInfo()
+	nixosVer, nixosGen := readNixosInfo()
 	h.mu.Lock()
 	info := configInfo{
-		IntervalMs:     h.intervalMs,
-		AtopwebVersion: version,
-		AtopTopVersion: h.atopVersion,
-		TotalRAMMiB:    total,
+		IntervalMs:      h.intervalMs,
+		AtopwebVersion:  version,
+		AtopTopVersion:  h.atopVersion,
+		TotalRAMMiB:     total,
+		KernelVersion:   readKernelVersion(),
+		NixosVersion:    nixosVer,
+		NixosGeneration: nixosGen,
 	}
 	h.mu.Unlock()
 
