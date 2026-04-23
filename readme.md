@@ -12,24 +12,52 @@ configurable HTTP port.
 
 The browser UI updates in real time and shows:
 
-**Stat cards** — GFX activity, media activity, SCLK, MCLK, FCLK, package
-power, edge temperature, CPU Tctl, VDDGFX, VDDNB, VRAM usage, GTT usage.
+**Stat cards** — three always-visible "system" cards (Fan Speed, Package
+Power Tracking, Uptime) followed by per-GPU cards for GFX activity, media
+activity, VRAM usage, GTT usage, SCLK, MCLK, FCLK, average power, edge
+temperature, CPU Tctl, VDDGFX, VDDNB. Per-GPU cards auto-hide when their
+sensor stays idle so empty fields don't clutter the layout; they reappear
+automatically when data returns.
 
-**Charts** (time-based scrolling windows; widths configurable in the header):
+**Charts** (time-based scrolling windows; widths configurable in the header;
+idle charts auto-hide the same way cards do):
 
 | Chart | Signals |
 | --- | --- |
-| Temperature | Edge, CPU Tctl, SoC, GFX, Hotspot, Mem — with ryzenadj THM limit lines |
+| Temperature | Edge, CPU Tctl, SoC, GFX, Hotspot, Mem — with ryzenadj THM Core / THM GFX / THM SoC limit lines |
 | GPU Activity | GFX %, Memory %, Media % |
-| VRAM + GTT | Combined, VRAM-only, GTT-only (GiB) |
+| VRAM + GTT | Combined, VRAM-only, GTT-only (GiB) — with VRAM+GTT capacity and total-physical-memory limit lines |
 | CPU Core Power | Per-core power (W) for all 16 cores |
+| Package Power | PPT, Average Power, CPU Cores, NPU — with ryzenadj STAPM / Fast / Slow / APU Slow limit lines |
 | Clocks | SCLK, MCLK, FCLK, FCLK avg, SoC Clk, VCN Clk |
-| Package Power | Total, CPU cores, NPU — with ryzenadj STAPM / fast-PPT / slow-PPT / APU Slow limit lines |
-| Voltage | VDDGFX, VDDNB (mV) |
 | DRAM Bandwidth | Reads, Writes (MB/s) |
+| Voltage | VDDGFX, VDDNB (mV) |
 | NPU Tile Activity | Per-tile activity % for all 8 tiles |
 | NPU Clocks | NPU Clk, MP-NPU Clk (MHz) |
 | NPU Bandwidth | Reads, Writes (MB/s) |
+
+Each chart automatically applies a 20 %-of-data-range grace margin so limit
+lines (ryzenadj limits, memory ceilings) are always on-screen even when the
+live trace is far below them. Click any chart title to open a full-width
+overlay with the same series at higher resolution; Esc or the ✕ closes it.
+
+**Process event overlays** — vertical green/red dashed lines on every chart
+mark the start/stop of any GPU or NPU process, labelled with the process
+name and PID. Early-detection runs as a three-layer server-side pipeline so that
+events typically fire within a few hundred milliseconds of `exec()`:
+
+1. **KFD poll** — watches `/sys/class/kfd/kfd/proc` for ROCm/HIP opens of
+   `/dev/kfd`.
+2. **Known-process poll** — a learning cache of process names that have
+   previously used the GPU (persisted to disk with `--proc-cache`); matches
+   new PIDs in `/proc` before they touch the GPU.
+3. **Fanotify** (optional, `--fanotify`; requires `CAP_SYS_ADMIN`) — kernel
+   notification on any open of `/dev/kfd` or `/dev/dri/render*`, firing
+   before any GPU memory is allocated.
+
+All three feed a shared per-PID deduplicator so that the same process only
+produces one annotation regardless of which layer saw it first. `fdinfo`-based
+detection (from the amdgpu_top stream) acts as a final fallback.
 
 **Per-CPU-core frequency mini-charts** — 16 small charts (2 rows × 8), each
 showing the SMU-reported clock alongside the OS scaling governor frequency.
@@ -45,10 +73,17 @@ indicators; click any counter to expand an inline history chart.
 GTT (MiB), GFX %, Compute %, DMA %, Media %, VCN %, VPE %, CPU %, NPU %,
 NPU Mem (MiB).
 
-**Header** — connection status, device info (ASIC name, driver, CU count,
-VRAM type / size / bandwidth, peak FP32 TFLOPS, NPU name), ryzenadj limits
-summary, and controls for update interval, plot width, and core-clock plot
+**Header** — page title and connection status on the top line, a subtitle
+beneath listing `amdgpu_top` version, Linux kernel release, and (on NixOS)
+distribution version and generation number; device info (ASIC name, CU
+count, VRAM type / size / bandwidth, peak FP32 TFLOPS, NPU name); ryzenadj
+limits summary; and a control cluster with pause button, wall-clock
+timestamp, and inputs for update interval, plot width, and core-clock plot
 width.
+
+**Status bar** — a collapsible log strip at the bottom of the page. The
+current line shows inline; click to expand an auto-scrolling history of
+connection events, interval changes, limit updates, and process starts.
 
 ---
 
@@ -65,11 +100,18 @@ connected browser.  If `amdgpu_top` exits it restarts automatically after 5 s.
 When `--ryzenadj` is configured, `atopweb` caches `ryzenadj -i` output
 (refreshed at startup, on every page load, and on a 15-minute timer) and
 serves it from `/api/limits`.  Limits are overlaid as annotation lines
-on the power and temperature charts and summarized in the header.
+on the power, temperature, and VRAM charts and summarized in the header.
 
 CPU core performance rankings are read from
 `/sys/devices/system/cpu/cpu*/acpi_cppc/highest_perf` at first request and
 served from `/api/cpu-ranks`.
+
+Host stats outside the GPU stream (total RAM, uptime, load average, and
+every `/sys/class/hwmon` sensor — fans, voltages, currents, powers, temps)
+are collected on demand and served from `/api/system`. The dashboard polls
+this endpoint at 1 Hz and uses it to populate the Fan Speed, PPT, and
+Uptime cards, the VRAM chart's physical-memory ceiling, and a PPT trace on
+the Package Power chart.
 
 ---
 
@@ -81,12 +123,13 @@ served from `/api/cpu-ranks`.
 | `/dashboard.css` | GET | Stylesheet |
 | `/dashboard.js` | GET | Dashboard application |
 | `/ws` | WS | WebSocket stream — pushes the latest `amdgpu_top` JSON frame to every connected client at the configured interval |
-| `/api/config` | GET | Returns `{"interval_ms", "atopweb_version", "amdgpu_top_version"}` |
+| `/api/config` | GET | Returns `{"interval_ms", "atopweb_version", "amdgpu_top_version", "total_ram_mib", "kernel_version"}`; on NixOS also `"nixos_version"` and `"nixos_generation"` |
 | `/api/interval?ms=N` | POST | Changes the amdgpu_top polling interval to N ms (50–60000); restarts the streamer |
 | `/api/vram` | GET | Returns per-device `[{"name", "used_mib", "total_mib", "used_pct"}]` from the last frame |
 | `/api/gpu-pct` | GET | Returns per-device `[{"name", "gpu_pct"}]` (GFX activity %) from the last frame |
-| `/api/limits` | GET | Returns ryzenadj limits from the cached `ryzenadj -i` result (`stapm_w`, `fast_w`, `slow_w`, and thermal limits when available); fields omitted when ryzenadj is not configured or the value is absent |
+| `/api/limits` | GET | Returns cached ryzenadj limits: `stapm_w`, `fast_w`, `slow_w`, `apu_slow_w`, `thm_core_c`, `thm_gfx_c`, `thm_soc_c`. Fields are omitted when ryzenadj is not configured or the value is absent |
 | `/api/cpu-ranks` | GET | Returns `{"ranks": [...]}` — array indexed by CPU core number, value is performance rank (1 = best) derived from ACPI CPPC `highest_perf`; empty array when CPPC data is unavailable |
+| `/api/system` | GET | Returns host stats: `total_ram_mib`, `avail_ram_mib`, `uptime_sec`, `loadavg`, and arrays `fans` / `voltages` / `currents` / `powers` / `temps` (each entry is `{"chip","label","value"}` — values in RPM / mV / mA / µW / °C respectively). Polled at 1 Hz by the dashboard |
 
 ---
 
@@ -141,6 +184,8 @@ Then open `http://localhost:5899` in a browser.
 | `--apu` | `false` | Select APU instance |
 | `--single` | `false` | Display only the selected GPU |
 | `--no-pc` | `false` | Skip GPU performance counter reads |
+| `--proc-cache <path>` | | Path to a JSON file used as a persistent cache of process names that have previously touched the GPU. When set, enables early-detection of known processes across service restarts. Empty = in-memory only |
+| `--fanotify` | `false` | Enable the fanotify-based GPU device watcher for zero-lag process-start detection. Requires `CAP_SYS_ADMIN`; falls back silently when the capability is absent |
 
 ---
 
@@ -181,6 +226,8 @@ whenever `go.mod` changes.
             port         = 5899;         # optional
             sudo         = true;         # run amdgpu_top as root via sudo
             ryzenAdjBin  = "${pkgs.ryzenadj}/bin/ryzenadj";  # APU power/thermal limits
+            fanotify     = true;         # zero-lag process start detection (grants CAP_SYS_ADMIN)
+            # gpuProcCache = true;       # persist learned process names (on by default)
             # nopc       = true;         # skip perf counters
             # interval   = 100;          # 100 ms updates
           };
@@ -216,6 +263,8 @@ http://<server-ip>:5899
 | `services.atopweb.interval` | `int` | `1000` | Refresh period in ms |
 | `services.atopweb.amdgpuTopBin` | `str` | nix store | `amdgpu_top` binary path |
 | `services.atopweb.ryzenAdjBin` | `str` | `""` | `ryzenadj` binary path; when set, polls for APU power and thermal limits and adds a NOPASSWD sudoers rule |
+| `services.atopweb.gpuProcCache` | `bool` | `true` | Persist the GPU process-name learning cache in `/var/lib/atopweb/gpu-procs.json` so early-detection survives restarts. Disable to run entirely from memory |
+| `services.atopweb.fanotify` | `bool` | `false` | Enable the fanotify-based GPU device watcher. When `true`, the systemd unit is granted `CAP_SYS_ADMIN` via `AmbientCapabilities` / `CapabilityBoundingSet` |
 | `services.atopweb.extraArgs` | `[str]` | `[]` | Extra flags passed to atopweb (e.g. `[ "-i" "0" ]`) |
 | `services.atopweb.package` | `package` | flake default | Override the atopweb package |
 

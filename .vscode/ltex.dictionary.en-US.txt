@@ -1,6 +1,7 @@
 amdgpu
 ASIC
 atopweb
+atopwebver
 bg
 BlinkMacSystemFont
 chartjs
@@ -9,6 +10,7 @@ CLOEXEC
 coreclk
 cputmp
 currs
+deduplicator
 degc
 etmp
 fanotify
@@ -47,6 +49,7 @@ pkgs
 RAPL
 Roboto
 rocm
+ROCm
 ryzen
 ryzenadj
 sclk
@@ -70,3 +73,9 @@ vddgfx
 vddnb
 VDDNB
 XDNA
+
+deduplicator
+mA
+µW
+fanotify-based
+systemd

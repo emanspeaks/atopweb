@@ -124,7 +124,7 @@ const CHART_DEFAULTS = {
   }
 };
 
-// Deep-clone CHART_DEFAULTS and restore non-serialisable function references.
+// Deep-clone CHART_DEFAULTS and restore non-serializable function references.
 // JSON.stringify silently drops functions, so externalTooltip must be re-applied
 // after each clone — never rely on CHART_DEFAULTS to carry it directly.
 function cloneDefaults() {
@@ -426,22 +426,22 @@ function buildDom(devices) {
     // ── Stat cards ──
     const cards = el('div', 'cards');
     const cardDefs = [
-      // Permanent system cards (fed by /api/system, never idle-hidden).
-      { id: `c-fan-${i}`,    cls: 'c-fan',    label: 'Fan Speed',              unit: 'RPM', bar: false, permanent: true },
-      { id: `c-ppt-${i}`,    cls: 'c-ppt',    label: 'Package Power Tracking', unit: 'W',   bar: false, permanent: true },
-      { id: `c-uptime-${i}`, cls: 'c-uptime', label: 'Uptime',                 unit: '',    bar: false, permanent: true },
       { id: `c-gfx-${i}`,    cls: 'c-gfx',    label: 'GFX',       unit: '%',   bar: true  },
       { id: `c-media-${i}`,  cls: 'c-media',  label: 'Media',     unit: '%',   bar: true  },
-      { id: `c-vram-${i}`,   cls: 'c-vram',   label: 'VRAM',      unit: 'GiB', bar: true  },
-      { id: `c-gtt-${i}`,    cls: 'c-gtt',    label: 'GTT Used',  unit: 'GiB', bar: true  },
+      { id: `c-vram-${i}`,   cls: 'c-vram',   label: 'BIOS VRAM',      unit: 'GiB', bar: true  },
+      { id: `c-gtt-${i}`,    cls: 'c-gtt',    label: 'GTT',  unit: 'GiB', bar: true  },
       { id: `c-sclk-${i}`,   cls: 'c-sclk',   label: 'GFX Clock', unit: 'MHz', bar: false },
-      { id: `c-mclk-${i}`,   cls: 'c-mclk',   label: 'Mem Clock', unit: 'MHz', bar: false },
       { id: `c-fclk-${i}`,   cls: 'c-fclk',   label: 'FCLK',      unit: 'MHz', bar: false },
-      { id: `c-pwr-${i}`,    cls: 'c-pwr',    label: 'Average Power', unit: 'W', bar: false },
-      { id: `c-etmp-${i}`,   cls: 'c-etmp',   label: 'Edge Temp', unit: '°C',  bar: false },
-      { id: `c-cputmp-${i}`, cls: 'c-cputmp', label: 'CPU Tctl',  unit: '°C',  bar: false },
+      { id: `c-mclk-${i}`,   cls: 'c-mclk',   label: 'Mem Clock', unit: 'MHz', bar: false },
       { id: `c-vddgfx-${i}`, cls: 'c-vddgfx', label: 'VDDGFX',   unit: 'mV',  bar: false },
       { id: `c-vddnb-${i}`,  cls: 'c-vddnb',  label: 'VDDNB',    unit: 'mV',  bar: false },
+      { id: `c-etmp-${i}`,   cls: 'c-etmp',   label: 'Edge Temp', unit: '°C',  bar: false },
+      { id: `c-cputmp-${i}`, cls: 'c-cputmp', label: 'CPU Tctl',  unit: '°C',  bar: false },
+      { id: `c-pwr-${i}`,    cls: 'c-pwr',    label: 'Average Power', unit: 'W', bar: false },
+      // Permanent system cards (fed by /api/system, never idle-hidden).
+      { id: `c-ppt-${i}`,    cls: 'c-ppt',    label: 'Package Power Tracking', unit: 'W',   bar: false, permanent: true },
+      { id: `c-fan-${i}`,    cls: 'c-fan',    label: 'Fan Speed',              unit: 'RPM', bar: false, permanent: true },
+      { id: `c-uptime-${i}`, cls: 'c-uptime', label: 'Uptime',                 unit: '',    bar: false, permanent: true },
     ];
 
     cardDefs.forEach(def => {
@@ -1435,7 +1435,7 @@ function updateDeviceInfoHeader(dev) {
 
 // 16-color categorical palette hand-picked for a dark background. Arranged so
 // that consecutive indices land in different hue families (e.g. red→blue→
-// yellow→purple) and neighbouring cores never share a look-alike tone.
+// yellow→purple) and neighboring cores never share a look-alike tone.
 const CORE_COLORS = [
   '#ff6b6b', // red
   '#4dc9f6', // sky blue
@@ -1621,12 +1621,14 @@ function initIntervalCtrl() {
         state.intervalMs = cfg.interval_ms;
         document.getElementById('interval-input').value = cfg.interval_ms;
       }
-      document.getElementById('page-title').textContent = 'atopweb ' + (cfg.atopweb_version || '');
+      const atopwebver = cfg.atopweb_version ? `v${cfg.atopweb_version}` : '';
+      document.getElementById('page-title').textContent = 'atopweb ' + atopwebver;
       const subParts = [];
       if (cfg.amdgpu_top_version) subParts.push(cfg.amdgpu_top_version);
-      if (cfg.kernel_version)     subParts.push(`Linux ${cfg.kernel_version}`);
-      if (cfg.nixos_version)      subParts.push(`NixOS ${cfg.nixos_version}`);
-      if (cfg.nixos_generation)   subParts.push(`Gen ${cfg.nixos_generation}`);
+      if (cfg.kernel_version)     subParts.push(`Linux v${cfg.kernel_version}`);
+      if (cfg.nixos_version)      subParts.push(`NixOS v${cfg.nixos_version}`);
+      if (cfg.nixos_generation)   subParts.push(`Profile Gen ${cfg.nixos_generation}`);
+      if (cfg.cpu_gov)   subParts.push(`CPU Gov: ${cfg.cpu_gov}`);
       document.getElementById('page-subtitle').textContent = subParts.join(' ◆ ');
       if (cfg.total_ram_mib) state.totalRAMMiB = cfg.total_ram_mib;
     })
