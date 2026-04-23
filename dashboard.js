@@ -142,6 +142,18 @@ function tooltipItemSort(a, b) {
   return bv - av;
 }
 
+// Shared segment filter: makes a line segment transparent when the time gap
+// between its two endpoints exceeds 2× the sample interval, so cache-restore
+// discontinuities and data dropouts never appear as false connections.
+const _gapSeg = (() => {
+  const f = ctx => {
+    const lbl = ctx.chart.data.labels;
+    return lbl && lbl[ctx.p1DataIndex] - lbl[ctx.p0DataIndex] > state.intervalMs * 2
+      ? 'transparent' : undefined;
+  };
+  return { borderColor: f, backgroundColor: f };
+})();
+
 function makeDataset(label, color, data, sourcePath, decimals) {
   return {
     label,
@@ -154,6 +166,7 @@ function makeDataset(label, color, data, sourcePath, decimals) {
     tension: 0.25,
     pointRadius: 0,
     borderWidth: 1.5,
+    segment: _gapSeg,
   };
 }
 
@@ -623,6 +636,7 @@ function buildDom(devices) {
                     tension: 0.25,
                     pointRadius: 0,
                     borderWidth: 1.5,
+                    segment: _gapSeg,
                   }],
                 },
                 options: pcCfg,
@@ -709,6 +723,7 @@ function buildDom(devices) {
           tension: 0.25,
           pointRadius: 0,
           borderWidth: 1,
+          segment: _gapSeg,
         }))
       },
       {
@@ -739,6 +754,7 @@ function buildDom(devices) {
           tension: 0.25,
           pointRadius: 0,
           borderWidth: 1,
+          segment: _gapSeg,
         }))
       },
       {
@@ -862,6 +878,7 @@ function buildDom(devices) {
               tension: 0.25,
               pointRadius: 0,
               borderWidth: 1.5,
+              segment: _gapSeg,
             },
             {
               label: 'System Mgmt Unit',
@@ -875,6 +892,7 @@ function buildDom(devices) {
               pointRadius: 0,
               borderWidth: 1.5,
               borderDash: [3, 3],
+              segment: _gapSeg,
             },
           ],
         },
@@ -1647,7 +1665,7 @@ function renderSystemInfo(sys) {
     }
   };
 
-  const fan = (sys.fans || []).find(f => f.value > 0);
+  const fan = (sys.fans || []).find(f => f.value != null);
   // Stash for the Fan Speed chart
   state.lastFan = fan
     ? { value: fan.value, receivedAt: Date.now() }
