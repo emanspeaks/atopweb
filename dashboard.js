@@ -142,18 +142,6 @@ function tooltipItemSort(a, b) {
   return bv - av;
 }
 
-// Shared segment filter: makes a line segment transparent when the time gap
-// between its two endpoints exceeds 2× the sample interval, so cache-restore
-// discontinuities and data dropouts never appear as false connections.
-const _gapSeg = (() => {
-  const f = ctx => {
-    const lbl = ctx.chart.data.labels;
-    return lbl && lbl[ctx.p1DataIndex] - lbl[ctx.p0DataIndex] > state.intervalMs * 2
-      ? 'transparent' : undefined;
-  };
-  return { borderColor: f, backgroundColor: f };
-})();
-
 function makeDataset(label, color, data, sourcePath, decimals) {
   return {
     label,
@@ -166,7 +154,6 @@ function makeDataset(label, color, data, sourcePath, decimals) {
     tension: 0.25,
     pointRadius: 0,
     borderWidth: 1.5,
-    segment: _gapSeg,
   };
 }
 
@@ -378,11 +365,43 @@ function decodeHist(c, h, ts, ms) {
   d2(c.npuBusy, h.npuBusy); d2(c.corePwr, h.corePwr);
   d2(c.coreClk, h.coreClk); d2(c.cpuScalingClk, h.cpuScalingClk);
   d2(c.grbm, h.grbm); d2(c.grbm2, h.grbm2);
-  // Reconstruct time axes from cached end-timestamp rather than storing them.
-  const n = h.times.length;
-  for (let k = 0; k < n; k++) h.times[k] = ts - (n - 1 - k) * ms;
+
+  // Reconstruct time axes from cached end-timestamp.
+  const n  = h.times.length;
   const cn = h.coreTimes.length;
-  for (let k = 0; k < cn; k++) h.coreTimes[k] = ts - (cn - 1 - k) * ms;
+  for (let k = 0; k < n;  k++) h.times[k]     = ts - (n  - 1 - k) * ms;
+  for (let k = 0; k < cn; k++) h.coreTimes[k]  = ts - (cn - 1 - k) * ms;
+
+  // Shift every data array left by the number of samples that elapsed while the
+  // page was away, filling the vacated tail with NaN.  Chart.js's default
+  // spanGaps:false then naturally breaks the line at the gap boundary, so
+  // cached history and live data are never visually connected.
+  const g  = Math.min(Math.max(0, Math.round((Date.now() - ts) / ms)), n);
+  const gc = Math.min(g, cn);
+  if (g > 0) {
+    const sft = (a, gap) => { a.copyWithin(0, gap); a.fill(NaN, a.length - gap); };
+    sft(h.gfx, g); sft(h.mem, g); sft(h.media, g);
+    sft(h.vram, g); sft(h.vramOnly, g); sft(h.gttOnly, g);
+    sft(h.pwr, g); sft(h.fan, g); sft(h.ppt, g);
+    sft(h.cpuPwr, g); sft(h.npuPwr, g);
+    sft(h.tempE, g); sft(h.tempC, g); sft(h.tempS, g);
+    sft(h.tempGfx, g); sft(h.tempHot, g); sft(h.tempMem, g);
+    sft(h.sclk, g); sft(h.mclk, g); sft(h.fclk, g);
+    sft(h.fclkAvg, g); sft(h.socClk, g); sft(h.vclk, g);
+    sft(h.vddgfx, g); sft(h.vddnb, g);
+    sft(h.dramReads, g); sft(h.dramWrites, g);
+    sft(h.npuClk, g); sft(h.npuMpClk, g);
+    sft(h.npuReads, g); sft(h.npuWrites, g);
+    h.npuBusy.forEach(a => sft(a, g));
+    h.corePwr.forEach(a => sft(a, g));
+    h.grbm.forEach(a => sft(a, g));
+    h.grbm2.forEach(a => sft(a, g));
+    h.coreClk.forEach(a => sft(a, gc));
+    h.cpuScalingClk.forEach(a => sft(a, gc));
+    // Advance time axes to match the shifted data positions.
+    for (let k = 0; k < n;  k++) h.times[k]    += g  * ms;
+    for (let k = 0; k < cn; k++) h.coreTimes[k] += gc * ms;
+  }
 }
 
 function saveCache() {
@@ -636,7 +655,6 @@ function buildDom(devices) {
                     tension: 0.25,
                     pointRadius: 0,
                     borderWidth: 1.5,
-                    segment: _gapSeg,
                   }],
                 },
                 options: pcCfg,
@@ -723,7 +741,6 @@ function buildDom(devices) {
           tension: 0.25,
           pointRadius: 0,
           borderWidth: 1,
-          segment: _gapSeg,
         }))
       },
       {
@@ -754,7 +771,6 @@ function buildDom(devices) {
           tension: 0.25,
           pointRadius: 0,
           borderWidth: 1,
-          segment: _gapSeg,
         }))
       },
       {
@@ -878,7 +894,6 @@ function buildDom(devices) {
               tension: 0.25,
               pointRadius: 0,
               borderWidth: 1.5,
-              segment: _gapSeg,
             },
             {
               label: 'System Mgmt Unit',
@@ -892,7 +907,6 @@ function buildDom(devices) {
               pointRadius: 0,
               borderWidth: 1.5,
               borderDash: [3, 3],
-              segment: _gapSeg,
             },
           ],
         },
