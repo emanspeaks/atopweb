@@ -195,11 +195,16 @@ header .period {
 }
 .system-cards:empty { display: none; }
 
-.c-sys-fan   .card-value { color: var(--muted); }
-.c-sys-volt  .card-value { color: var(--yellow); }
-.c-sys-curr  .card-value { color: var(--blue); }
-.c-sys-power .card-value { color: var(--orange); }
-.c-sys-temp  .card-value { color: var(--red); }
+.c-sys-fan    .card-value { color: var(--muted); }
+.c-sys-volt   .card-value { color: var(--yellow); }
+.c-sys-curr   .card-value { color: var(--blue); }
+.c-sys-power  .card-value { color: var(--orange); }
+.c-sys-temp   .card-value { color: var(--red); }
+.c-sys-uptime .card-value {
+  color: var(--green);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
 
 /* ── Tabs ────────────────────────────────────────────────────────── */
 #tabs {
@@ -263,9 +268,8 @@ main { padding: 12px; }
 }
 
 .card-label {
-  font-size: 9px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  font-size: 10px;
+  letter-spacing: 0.02em;
   color: var(--muted);
   margin-bottom: 1px;
 }

@@ -212,6 +212,8 @@ const state = {
   powerLimits:     { stapm_w: null, fast_w: null, slow_w: null, apu_slow_w: null, thm_core_c: null, thm_gfx_c: null, thm_soc_c: null },
   totalRAMMiB:     null,
   systemInfo:      null,
+  systemUptimeBaseSec:    null,  // uptime value at last /api/system poll
+  systemUptimeReceivedAt: null,  // Date.now() when the above was received
   coreRanks:       [],
   lastDev0:        null,
   lastDevices:     null,
@@ -968,8 +970,9 @@ function temperatureLimitAnnotations() {
 }
 
 // VRAM chart gets two ceiling lines: total GPU-addressable memory (VRAM+GTT)
-// and total physical memory (that plus system RAM). Plotted in GiB since the
-// chart's y-axis is GiB.
+// and total system physical memory. On unified-memory APUs the system RAM
+// total already includes the VRAM carve-out, so we use it directly rather
+// than summing with VRAM+GTT. Plotted in GiB to match the chart's y-axis.
 function memoryLimitAnnotations(h) {
   const out = {};
   const combinedGiB = h.vramMax; // already GiB
@@ -977,7 +980,7 @@ function memoryLimitAnnotations(h) {
   const specs = staggerLimitPositions([
     { key: 'vramGttLine', val: combinedGiB > 0 ? combinedGiB : null,
       label: 'VRAM+GTT', color: '#bc8cff', unit: ' GiB' },
-    { key: 'physLine',    val: (combinedGiB > 0 && ramGiB != null) ? combinedGiB + ramGiB : null,
+    { key: 'physLine',    val: ramGiB,
       label: 'Phys Mem', color: '#e3b341', unit: ' GiB' },
   ]);
   for (const s of specs) out[s.key] = makeLimitLine(s.val, s.label, s.color, s.unit, s.position);
@@ -1433,8 +1436,8 @@ const CORE_COLORS = [
   '#1dd1a1', // teal
   '#c08968', // tan
   '#5d6dff', // indigo
-  '#e6edf3', // off-white
-  '#8b949e', // gray
+  '#a0522d', // sienna brown
+  '#fb7185', // rose
 ];
 function coreColor(j) { return CORE_COLORS[j % CORE_COLORS.length]; }
 
@@ -1472,34 +1475,64 @@ function renderSystemInfo(sys) {
 
   const makeCard = (cls, label, value, unit) => {
     const card = el('div', `card ${cls}`);
-    const lbl  = el('div', 'card-label', label);
+    card.appendChild(el('div', 'card-label', label));
     const row  = el('div');
     row.appendChild(el('span', 'card-value', value));
-    row.appendChild(el('span', 'card-unit',  unit));
-    card.appendChild(lbl);
+    if (unit) row.appendChild(el('span', 'card-unit', unit));
     card.appendChild(row);
     return card;
   };
 
   const next = document.createDocumentFragment();
-  for (const f of sys.fans || []) {
-    if (!(f.value > 0)) continue;
-    next.appendChild(makeCard('c-sys-fan',   f.label, String(Math.round(f.value)), 'RPM'));
+
+  // Fan Speed — first non-zero fan from hwmon.
+  const fan = (sys.fans || []).find(f => f.value > 0);
+  if (fan) {
+    next.appendChild(makeCard('c-sys-fan', 'Fan Speed', String(Math.round(fan.value)), 'RPM'));
   }
-  for (const p of sys.powers || []) {
-    if (!(p.value > 0)) continue;
-    next.appendChild(makeCard('c-sys-power', p.label, (p.value / 1_000_000).toFixed(1), 'W'));
+
+  // Package Power Tracking — hwmon power sensor labelled "PPT".
+  const ppt = (sys.powers || []).find(p => /^ppt$/i.test(p.label) && p.value > 0);
+  if (ppt) {
+    next.appendChild(makeCard('c-sys-power', 'Package Power Tracking',
+      (ppt.value / 1_000_000).toFixed(1), 'W'));
   }
-  for (const v of sys.voltages || []) {
-    if (!Number.isFinite(v.value)) continue;
-    next.appendChild(makeCard('c-sys-volt',  v.label, String(Math.round(v.value)), 'mV'));
-  }
-  for (const c of sys.currents || []) {
-    if (!(c.value > 0)) continue;
-    next.appendChild(makeCard('c-sys-curr',  c.label, String(Math.round(c.value)), 'mA'));
+
+  // Uptime — interpolated client-side for sub-second display precision.
+  if (sys.uptime_sec != null && sys.uptime_sec > 0) {
+    state.systemUptimeBaseSec    = sys.uptime_sec;
+    state.systemUptimeReceivedAt = Date.now();
+    const card = makeCard('c-sys-uptime', 'Uptime', formatUptime(sys.uptime_sec), '');
+    card.id = 'uptime-card';
+    next.appendChild(card);
   }
 
   host.replaceChildren(next);
+}
+
+// Formats seconds as D/HH:MM:SS.mmm — e.g. 90061.5 → "1/01:01:01.500".
+function formatUptime(totalSec) {
+  const days = Math.floor(totalSec / 86400);
+  const rem  = totalSec - days * 86400;
+  const h    = Math.floor(rem / 3600);
+  const m    = Math.floor((rem % 3600) / 60);
+  const sRaw = rem % 60;
+  const sInt = Math.floor(sRaw);
+  const ms   = Math.floor((sRaw - sInt) * 1000);
+  const pad  = (n, w) => String(n).padStart(w, '0');
+  return `${days}/${pad(h, 2)}:${pad(m, 2)}:${pad(sInt, 2)}.${pad(ms, 3)}`;
+}
+
+// 20 Hz refresh of the live uptime card between /api/system polls.
+function tickUptime() {
+  const card = document.getElementById('uptime-card');
+  if (!card) return;
+  const valEl = card.querySelector('.card-value');
+  if (!valEl) return;
+  const base = state.systemUptimeBaseSec;
+  const rxAt = state.systemUptimeReceivedAt;
+  if (base == null || rxAt == null) return;
+  valEl.textContent = formatUptime(base + (Date.now() - rxAt) / 1000);
 }
 
 // ── Power limits ─────────────────────────────────────────────────────────────
@@ -1793,4 +1826,5 @@ setInterval(fetchPowerLimits, 300_000);
 fetchCoreRanks();
 fetchSystem();
 setInterval(fetchSystem, 1000);
+setInterval(tickUptime, 50);
 connect();

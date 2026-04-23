@@ -838,7 +838,7 @@ type sysSensor struct {
 type systemInfo struct {
 	TotalRAMMiB uint64      `json:"total_ram_mib"`
 	AvailRAMMiB uint64      `json:"avail_ram_mib"`
-	UptimeSec   uint64      `json:"uptime_sec"`
+	UptimeSec   float64     `json:"uptime_sec"`
 	LoadAvg     [3]float64  `json:"loadavg"`
 	Fans        []sysSensor `json:"fans"`     // RPM
 	Voltages    []sysSensor `json:"voltages"` // mV
@@ -946,7 +946,7 @@ func readLoadAvg() [3]float64 {
 	return avg
 }
 
-func readUptime() uint64 {
+func readUptime() float64 {
 	data, err := os.ReadFile("/proc/uptime")
 	if err != nil {
 		return 0
@@ -956,7 +956,7 @@ func readUptime() uint64 {
 		return 0
 	}
 	sec, _ := strconv.ParseFloat(fields[0], 64)
-	return uint64(sec)
+	return sec
 }
 
 func serveSystem(w http.ResponseWriter, r *http.Request) {
