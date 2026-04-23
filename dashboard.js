@@ -225,6 +225,7 @@ const state = {
   coreTimeWidthMs: 60_000,
   paused:          false,
   overlayChart:    null,
+  overlayChartKey: null,
   overlayWidthMs:  0,
   chartLastData:   {},   // chartKey → ms timestamp of last tick with any finite data
   cardLastData:    {},   // cardId   → ms timestamp of last tick with any finite value
@@ -325,7 +326,7 @@ function makeChartCallbacks(h) {
     label(item) {
       if (item.raw == null) return null;
       const raw = Number(item.raw);
-      const dec = item.dataset.decimals ?? 1;
+      const dec = item.dataset.decimals ?? 3;
       const str = isNaN(raw) ? String(item.raw) :
         (Number.isInteger(raw) ? String(raw) : raw.toFixed(dec));
       return ` ${item.dataset.label}: ${str}`;
@@ -339,7 +340,7 @@ function makeChartCallbacks(h) {
 
 function fmtTick(v) {
   if (typeof v !== 'number') return String(v);
-  return Number.isInteger(v) ? String(v) : v.toFixed(1);
+  return Number.isInteger(v) ? String(v) : v.toFixed(3);
 }
 
 // Draws a vertical cursor line on hover for charts where per-series tooltips
@@ -382,8 +383,8 @@ function makeCoreChartCallbacks(h, getArrays, unit) {
       }
       const vals = getArrays().map(arr => arr[idx]).filter(Number.isFinite);
       if (vals.length) {
-        lines.push(`Min: ${Math.min(...vals).toFixed(1)} ${unit}`);
-        lines.push(`Max: ${Math.max(...vals).toFixed(1)} ${unit}`);
+        lines.push(`Min: ${Math.min(...vals).toFixed(3)} ${unit}`);
+        lines.push(`Max: ${Math.max(...vals).toFixed(3)} ${unit}`);
       }
       return lines;
     },
@@ -437,9 +438,9 @@ function buildDom(devices) {
       { id: `c-vddnb-${i}`,  cls: 'c-vddnb',  label: 'VDDNB',    unit: 'mV',  bar: false },
       { id: `c-etmp-${i}`,   cls: 'c-etmp',   label: 'Edge Temp', unit: '°C',  bar: false },
       { id: `c-cputmp-${i}`, cls: 'c-cputmp', label: 'CPU Tctl',  unit: '°C',  bar: false },
-      { id: `c-pwr-${i}`,    cls: 'c-pwr',    label: 'Average Power', unit: 'W', bar: false },
+      { id: `c-pwr-${i}`,    cls: 'c-pwr',    label: 'GPU Power', unit: 'W', bar: false },
       // Permanent system cards (fed by /api/system, never idle-hidden).
-      { id: `c-ppt-${i}`,    cls: 'c-ppt',    label: 'Package Power Tracking', unit: 'W',   bar: false, permanent: true },
+      // { id: `c-ppt-${i}`,    cls: 'c-ppt',    label: 'Package Power Tracking', unit: 'W',   bar: false, permanent: true },
       { id: `c-fan-${i}`,    cls: 'c-fan',    label: 'Fan Speed',              unit: 'RPM', bar: false, permanent: true },
       { id: `c-uptime-${i}`, cls: 'c-uptime', label: 'Uptime',                 unit: '',    bar: false, permanent: true },
     ];
@@ -473,8 +474,8 @@ function buildDom(devices) {
           makeDataset('CPU Tctl', '#fb7185', h.tempC,   `devices[${i}].Sensors['CPU Tctl']`),
           makeDataset('SoC',      '#bc8cff', h.tempS,   `devices[${i}].gpu_metrics.temperature_soc / 100`),
           makeDataset('GFX',      '#388bfd', h.tempGfx, `devices[${i}].gpu_metrics.temperature_gfx / 100`),
-          makeDataset('Hotspot',  '#e879f9', h.tempHot, `devices[${i}].gpu_metrics.temperature_hotspot / 100`),
-          makeDataset('Mem',      '#ffffff', h.tempMem, `devices[${i}].gpu_metrics.temperature_mem / 100`),
+          // makeDataset('Hotspot',  '#e879f9', h.tempHot, `devices[${i}].gpu_metrics.temperature_hotspot / 100`),
+          // makeDataset('Mem',      '#ffffff', h.tempMem, `devices[${i}].gpu_metrics.temperature_mem / 100`),
         ]
       },
       {
@@ -512,9 +513,9 @@ function buildDom(devices) {
       {
         key: 'power', title: 'Package Power (W)', height: 175, yMax: null,
         datasets: () => [
-          makeDataset('PPT',           '#ffffff', h.ppt,    `/api/system hwmon powers[label=PPT] µW→W`),
-          makeDataset('Average Power', '#40e0d0', h.pwr,    `devices[${i}].Sensors['Average Power']`),
-          makeDataset('CPU Cores',     '#388bfd', h.cpuPwr, `devices[${i}].gpu_metrics.average_all_core_power / 1000`),
+          // makeDataset('PPT',           '#ffffff', h.ppt,    `/api/system hwmon powers[label=PPT] µW→W`),
+          makeDataset('GPU', '#40e0d0', h.pwr,    `devices[${i}].Sensors['Average Power']`),
+          makeDataset('CPU Cores Total',     '#388bfd', h.cpuPwr, `devices[${i}].gpu_metrics.average_all_core_power / 1000`),
           makeDataset('NPU',           '#bc8cff', h.npuPwr, `devices[${i}].gpu_metrics.average_ipu_power / 1000`),
         ]
       },
@@ -918,7 +919,7 @@ function minMaxAnnotations(times, windowStart, ...arrays) {
   }
   if (count < 2) return {};
   const color    = 'rgba(139,148,158,0.6)';
-  const fmtA     = x => (Math.abs(x) >= 100 ? x.toFixed(0) : x.toFixed(1));
+  const fmtA     = x => (x.toFixed(3));
   const labelBase = { color, font: { size: 9 }, backgroundColor: 'rgba(22,27,34,0.92)', borderColor: 'transparent', borderWidth: 0, padding: { x: 3, y: 1 } };
   const out = {};
   out.minLine = {
@@ -1197,6 +1198,23 @@ function updateDevice(i, dev) {
   if (cNpuClk)  setAnnotations(cNpuClk,  h.times, {},                         h.npuClk, h.npuMpClk);
   if (cNpuBw)   setAnnotations(cNpuBw,   h.times, {},                         h.npuReads, h.npuWrites);
 
+  if (state.overlayChart && state.overlayChartKey) {
+    const oc  = state.overlayChartKey;
+    const ovl = state.overlayChart;
+    if      (oc === `${i}-activity`) setAnnotations(ovl, h.times, {},                             h.gfx, h.mem, h.media);
+    else if (oc === `${i}-vram`)   { ovl._yCeilingHint = h.vramMax;
+                                     setAnnotations(ovl, h.times, memoryLimitAnnotations(h),      h.vram, h.vramOnly, h.gttOnly); }
+    else if (oc === `${i}-power`)    setAnnotations(ovl, h.times, powerLimitAnnotations(),        h.pwr, h.ppt, h.cpuPwr, h.npuPwr);
+    else if (oc === `${i}-temp`)     setAnnotations(ovl, h.times, temperatureLimitAnnotations(),  h.tempE, h.tempC, h.tempS, h.tempGfx, h.tempHot, h.tempMem);
+    else if (oc === `${i}-gfx-clk`) setAnnotations(ovl, h.times, {},                             h.sclk, h.mclk, h.fclk, h.fclkAvg, h.socClk, h.vclk);
+    else if (oc === `${i}-voltage`) setAnnotations(ovl, h.times, {},                             h.vddgfx, h.vddnb);
+    else if (oc === `${i}-core-pwr`) setAnnotations(ovl, h.times, {},                            ...h.corePwr);
+    else if (oc === `${i}-dram-bw`)  setAnnotations(ovl, h.times, {},                            h.dramReads, h.dramWrites);
+    else if (oc === `${i}-npu-act`)  setAnnotations(ovl, h.times, {},                            ...h.npuBusy);
+    else if (oc === `${i}-npu-clk`)  setAnnotations(ovl, h.times, {},                            h.npuClk, h.npuMpClk);
+    else if (oc === `${i}-npu-bw`)   setAnnotations(ovl, h.times, {},                            h.npuReads, h.npuWrites);
+  }
+
   // Mark which charts received finite data this tick so scheduleRender can
   // skip charts that are entirely idle (e.g. NPU on a non-NPU system).
   const devPrefix = `${i}-`;
@@ -1215,7 +1233,7 @@ function updateDevice(i, dev) {
     const val = v(grbm, key);
     const ve  = document.getElementById(`grbm-val-${i}-${ki}`);
     const be  = document.getElementById(`grbm-bar-${i}-${ki}`);
-    if (ve) ve.textContent = val != null ? val.toFixed(0) + '%' : '—';
+    if (ve) ve.textContent = val != null ? val.toFixed(3) + '%' : '—';
     if (be) be.style.width = (val != null ? Math.min(100, Math.max(0, val)) : 0) + '%';
     pushHistory(h.grbm[ki], val);
   });
@@ -1224,7 +1242,7 @@ function updateDevice(i, dev) {
     const val = v(grbm2, key);
     const ve  = document.getElementById(`grbm2-val-${i}-${ki}`);
     const be  = document.getElementById(`grbm2-bar-${i}-${ki}`);
-    if (ve) ve.textContent = val != null ? val.toFixed(0) + '%' : '—';
+    if (ve) ve.textContent = val != null ? val.toFixed(3) + '%' : '—';
     if (be) be.style.width = (val != null ? Math.min(100, Math.max(0, val)) : 0) + '%';
     pushHistory(h.grbm2[ki], val);
   });
@@ -1367,7 +1385,7 @@ function connect() {
   });
 
   ws.addEventListener('close', () => {
-    const delaySec = (retryMs / 1000).toFixed(0);
+    const delaySec = (retryMs / 1000).toFixed(3);
     setConnStatus('disconnected', `Reconnecting in ${delaySec}s…`);
     appendLog(`WebSocket disconnected — reconnecting in ${delaySec}s`, 'warn');
     retryTimer = setTimeout(connect, retryMs);
@@ -1415,10 +1433,10 @@ function updateDeviceInfoHeader(dev) {
     specsParts.push(`${gib.toFixed(3)} GiB VRAM`);
   }
   const bw = info['Memory Bandwidth'] ?? null;
-  if (bw != null) specsParts.push(`${typeof bw === 'number' ? bw.toFixed(0) : bw} GB/s BW`);
+  if (bw != null) specsParts.push(`${typeof bw === 'number' ? bw.toFixed(3) : bw} GB/s BW`);
   const fp32Raw = v(info, 'Peak FP32') ?? v(info, 'Peak GFLOPS') ?? null;
   const fp32Num = fp32Raw != null ? Number(fp32Raw) : null;
-  if (fp32Num != null && !isNaN(fp32Num)) specsParts.push(`${(fp32Num / 1000).toFixed(1)} TFLOPS`);
+  if (fp32Num != null && !isNaN(fp32Num)) specsParts.push(`${(fp32Num / 1000).toFixed(3)} TFLOPS`);
   const npuName = info['IPU'] ?? info['NPU'] ?? null;
   if (npuName) specsParts.push(`NPU: ${npuName}`);
   const specsHtml = specsParts.length ? `<div class="di-specs">${specsParts.join(' ◆ ')}</div>` : '';
@@ -1426,13 +1444,13 @@ function updateDeviceInfoHeader(dev) {
   const pl = state.powerLimits;
   let limitsHtml = '';
   const limitParts = [];
-  if (pl.stapm_w    != null) limitParts.push(`<span class="di-limit-stapm">STAPM ${pl.stapm_w.toFixed(0)}W</span>`);
-  if (pl.fast_w     != null) limitParts.push(`<span class="di-limit-fast">Fast ${pl.fast_w.toFixed(0)}W</span>`);
-  if (pl.slow_w     != null) limitParts.push(`<span class="di-limit-slow">Slow ${pl.slow_w.toFixed(0)}W</span>`);
-  if (pl.apu_slow_w != null) limitParts.push(`<span class="di-limit-apu-slow">APU Slow ${pl.apu_slow_w.toFixed(0)}W</span>`);
-  if (pl.thm_core_c != null) limitParts.push(`<span class="di-limit-thm-core">THM Core ${pl.thm_core_c.toFixed(0)}°C</span>`);
-  if (pl.thm_gfx_c  != null) limitParts.push(`<span class="di-limit-thm-gfx">THM GFX ${pl.thm_gfx_c.toFixed(0)}°C</span>`);
-  if (pl.thm_soc_c  != null) limitParts.push(`<span class="di-limit-thm-soc">THM SoC ${pl.thm_soc_c.toFixed(0)}°C</span>`);
+  if (pl.stapm_w    != null) limitParts.push(`<span class="di-limit-stapm">STAPM ${pl.stapm_w.toFixed(3)}W</span>`);
+  if (pl.fast_w     != null) limitParts.push(`<span class="di-limit-fast">Fast ${pl.fast_w.toFixed(3)}W</span>`);
+  if (pl.slow_w     != null) limitParts.push(`<span class="di-limit-slow">Slow ${pl.slow_w.toFixed(3)}W</span>`);
+  if (pl.apu_slow_w != null) limitParts.push(`<span class="di-limit-apu-slow">APU Slow ${pl.apu_slow_w.toFixed(3)}W</span>`);
+  if (pl.thm_core_c != null) limitParts.push(`<span class="di-limit-thm-core">THM Core ${pl.thm_core_c.toFixed(3)}°C</span>`);
+  if (pl.thm_gfx_c  != null) limitParts.push(`<span class="di-limit-thm-gfx">THM GFX ${pl.thm_gfx_c.toFixed(3)}°C</span>`);
+  if (pl.thm_soc_c  != null) limitParts.push(`<span class="di-limit-thm-soc">THM SoC ${pl.thm_soc_c.toFixed(3)}°C</span>`);
   if (limitParts.length) {
     limitsHtml = `<div class="di-limits"><span class="di-limit-label">ryzenadj limits:</span> ${limitParts.join(' ◆ ')}</div>`;
   }
@@ -1513,7 +1531,7 @@ function renderSystemInfo(sys) {
   state.lastPPT = ppt
     ? { value: ppt.value / 1_000_000, receivedAt: Date.now() }
     : { value: null, receivedAt: 0 };
-  update('c-ppt', ppt ? state.lastPPT.value.toFixed(1) : '—');
+  update('c-ppt', ppt ? state.lastPPT.value.toFixed(3) : '—');
 
   if (sys.uptime_sec != null && sys.uptime_sec > 0) {
     state.systemUptimeBaseSec    = sys.uptime_sec;
@@ -1564,13 +1582,13 @@ function fetchPowerLimits() {
       if (state.hist.length > 0 && state.lastDev0) updateDeviceInfoHeader(state.lastDev0);
       const pl = state.powerLimits;
       const parts = [];
-      if (pl.stapm_w    != null) parts.push(`STAPM ${pl.stapm_w.toFixed(0)}W`);
-      if (pl.fast_w     != null) parts.push(`Fast ${pl.fast_w.toFixed(0)}W`);
-      if (pl.slow_w     != null) parts.push(`Slow ${pl.slow_w.toFixed(0)}W`);
-      if (pl.apu_slow_w != null) parts.push(`APU Slow ${pl.apu_slow_w.toFixed(0)}W`);
-      if (pl.thm_core_c != null) parts.push(`THM Core ${pl.thm_core_c.toFixed(0)}°C`);
-      if (pl.thm_gfx_c  != null) parts.push(`THM GFX ${pl.thm_gfx_c.toFixed(0)}°C`);
-      if (pl.thm_soc_c  != null) parts.push(`THM SoC ${pl.thm_soc_c.toFixed(0)}°C`);
+      if (pl.stapm_w    != null) parts.push(`STAPM ${pl.stapm_w.toFixed(3)}W`);
+      if (pl.fast_w     != null) parts.push(`Fast ${pl.fast_w.toFixed(3)}W`);
+      if (pl.slow_w     != null) parts.push(`Slow ${pl.slow_w.toFixed(3)}W`);
+      if (pl.apu_slow_w != null) parts.push(`APU Slow ${pl.apu_slow_w.toFixed(3)}W`);
+      if (pl.thm_core_c != null) parts.push(`THM Core ${pl.thm_core_c.toFixed(3)}°C`);
+      if (pl.thm_gfx_c  != null) parts.push(`THM GFX ${pl.thm_gfx_c.toFixed(3)}°C`);
+      if (pl.thm_soc_c  != null) parts.push(`THM SoC ${pl.thm_soc_c.toFixed(3)}°C`);
       if (parts.length) appendLog(`Power limits: ${parts.join('  ')}`);
     })
     .catch(() => {});
@@ -1805,13 +1823,15 @@ function openOverlay(chartKey, title) {
   });
 
   const isCoreFreq = chartKey.includes('-cpu-core-');
-  state.overlayWidthMs = isCoreFreq ? state.coreTimeWidthMs : state.timeWidthMs;
+  state.overlayWidthMs  = isCoreFreq ? state.coreTimeWidthMs : state.timeWidthMs;
+  state.overlayChartKey = chartKey;
   appendLog(`Maximized: ${title}`);
 }
 
 function closeOverlay() {
   document.getElementById('plot-overlay').hidden = true;
   if (state.overlayChart) { state.overlayChart.destroy(); state.overlayChart = null; }
+  state.overlayChartKey = null;
   scheduleRender();
   appendLog('Closed maximized plot');
 }
