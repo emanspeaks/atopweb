@@ -42,6 +42,7 @@ NOPASSWD
 nopc
 npuclk
 numtide
+osrelease
 pkgs
 RAPL
 Roboto

@@ -191,6 +191,8 @@ function scheduleRender() {
     }
     const cardDebounce = state.timeWidthMs * 0.1;
     for (const id in state.cardLastData) {
+      // Permanent system cards are always visible regardless of data flow.
+      if (id.startsWith('c-fan-') || id.startsWith('c-ppt-') || id.startsWith('c-uptime-')) continue;
       const active = (now - state.cardLastData[id]) <= cardDebounce;
       const el = document.getElementById(id);
       setDisplay(el?.closest('.card'), active);
@@ -214,6 +216,7 @@ const state = {
   systemInfo:      null,
   systemUptimeBaseSec:    null,  // uptime value at last /api/system poll
   systemUptimeReceivedAt: null,  // Date.now() when the above was received
+  lastPPT:         { value: null, receivedAt: 0 },  // W; reused on each GPU tick
   coreRanks:       [],
   lastDev0:        null,
   lastDevices:     null,
@@ -256,6 +259,7 @@ function makeHist(size, coreSize) {
     vramOnly: a(size),
     gttOnly:  a(size),
     pwr:      a(size),
+    ppt:      a(size),
     cpuPwr:   a(size),
     npuPwr:   a(size),
     tempE:    a(size),
@@ -422,6 +426,10 @@ function buildDom(devices) {
     // ── Stat cards ──
     const cards = el('div', 'cards');
     const cardDefs = [
+      // Permanent system cards (fed by /api/system, never idle-hidden).
+      { id: `c-fan-${i}`,    cls: 'c-fan',    label: 'Fan Speed',              unit: 'RPM', bar: false, permanent: true },
+      { id: `c-ppt-${i}`,    cls: 'c-ppt',    label: 'Package Power Tracking', unit: 'W',   bar: false, permanent: true },
+      { id: `c-uptime-${i}`, cls: 'c-uptime', label: 'Uptime',                 unit: '',    bar: false, permanent: true },
       { id: `c-gfx-${i}`,    cls: 'c-gfx',    label: 'GFX',       unit: '%',   bar: true  },
       { id: `c-media-${i}`,  cls: 'c-media',  label: 'Media',     unit: '%',   bar: true  },
       { id: `c-vram-${i}`,   cls: 'c-vram',   label: 'VRAM',      unit: 'GiB', bar: true  },
@@ -429,7 +437,7 @@ function buildDom(devices) {
       { id: `c-sclk-${i}`,   cls: 'c-sclk',   label: 'GFX Clock', unit: 'MHz', bar: false },
       { id: `c-mclk-${i}`,   cls: 'c-mclk',   label: 'Mem Clock', unit: 'MHz', bar: false },
       { id: `c-fclk-${i}`,   cls: 'c-fclk',   label: 'FCLK',      unit: 'MHz', bar: false },
-      { id: `c-pwr-${i}`,    cls: 'c-pwr',    label: 'Power',     unit: 'W',   bar: false },
+      { id: `c-pwr-${i}`,    cls: 'c-pwr',    label: 'Average Power', unit: 'W', bar: false },
       { id: `c-etmp-${i}`,   cls: 'c-etmp',   label: 'Edge Temp', unit: '°C',  bar: false },
       { id: `c-cputmp-${i}`, cls: 'c-cputmp', label: 'CPU Tctl',  unit: '°C',  bar: false },
       { id: `c-vddgfx-${i}`, cls: 'c-vddgfx', label: 'VDDGFX',   unit: 'mV',  bar: false },
@@ -438,7 +446,8 @@ function buildDom(devices) {
 
     cardDefs.forEach(def => {
       const card = el('div', `card ${def.cls}`);
-      card.style.display = 'none'; // revealed once data arrives
+      // Permanent cards are always visible; others hide until data arrives.
+      card.style.display = def.permanent ? '' : 'none';
       card.innerHTML = `
         <div class="card-label">${def.label}</div>
         <div>
@@ -448,7 +457,7 @@ function buildDom(devices) {
         ${def.bar ? `<div class="card-bar-wrap"><div class="card-bar" id="${def.id}-bar"></div></div>` : ''}
       `;
       cards.appendChild(card);
-      state.cardLastData[def.id] = 0;
+      state.cardLastData[def.id] = def.permanent ? Date.now() : 0;
     });
     panel.appendChild(cards);
 
@@ -460,12 +469,12 @@ function buildDom(devices) {
       {
         key: 'temp', title: 'Temperature (°C)', height: 175, yMax: null, wide: true, noYMin: true,
         datasets: () => [
-          makeDataset('Edge',     '#f85149', h.tempE,   `devices[${i}].Sensors['Edge Temperature']`),
-          makeDataset('CPU Tctl', '#e3b341', h.tempC,   `devices[${i}].Sensors['CPU Tctl']`),
+          makeDataset('Edge',     '#40e0d0', h.tempE,   `devices[${i}].Sensors['Edge Temperature']`),
+          makeDataset('CPU Tctl', '#fb7185', h.tempC,   `devices[${i}].Sensors['CPU Tctl']`),
           makeDataset('SoC',      '#bc8cff', h.tempS,   `devices[${i}].gpu_metrics.temperature_soc / 100`),
           makeDataset('GFX',      '#388bfd', h.tempGfx, `devices[${i}].gpu_metrics.temperature_gfx / 100`),
-          makeDataset('Hotspot',  '#ff9500', h.tempHot, `devices[${i}].gpu_metrics.temperature_hotspot / 100`),
-          makeDataset('Mem',      '#3fb950', h.tempMem, `devices[${i}].gpu_metrics.temperature_mem / 100`),
+          makeDataset('Hotspot',  '#e879f9', h.tempHot, `devices[${i}].gpu_metrics.temperature_hotspot / 100`),
+          makeDataset('Mem',      '#ffffff', h.tempMem, `devices[${i}].gpu_metrics.temperature_mem / 100`),
         ]
       },
       {
@@ -503,9 +512,10 @@ function buildDom(devices) {
       {
         key: 'power', title: 'Package Power (W)', height: 175, yMax: null,
         datasets: () => [
-          makeDataset('Power',     '#ffffff', h.pwr,    `devices[${i}].Sensors['Average Power']`),
-          makeDataset('CPU Cores', '#388bfd', h.cpuPwr, `devices[${i}].gpu_metrics.average_all_core_power / 1000`),
-          makeDataset('NPU',       '#bc8cff', h.npuPwr, `devices[${i}].gpu_metrics.average_ipu_power / 1000`),
+          makeDataset('PPT',           '#ffffff', h.ppt,    `/api/system hwmon powers[label=PPT] µW→W`),
+          makeDataset('Average Power', '#40e0d0', h.pwr,    `devices[${i}].Sensors['Average Power']`),
+          makeDataset('CPU Cores',     '#388bfd', h.cpuPwr, `devices[${i}].gpu_metrics.average_all_core_power / 1000`),
+          makeDataset('NPU',           '#bc8cff', h.npuPwr, `devices[${i}].gpu_metrics.average_ipu_power / 1000`),
         ]
       },
       {
@@ -634,6 +644,7 @@ function buildDom(devices) {
           text:          ds._shortLabel || ds.label,
           fillStyle:     ds.borderColor,
           strokeStyle:   ds.borderColor,
+          fontColor:     '#8b949e', // Chart.js doesn't fall back to labels.color here
           lineWidth:     ds.borderWidth || 1.5,
           lineDash:      ds.borderDash  || [],
           hidden:        !chart.isDatasetVisible(k),
@@ -1102,6 +1113,10 @@ function updateDevice(i, dev) {
   const cpuPwrAllMW = typeof gm.average_all_core_power === 'number' ? gm.average_all_core_power : null;
   const npuPwrMW    = typeof gm.average_ipu_power     === 'number' ? gm.average_ipu_power     : null;
   pushHistory(h.pwr,    pwr);
+  // PPT comes from /api/system at ~1 Hz; drop it if the last poll is stale
+  // (e.g. server paused) so the chart line breaks rather than flat-lining.
+  const pptFresh = state.lastPPT.value != null && (nowMs - state.lastPPT.receivedAt) < 3000;
+  pushHistory(h.ppt,    pptFresh ? state.lastPPT.value : null);
   pushHistory(h.cpuPwr, cpuPwrAllMW != null ? cpuPwrAllMW / 1000 : null);
   pushHistory(h.npuPwr, npuPwrMW    != null ? npuPwrMW    / 1000 : null);
   pushHistory(h.tempE,  tempE);
@@ -1163,7 +1178,7 @@ function updateDevice(i, dev) {
 
   if (cAct)     setAnnotations(cAct,    h.times, {},                          h.gfx, h.mem, h.media);
   if (cVram)    setAnnotations(cVram,   h.times, memoryLimitAnnotations(h),   h.vram, h.vramOnly, h.gttOnly);
-  if (cPwr)     setAnnotations(cPwr,    h.times, powerLimitAnnotations(),     h.pwr, h.cpuPwr, h.npuPwr);
+  if (cPwr)     setAnnotations(cPwr,    h.times, powerLimitAnnotations(),     h.pwr, h.ppt, h.cpuPwr, h.npuPwr);
   if (cTemp)    setAnnotations(cTemp,   h.times, temperatureLimitAnnotations(), h.tempE, h.tempC, h.tempS, h.tempGfx, h.tempHot, h.tempMem);
   if (cGfxClk)  setAnnotations(cGfxClk, h.times, {},                         h.sclk, h.mclk, h.fclk, h.fclkAvg, h.socClk, h.vclk);
   if (cVoltage) setAnnotations(cVoltage, h.times, {},                         h.vddgfx, h.vddnb);
@@ -1470,44 +1485,36 @@ function fetchSystem() {
 
 function renderSystemInfo(sys) {
   state.systemInfo = sys;
-  const host = document.getElementById('system-cards');
-  if (!host) return;
 
-  const makeCard = (cls, label, value, unit) => {
-    const card = el('div', `card ${cls}`);
-    card.appendChild(el('div', 'card-label', label));
-    const row  = el('div');
-    row.appendChild(el('span', 'card-value', value));
-    if (unit) row.appendChild(el('span', 'card-unit', unit));
-    card.appendChild(row);
-    return card;
+  // Push the current value into every device's copy of a permanent card.
+  // (On multi-GPU systems each tab gets its own card row, but system values
+  // are global — same value goes into all copies.)
+  const update = (prefix, text) => {
+    for (let i = 0; i < state.n; i++) {
+      const el = document.getElementById(`${prefix}-${i}`);
+      if (el) el.textContent = text;
+    }
   };
 
-  const next = document.createDocumentFragment();
-
-  // Fan Speed — first non-zero fan from hwmon.
   const fan = (sys.fans || []).find(f => f.value > 0);
-  if (fan) {
-    next.appendChild(makeCard('c-sys-fan', 'Fan Speed', String(Math.round(fan.value)), 'RPM'));
-  }
+  update('c-fan', fan ? String(Math.round(fan.value)) : '—');
 
-  // Package Power Tracking — hwmon power sensor labelled "PPT".
   const ppt = (sys.powers || []).find(p => /^ppt$/i.test(p.label) && p.value > 0);
-  if (ppt) {
-    next.appendChild(makeCard('c-sys-power', 'Package Power Tracking',
-      (ppt.value / 1_000_000).toFixed(1), 'W'));
-  }
+  // Stash for the Package Power chart; µW → W.
+  state.lastPPT = ppt
+    ? { value: ppt.value / 1_000_000, receivedAt: Date.now() }
+    : { value: null, receivedAt: 0 };
+  update('c-ppt', ppt ? state.lastPPT.value.toFixed(1) : '—');
 
-  // Uptime — interpolated client-side for sub-second display precision.
   if (sys.uptime_sec != null && sys.uptime_sec > 0) {
     state.systemUptimeBaseSec    = sys.uptime_sec;
     state.systemUptimeReceivedAt = Date.now();
-    const card = makeCard('c-sys-uptime', 'Uptime', formatUptime(sys.uptime_sec), '');
-    card.id = 'uptime-card';
-    next.appendChild(card);
+    update('c-uptime', formatUptime(sys.uptime_sec));
   }
 
-  host.replaceChildren(next);
+  // The dynamic `#system-cards` row is intentionally left empty. Its
+  // infrastructure (div + CSS + this function's `state.systemInfo` capture)
+  // is preserved so future collapsible system sensors can populate it.
 }
 
 // Formats seconds as D/HH:MM:SS.mmm — e.g. 90061.5 → "1/01:01:01.500".
@@ -1523,16 +1530,13 @@ function formatUptime(totalSec) {
   return `${days}/${pad(h, 2)}:${pad(m, 2)}:${pad(sInt, 2)}.${pad(ms, 3)}`;
 }
 
-// 20 Hz refresh of the live uptime card between /api/system polls.
+// 20 Hz refresh of the live uptime card(s) between /api/system polls.
 function tickUptime() {
-  const card = document.getElementById('uptime-card');
-  if (!card) return;
-  const valEl = card.querySelector('.card-value');
-  if (!valEl) return;
   const base = state.systemUptimeBaseSec;
   const rxAt = state.systemUptimeReceivedAt;
   if (base == null || rxAt == null) return;
-  valEl.textContent = formatUptime(base + (Date.now() - rxAt) / 1000);
+  const text = formatUptime(base + (Date.now() - rxAt) / 1000);
+  document.querySelectorAll('[id^="c-uptime-"]').forEach(el => { el.textContent = text; });
 }
 
 // ── Power limits ─────────────────────────────────────────────────────────────
@@ -1618,9 +1622,12 @@ function initIntervalCtrl() {
         document.getElementById('interval-input').value = cfg.interval_ms;
       }
       document.getElementById('page-title').textContent = 'atopweb ' + (cfg.atopweb_version || '');
-      if (cfg.amdgpu_top_version) {
-        document.getElementById('page-subtitle').textContent = cfg.amdgpu_top_version;
-      }
+      const subParts = [];
+      if (cfg.amdgpu_top_version) subParts.push(cfg.amdgpu_top_version);
+      if (cfg.kernel_version)     subParts.push(`Linux ${cfg.kernel_version}`);
+      if (cfg.nixos_version)      subParts.push(`NixOS ${cfg.nixos_version}`);
+      if (cfg.nixos_generation)   subParts.push(`Gen ${cfg.nixos_generation}`);
+      document.getElementById('page-subtitle').textContent = subParts.join(' ◆ ');
       if (cfg.total_ram_mib) state.totalRAMMiB = cfg.total_ram_mib;
     })
     .catch(() => {});
