@@ -438,9 +438,9 @@ function buildDom(devices) {
       { id: `c-vddnb-${i}`,  cls: 'c-vddnb',  label: 'VDDNB',    unit: 'mV',  bar: false },
       { id: `c-etmp-${i}`,   cls: 'c-etmp',   label: 'Edge Temp', unit: '°C',  bar: false },
       { id: `c-cputmp-${i}`, cls: 'c-cputmp', label: 'CPU Tctl',  unit: '°C',  bar: false },
-      { id: `c-pwr-${i}`,    cls: 'c-pwr',    label: 'Average Power', unit: 'W', bar: false },
+      { id: `c-pwr-${i}`,    cls: 'c-pwr',    label: 'GPU Power', unit: 'W', bar: false },
       // Permanent system cards (fed by /api/system, never idle-hidden).
-      { id: `c-ppt-${i}`,    cls: 'c-ppt',    label: 'Package Power Tracking', unit: 'W',   bar: false, permanent: true },
+      // { id: `c-ppt-${i}`,    cls: 'c-ppt',    label: 'Package Power Tracking', unit: 'W',   bar: false, permanent: true },
       { id: `c-fan-${i}`,    cls: 'c-fan',    label: 'Fan Speed',              unit: 'RPM', bar: false, permanent: true },
       { id: `c-uptime-${i}`, cls: 'c-uptime', label: 'Uptime',                 unit: '',    bar: false, permanent: true },
     ];
@@ -513,9 +513,9 @@ function buildDom(devices) {
       {
         key: 'power', title: 'Package Power (W)', height: 175, yMax: null,
         datasets: () => [
-          makeDataset('PPT',           '#ffffff', h.ppt,    `/api/system hwmon powers[label=PPT] µW→W`),
-          makeDataset('Average Power', '#40e0d0', h.pwr,    `devices[${i}].Sensors['Average Power']`),
-          makeDataset('CPU Cores',     '#388bfd', h.cpuPwr, `devices[${i}].gpu_metrics.average_all_core_power / 1000`),
+          // makeDataset('PPT',           '#ffffff', h.ppt,    `/api/system hwmon powers[label=PPT] µW→W`),
+          makeDataset('GPU', '#40e0d0', h.pwr,    `devices[${i}].Sensors['Average Power']`),
+          makeDataset('CPU Cores Total',     '#388bfd', h.cpuPwr, `devices[${i}].gpu_metrics.average_all_core_power / 1000`),
           makeDataset('NPU',           '#bc8cff', h.npuPwr, `devices[${i}].gpu_metrics.average_ipu_power / 1000`),
         ]
       },
