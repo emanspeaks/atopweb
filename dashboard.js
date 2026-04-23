@@ -103,7 +103,8 @@ const CHART_DEFAULTS = {
   interaction: { mode: 'index', intersect: false },
   plugins: {
     legend: {
-      labels: { color: '#8b949e', boxWidth: 8, padding: 8, font: { size: 10 } }
+      labels: { color: '#8b949e', boxWidth: 8, padding: 8, font: { size: 10 },
+                filter: (item, data) => data.datasets[item.datasetIndex]?.data?.some(v => Number.isFinite(v)) }
     },
     tooltip: { enabled: false },
     annotation: { drawTime: 'afterDraw', annotations: {} }
@@ -145,7 +146,7 @@ function makeDataset(label, color, data, sourcePath, decimals) {
     label,
     data,
     sourcePath: sourcePath || null,
-    decimals:   decimals  ?? 1,
+    decimals:   decimals  ?? 3,
     borderColor: color,
     backgroundColor: color + '1a',
     fill: true,
@@ -474,15 +475,15 @@ function buildDom(devices) {
           makeDataset('CPU Tctl', '#fb7185', h.tempC,   `devices[${i}].Sensors['CPU Tctl']`),
           makeDataset('SoC',      '#bc8cff', h.tempS,   `devices[${i}].gpu_metrics.temperature_soc / 100`),
           makeDataset('GFX',      '#388bfd', h.tempGfx, `devices[${i}].gpu_metrics.temperature_gfx / 100`),
-          // makeDataset('Hotspot',  '#e879f9', h.tempHot, `devices[${i}].gpu_metrics.temperature_hotspot / 100`),
-          // makeDataset('Mem',      '#ffffff', h.tempMem, `devices[${i}].gpu_metrics.temperature_mem / 100`),
+          makeDataset('Hotspot',  '#e879f9', h.tempHot, `devices[${i}].gpu_metrics.temperature_hotspot / 100`),
+          makeDataset('Mem',      '#ffffff', h.tempMem, `devices[${i}].gpu_metrics.temperature_mem / 100`),
         ]
       },
       {
         key: 'activity', title: 'GPU Activity (%)', height: 175, yMax: 100,
         datasets: () => [
           makeDataset('GFX',    '#e85d04', h.gfx,   `devices[${i}].gpu_activity['GFX']`),
-          // makeDataset('Memory', '#388bfd', h.mem,   `devices[${i}].gpu_activity['Memory']`),
+          makeDataset('Memory', '#388bfd', h.mem,   `devices[${i}].gpu_activity['Memory']`),
           makeDataset('Media',  '#bc8cff', h.media, `devices[${i}].gpu_activity['MediaEngine']`),
         ]
       },
@@ -1233,7 +1234,7 @@ function updateDevice(i, dev) {
     const val = v(grbm, key);
     const ve  = document.getElementById(`grbm-val-${i}-${ki}`);
     const be  = document.getElementById(`grbm-bar-${i}-${ki}`);
-    if (ve) ve.textContent = val != null ? val.toFixed(3) + '%' : '—';
+    if (ve) ve.textContent = val != null ? val.toFixed(0) + '%' : '—';
     if (be) be.style.width = (val != null ? Math.min(100, Math.max(0, val)) : 0) + '%';
     pushHistory(h.grbm[ki], val);
   });
@@ -1242,7 +1243,7 @@ function updateDevice(i, dev) {
     const val = v(grbm2, key);
     const ve  = document.getElementById(`grbm2-val-${i}-${ki}`);
     const be  = document.getElementById(`grbm2-bar-${i}-${ki}`);
-    if (ve) ve.textContent = val != null ? val.toFixed(3) + '%' : '—';
+    if (ve) ve.textContent = val != null ? val.toFixed(0) + '%' : '—';
     if (be) be.style.width = (val != null ? Math.min(100, Math.max(0, val)) : 0) + '%';
     pushHistory(h.grbm2[ki], val);
   });
@@ -1322,17 +1323,17 @@ function updateDevice(i, dev) {
     return `<tr>
       <td class="proc-pid">${pid}</td>
       <td class="proc-name">${proc.name || '?'}</td>
-      <td data-src="devices[${i}].fdinfo[${pid}].usage.CPU">${fmt(cpu,     1)}</td>
-      <td data-src="devices[${i}].fdinfo[${pid}].usage.VRAM">${fmt(vram,    1)}</td>
-      <td data-src="devices[${i}].fdinfo[${pid}].usage.GTT">${fmt(gtt,     1)}</td>
-      <td data-src="devices[${i}].fdinfo[${pid}].usage.GFX">${fmt(gfx,     1)}</td>
-      <td data-src="devices[${i}].fdinfo[${pid}].usage.Compute">${fmt(compute, 1)}</td>
-      <td data-src="devices[${i}].fdinfo[${pid}].usage.DMA">${fmt(dma,     1)}</td>
-      <td data-src="devices[${i}].fdinfo[${pid}].usage.Media">${fmt(media,   1)}</td>
-      <td data-src="devices[${i}].fdinfo[${pid}].usage.VCN_Unified">${fmt(vcn,     1)}</td>
-      <td data-src="devices[${i}].fdinfo[${pid}].usage.VPE">${fmt(vpe,     1)}</td>
-      <td data-src="devices[${i}].xdna_fdinfo[${pid}].usage.NPU">${fmt(npu,     1)}</td>
-      <td data-src="devices[${i}].xdna_fdinfo[${pid}].usage['NPU Mem']">${fmt(npuMem,  1)}</td>
+      <td data-src="devices[${i}].fdinfo[${pid}].usage.CPU">${fmt(cpu,         0)}</td>
+      <td data-src="devices[${i}].fdinfo[${pid}].usage.VRAM">${fmt(vram,       0)}</td>
+      <td data-src="devices[${i}].fdinfo[${pid}].usage.GTT">${fmt(gtt,         0)}</td>
+      <td data-src="devices[${i}].fdinfo[${pid}].usage.GFX">${fmt(gfx,         0)}</td>
+      <td data-src="devices[${i}].fdinfo[${pid}].usage.Compute">${fmt(compute, 0)}</td>
+      <td data-src="devices[${i}].fdinfo[${pid}].usage.DMA">${fmt(dma,         0)}</td>
+      <td data-src="devices[${i}].fdinfo[${pid}].usage.Media">${fmt(media,     0)}</td>
+      <td data-src="devices[${i}].fdinfo[${pid}].usage.VCN_Unified">${fmt(vcn, 0)}</td>
+      <td data-src="devices[${i}].fdinfo[${pid}].usage.VPE">${fmt(vpe,         0)}</td>
+      <td data-src="devices[${i}].xdna_fdinfo[${pid}].usage.NPU">${fmt(npu,    0)}</td>
+      <td data-src="devices[${i}].xdna_fdinfo[${pid}].usage['NPU Mem']">${fmt(npuMem, 0)}</td>
     </tr>`;
   }).join('');
 }
@@ -1654,7 +1655,7 @@ function initIntervalCtrl() {
       if (cfg.amdgpu_top_version) subParts.push(cfg.amdgpu_top_version);
       if (cfg.kernel_version)     subParts.push(`Linux v${cfg.kernel_version}`);
       if (cfg.nixos_version)      subParts.push(`NixOS v${cfg.nixos_version}`);
-      if (cfg.nixos_generation)   subParts.push(`Profile Gen ${cfg.nixos_generation}`);
+      if (cfg.nixos_generation)   subParts.push(`Nix Profile Gen ${cfg.nixos_generation}`);
       if (cfg.cpu_gov)   subParts.push(`CPU Gov: ${cfg.cpu_gov}`);
       document.getElementById('page-subtitle').textContent = subParts.join(' ◆ ');
       if (cfg.total_ram_mib) state.totalRAMMiB = cfg.total_ram_mib;
