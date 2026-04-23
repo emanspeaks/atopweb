@@ -626,6 +626,15 @@ function buildDom(devices) {
       coreCfg.plugins.legend.labels   = {
         color: '#8b949e', font: { size: 9 },
         boxWidth: 14, boxHeight: 2, padding: 6,
+        generateLabels: (chart) => chart.data.datasets.map((ds, k) => ({
+          text:          ds._shortLabel || ds.label,
+          fillStyle:     ds.borderColor,
+          strokeStyle:   ds.borderColor,
+          lineWidth:     ds.borderWidth || 1.5,
+          lineDash:      ds.borderDash  || [],
+          hidden:        !chart.isDatasetVisible(k),
+          datasetIndex:  k,
+        })),
       };
       coreCfg.plugins.tooltip.callbacks = makeChartCallbacks({ times: h.coreTimes });
       coreCfg.scales.y.ticks.callback = fmtTick;
@@ -651,7 +660,8 @@ function buildDom(devices) {
               borderWidth: 1.5,
             },
             {
-              label: 'SMU',
+              label: 'System Mgmt Unit',
+              _shortLabel: 'SMU',
               data: h.coreClk[j],
               sourcePath: `devices[${i}].gpu_metrics.current_coreclk[${j}]`,
               borderColor: '#ffffff',
