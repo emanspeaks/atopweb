@@ -68,6 +68,12 @@ header {
   gap: 1px;
 }
 
+.title-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
 .page-subtitle {
   font-size: 10px;
   color: var(--muted);

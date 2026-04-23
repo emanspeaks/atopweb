@@ -506,6 +506,16 @@ type configInfo struct {
 	KernelVersion   string `json:"kernel_version,omitempty"`
 	NixosVersion    string `json:"nixos_version,omitempty"`
 	NixosGeneration int    `json:"nixos_generation,omitempty"`
+	CPUGovernor     string `json:"cpu_gov,omitempty"`
+}
+
+// readCPUGovernor returns the scaling governor of cpu0 — e.g. "performance",
+// "powersave", "schedutil", "ondemand". Empty when cpufreq isn't exposed
+// (virtualized hosts, non-Linux). cpu0 is representative because Linux
+// applies the same governor to every core by default; heterogeneous configs
+// would need per-core reporting.
+func readCPUGovernor() string {
+	return readFileTrim("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor")
 }
 
 // readKernelVersion returns the running kernel release string, e.g.
@@ -572,6 +582,7 @@ func (h *hub) serveConfig(w http.ResponseWriter, r *http.Request) {
 		KernelVersion:   readKernelVersion(),
 		NixosVersion:    nixosVer,
 		NixosGeneration: nixosGen,
+		CPUGovernor:     readCPUGovernor(),
 	}
 	h.mu.Unlock()
 
