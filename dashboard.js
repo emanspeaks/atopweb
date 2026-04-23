@@ -662,6 +662,7 @@ function buildDom(devices) {
       },
       {
         key: 'fan', title: 'Fan Speed (RPM)', height: 175, yMax: null,
+        noYMin: true,
         datasets: () => [
           makeDataset('Fan',            '#ffffff', h.fan,    `/api/system hwmon (first active fan)`),
         ]
