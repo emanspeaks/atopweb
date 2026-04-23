@@ -464,6 +464,8 @@ function buildDom(devices) {
     });
     panel.appendChild(cards);
 
+    const h = state.hist[i];
+
     // ── GRBM / GRBM2 performance counters ──
     const grbmSec = el('div', 'grbm-section');
     grbmSec.appendChild(el('div', 'section-title', 'Performance Counters'));
@@ -540,7 +542,6 @@ function buildDom(devices) {
 
     // ── Charts ──
     const chartGrid = el('div', 'charts');
-    const h = state.hist[i];
 
     const chartDefs = [
       {
