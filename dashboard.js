@@ -219,6 +219,7 @@ const state = {
   systemUptimeBaseSec:    null,  // uptime value at last /api/system poll
   systemUptimeReceivedAt: null,  // Date.now() when the above was received
   lastPPT:         { value: null, receivedAt: 0 },  // W; reused on each GPU tick
+  lastFan:         { value: null, receivedAt: 0 },  // RPM; reused on each GPU tick
   coreRanks:       [],
   lastDev0:        null,
   lastDevices:     null,
@@ -262,6 +263,7 @@ function makeHist(size, coreSize) {
     vramOnly: a(size),
     gttOnly:  a(size),
     pwr:      a(size),
+    fan:      a(size),
     ppt:      a(size),
     cpuPwr:   a(size),
     npuPwr:   a(size),
@@ -296,6 +298,107 @@ function makeHist(size, coreSize) {
     prevProcNames:    new Map(),  // pid → name, previous tick
     earlyStartedPids: new Set(),  // pids emitted via server proc_event; skip fdinfo re-emit
   };
+}
+
+// ── History cache (localStorage) ─────────────────────────────────────────────
+// Binary Float32 + base64 keeps each array ~640 chars (120 pts × 4 B × 4/3).
+// Periodic saves avoid per-sample overhead; beforeunload catches tab closes.
+const CACHE_KEY     = 'atopweb-hist-v1';
+const CACHE_SAVE_MS = 5_000;
+
+function _encF32(arr) {
+  const f32 = new Float32Array(arr.length);
+  for (let i = 0; i < arr.length; i++) f32[i] = arr[i];
+  const u8 = new Uint8Array(f32.buffer);
+  let s = '';
+  for (let i = 0; i < u8.length; i += 8192)
+    s += String.fromCharCode(...u8.subarray(i, Math.min(i + 8192, u8.length)));
+  return btoa(s);
+}
+
+function _decF32(b64, target) {
+  const bin = atob(b64);
+  const u8  = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+  const src = new Float32Array(u8.buffer);
+  const len = Math.min(src.length, target.length);
+  for (let i = 0; i < len; i++) target[i] = src[i]; // NaN propagates correctly
+}
+
+function encodeHist(h) {
+  const e1 = a => _encF32(a);
+  const e2 = as => as.map(e1);
+  return {
+    gfx: e1(h.gfx), mem: e1(h.mem), media: e1(h.media),
+    vram: e1(h.vram), vramOnly: e1(h.vramOnly), gttOnly: e1(h.gttOnly),
+    pwr: e1(h.pwr), fan: e1(h.fan), ppt: e1(h.ppt),
+    cpuPwr: e1(h.cpuPwr), npuPwr: e1(h.npuPwr),
+    tempE: e1(h.tempE), tempC: e1(h.tempC), tempS: e1(h.tempS),
+    tempGfx: e1(h.tempGfx), tempHot: e1(h.tempHot), tempMem: e1(h.tempMem),
+    sclk: e1(h.sclk), mclk: e1(h.mclk), fclk: e1(h.fclk),
+    fclkAvg: e1(h.fclkAvg), socClk: e1(h.socClk), vclk: e1(h.vclk),
+    vddgfx: e1(h.vddgfx), vddnb: e1(h.vddnb),
+    dramReads: e1(h.dramReads), dramWrites: e1(h.dramWrites),
+    npuClk: e1(h.npuClk), npuMpClk: e1(h.npuMpClk),
+    npuReads: e1(h.npuReads), npuWrites: e1(h.npuWrites),
+    npuBusy: e2(h.npuBusy), corePwr: e2(h.corePwr),
+    coreClk: e2(h.coreClk), cpuScalingClk: e2(h.cpuScalingClk),
+    grbm: e2(h.grbm), grbm2: e2(h.grbm2),
+  };
+}
+
+function decodeHist(c, h, ts, ms) {
+  const d1 = (b, a) => { if (b && a) _decF32(b, a); };
+  const d2 = (bs, as) => { if (bs && as) bs.forEach((b, j) => d1(b, as[j])); };
+  d1(c.gfx, h.gfx); d1(c.mem, h.mem); d1(c.media, h.media);
+  d1(c.vram, h.vram); d1(c.vramOnly, h.vramOnly); d1(c.gttOnly, h.gttOnly);
+  d1(c.pwr, h.pwr); d1(c.fan, h.fan); d1(c.ppt, h.ppt);
+  d1(c.cpuPwr, h.cpuPwr); d1(c.npuPwr, h.npuPwr);
+  d1(c.tempE, h.tempE); d1(c.tempC, h.tempC); d1(c.tempS, h.tempS);
+  d1(c.tempGfx, h.tempGfx); d1(c.tempHot, h.tempHot); d1(c.tempMem, h.tempMem);
+  d1(c.sclk, h.sclk); d1(c.mclk, h.mclk); d1(c.fclk, h.fclk);
+  d1(c.fclkAvg, h.fclkAvg); d1(c.socClk, h.socClk); d1(c.vclk, h.vclk);
+  d1(c.vddgfx, h.vddgfx); d1(c.vddnb, h.vddnb);
+  d1(c.dramReads, h.dramReads); d1(c.dramWrites, h.dramWrites);
+  d1(c.npuClk, h.npuClk); d1(c.npuMpClk, h.npuMpClk);
+  d1(c.npuReads, h.npuReads); d1(c.npuWrites, h.npuWrites);
+  d2(c.npuBusy, h.npuBusy); d2(c.corePwr, h.corePwr);
+  d2(c.coreClk, h.coreClk); d2(c.cpuScalingClk, h.cpuScalingClk);
+  d2(c.grbm, h.grbm); d2(c.grbm2, h.grbm2);
+  // Reconstruct time axes from cached end-timestamp rather than storing them.
+  const n = h.times.length;
+  for (let k = 0; k < n; k++) h.times[k] = ts - (n - 1 - k) * ms;
+  const cn = h.coreTimes.length;
+  for (let k = 0; k < cn; k++) h.coreTimes[k] = ts - (cn - 1 - k) * ms;
+}
+
+function saveCache() {
+  if (!state.hist.length) return;
+  try {
+    localStorage.setItem(CACHE_KEY, JSON.stringify({
+      v: 1, ts: Date.now(),
+      intervalMs:   state.intervalMs,
+      histSize:     getHistorySize(),
+      coreHistSize: getCoreHistorySize(),
+      devices:      state.hist.map(encodeHist),
+    }));
+  } catch { /* quota exceeded or storage unavailable */ }
+}
+
+function restoreCache() {
+  try {
+    const raw = localStorage.getItem(CACHE_KEY);
+    if (!raw) return;
+    const p = JSON.parse(raw);
+    if (p.v !== 1) return;
+    if (Date.now() - p.ts > state.timeWidthMs) return;        // cache older than plot window
+    if (p.intervalMs   !== state.intervalMs)   return;        // sample rate changed
+    if (p.histSize     !== getHistorySize())    return;        // window size changed
+    if (p.coreHistSize !== getCoreHistorySize()) return;
+    if (p.devices.length !== state.hist.length) return;       // device count changed
+    p.devices.forEach((c, i) => decodeHist(c, state.hist[i], p.ts, p.intervalMs));
+    for (const chart of Object.values(state.charts)) chart.update('none');
+  } catch { /* corrupt or incompatible cache — ignore */ }
 }
 
 // ── DOM helpers ──────────────────────────────────────────────────────────────
@@ -545,7 +648,9 @@ function buildDom(devices) {
 
     const chartDefs = [
       {
-        key: 'temp', title: 'Temperature (°C)', height: 175, yMax: null, wide: true, noYMin: true,
+        key: 'temp', title: 'Temperature (°C)', height: 175, yMax: null,
+        // wide: true,
+        noYMin: true,
         datasets: () => [
           makeDataset('Edge',     '#40e0d0', h.tempE,   `devices[${i}].Sensors['Edge Temperature']`),
           makeDataset('CPU Tctl', '#fb7185', h.tempC,   `devices[${i}].Sensors['CPU Tctl']`),
@@ -556,11 +661,29 @@ function buildDom(devices) {
         ]
       },
       {
-        key: 'activity', title: 'GPU Activity (%)', height: 175, yMax: 100,
+        key: 'fan', title: 'Fan Speed (RPM)', height: 175, yMax: null,
         datasets: () => [
-          makeDataset('GFX',    '#e85d04', h.gfx,   `devices[${i}].gpu_activity['GFX']`),
-          makeDataset('Memory', '#388bfd', h.mem,   `devices[${i}].gpu_activity['Memory']`),
-          makeDataset('Media',  '#bc8cff', h.media, `devices[${i}].gpu_activity['MediaEngine']`),
+          makeDataset('Fan',            '#ffffff', h.fan,    `/api/system hwmon (first active fan)`),
+        ]
+      },
+      {
+        key: 'gfx-clk', title: 'Clocks (MHz)', height: 175, yMax: null,
+        datasets: () => [
+          makeDataset('SCLK',     '#e85d04', h.sclk,    `devices[${i}].Sensors['GFX_SCLK']`),
+          makeDataset('MCLK',     '#388bfd', h.mclk,    `devices[${i}].Sensors['GFX_MCLK']`),
+          makeDataset('FCLK',     '#3fb950', h.fclk,    `devices[${i}].Sensors['FCLK']`),
+          makeDataset('FCLK avg', '#00b4d8', h.fclkAvg, `devices[${i}].gpu_metrics.average_fclk_frequency`),
+          makeDataset('SoC Clk',  '#e3b341', h.socClk,  `devices[${i}].gpu_metrics.average_socclk_frequency`),
+          makeDataset('VCN Clk',  '#f85149', h.vclk,    `devices[${i}].gpu_metrics.average_vclk_frequency`),
+        ]
+      },
+      {
+        key: 'power', title: 'Package Power (W)', height: 175, yMax: null,
+        datasets: () => [
+          // makeDataset('PPT',           '#ffffff', h.ppt,    `/api/system hwmon powers[label=PPT] µW→W`),
+          makeDataset('GPU', '#40e0d0', h.pwr,    `devices[${i}].Sensors['Average Power']`),
+          makeDataset('CPU Cores Total',     '#388bfd', h.cpuPwr, `devices[${i}].gpu_metrics.average_all_core_power / 1000`),
+          makeDataset('NPU',           '#bc8cff', h.npuPwr, `devices[${i}].gpu_metrics.average_ipu_power / 1000`),
         ]
       },
       {
@@ -588,23 +711,11 @@ function buildDom(devices) {
         }))
       },
       {
-        key: 'power', title: 'Package Power (W)', height: 175, yMax: null,
+        key: 'activity', title: 'GPU Activity (%)', height: 175, yMax: 100,
         datasets: () => [
-          // makeDataset('PPT',           '#ffffff', h.ppt,    `/api/system hwmon powers[label=PPT] µW→W`),
-          makeDataset('GPU', '#40e0d0', h.pwr,    `devices[${i}].Sensors['Average Power']`),
-          makeDataset('CPU Cores Total',     '#388bfd', h.cpuPwr, `devices[${i}].gpu_metrics.average_all_core_power / 1000`),
-          makeDataset('NPU',           '#bc8cff', h.npuPwr, `devices[${i}].gpu_metrics.average_ipu_power / 1000`),
-        ]
-      },
-      {
-        key: 'gfx-clk', title: 'Clocks (MHz)', height: 175, yMax: null,
-        datasets: () => [
-          makeDataset('SCLK',     '#e85d04', h.sclk,    `devices[${i}].Sensors['GFX_SCLK']`),
-          makeDataset('MCLK',     '#388bfd', h.mclk,    `devices[${i}].Sensors['GFX_MCLK']`),
-          makeDataset('FCLK',     '#3fb950', h.fclk,    `devices[${i}].Sensors['FCLK']`),
-          makeDataset('FCLK avg', '#00b4d8', h.fclkAvg, `devices[${i}].gpu_metrics.average_fclk_frequency`),
-          makeDataset('SoC Clk',  '#e3b341', h.socClk,  `devices[${i}].gpu_metrics.average_socclk_frequency`),
-          makeDataset('VCN Clk',  '#f85149', h.vclk,    `devices[${i}].gpu_metrics.average_vclk_frequency`),
+          makeDataset('GFX',    '#e85d04', h.gfx,   `devices[${i}].gpu_activity['GFX']`),
+          makeDataset('Memory', '#388bfd', h.mem,   `devices[${i}].gpu_activity['Memory']`),
+          makeDataset('Media',  '#bc8cff', h.media, `devices[${i}].gpu_activity['MediaEngine']`),
         ]
       },
       {
@@ -612,13 +723,6 @@ function buildDom(devices) {
         datasets: () => [
           makeDataset('Reads',  '#3fb950', h.dramReads,  `devices[${i}].gpu_metrics.average_dram_reads`),
           makeDataset('Writes', '#f85149', h.dramWrites, `devices[${i}].gpu_metrics.average_dram_writes`),
-        ]
-      },
-      {
-        key: 'voltage', title: 'Voltage (mV)', height: 175, yMax: null,
-        datasets: () => [
-          makeDataset('VDDGFX', '#e3b341', h.vddgfx, `devices[${i}].Sensors['VDDGFX']`),
-          makeDataset('VDDNB',  '#8b949e', h.vddnb,  `devices[${i}].Sensors['VDDNB']`),
         ]
       },
       {
@@ -648,6 +752,13 @@ function buildDom(devices) {
         datasets: () => [
           makeDataset('Reads',  '#3fb950', h.npuReads,  `devices[${i}].npu_metrics.npu_reads`),
           makeDataset('Writes', '#f85149', h.npuWrites, `devices[${i}].npu_metrics.npu_writes`),
+        ]
+      },
+      {
+        key: 'voltage', title: 'Voltage (mV)', height: 175, yMax: null,
+        datasets: () => [
+          makeDataset('VDDGFX', '#e3b341', h.vddgfx, `devices[${i}].Sensors['VDDGFX']`),
+          makeDataset('VDDNB',  '#8b949e', h.vddnb,  `devices[${i}].Sensors['VDDNB']`),
         ]
       },
     ];
@@ -1132,6 +1243,10 @@ function updateDevice(i, dev) {
   // (e.g. server paused) so the chart line breaks rather than flat-lining.
   const pptFresh = state.lastPPT.value != null && (nowMs - state.lastPPT.receivedAt) < 3000;
   pushHistory(h.ppt,    pptFresh ? state.lastPPT.value : null);
+  // Fan comes from /api/system at ~1 Hz; drop it if the last poll is stale
+  // (e.g. server paused) so the chart line breaks rather than flat-lining.
+  const fanFresh = state.lastFan.value != null && (nowMs - state.lastFan.receivedAt) < 3000;
+  pushHistory(h.fan,    fanFresh ? state.lastFan.value : null);
   pushHistory(h.cpuPwr, cpuPwrAllMW != null ? cpuPwrAllMW / 1000 : null);
   pushHistory(h.npuPwr, npuPwrMW    != null ? npuPwrMW    / 1000 : null);
   pushHistory(h.tempE,  tempE);
@@ -1180,6 +1295,7 @@ function updateDevice(i, dev) {
   const cAct     = state.charts[`${i}-activity`];
   const cVram    = state.charts[`${i}-vram`];
   const cPwr     = state.charts[`${i}-power`];
+  const cFan     = state.charts[`${i}-fan`];
   const cTemp    = state.charts[`${i}-temp`];
   const cGfxClk  = state.charts[`${i}-gfx-clk`];
   const cCorePwr = state.charts[`${i}-core-pwr`];
@@ -1194,6 +1310,7 @@ function updateDevice(i, dev) {
   if (cAct)     setAnnotations(cAct,    h.times, {},                          h.gfx, h.mem, h.media);
   if (cVram)    setAnnotations(cVram,   h.times, memoryLimitAnnotations(h),   h.vram, h.vramOnly, h.gttOnly);
   if (cPwr)     setAnnotations(cPwr,    h.times, powerLimitAnnotations(),     h.pwr, h.ppt, h.cpuPwr, h.npuPwr);
+  if (cFan)     setAnnotations(cFan,    h.times, {},                          h.fan);
   if (cTemp)    setAnnotations(cTemp,   h.times, temperatureLimitAnnotations(), h.tempE, h.tempC, h.tempS, h.tempGfx, h.tempHot, h.tempMem);
   if (cGfxClk)  setAnnotations(cGfxClk, h.times, {},                         h.sclk, h.mclk, h.fclk, h.fclkAvg, h.socClk, h.vclk);
   if (cVoltage) setAnnotations(cVoltage, h.times, {},                         h.vddgfx, h.vddnb);
@@ -1210,6 +1327,7 @@ function updateDevice(i, dev) {
     else if (oc === `${i}-vram`)   { ovl._yCeilingHint = h.vramMax;
                                      setAnnotations(ovl, h.times, memoryLimitAnnotations(h),      h.vram, h.vramOnly, h.gttOnly); }
     else if (oc === `${i}-power`)    setAnnotations(ovl, h.times, powerLimitAnnotations(),        h.pwr, h.ppt, h.cpuPwr, h.npuPwr);
+    else if (oc === `${i}-fan`)      setAnnotations(ovl, h.times, {},                             h.fan);
     else if (oc === `${i}-temp`)     setAnnotations(ovl, h.times, temperatureLimitAnnotations(),  h.tempE, h.tempC, h.tempS, h.tempGfx, h.tempHot, h.tempMem);
     else if (oc === `${i}-gfx-clk`) setAnnotations(ovl, h.times, {},                             h.sclk, h.mclk, h.fclk, h.fclkAvg, h.socClk, h.vclk);
     else if (oc === `${i}-voltage`) setAnnotations(ovl, h.times, {},                             h.vddgfx, h.vddnb);
@@ -1385,7 +1503,7 @@ function connect() {
       _t.toLocaleTimeString([], { hour12: false }) + '.' + String(_t.getMilliseconds()).padStart(3, '0');
 
     state.lastDevices = data.devices;
-    if (state.n !== data.devices.length) buildDom(data.devices);
+    if (state.n !== data.devices.length) { buildDom(data.devices); restoreCache(); }
     data.devices.forEach((dev, i) => updateDevice(i, dev));
   });
 
@@ -1529,6 +1647,10 @@ function renderSystemInfo(sys) {
   };
 
   const fan = (sys.fans || []).find(f => f.value > 0);
+  // Stash for the Fan Speed chart
+  state.lastFan = fan
+    ? { value: fan.value, receivedAt: Date.now() }
+    : { value: null, receivedAt: 0 };
   update('c-fan', fan ? String(Math.round(fan.value)) : '—');
 
   const ppt = (sys.powers || []).find(p => /^ppt$/i.test(p.label) && p.value > 0);
@@ -1870,4 +1992,6 @@ fetchCoreRanks();
 fetchSystem();
 setInterval(fetchSystem, 1000);
 setInterval(tickUptime, 50);
+setInterval(saveCache, CACHE_SAVE_MS);
+window.addEventListener('beforeunload', saveCache);
 connect();
