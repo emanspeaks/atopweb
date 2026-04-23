@@ -428,10 +428,10 @@ function buildDom(devices) {
     const cardDefs = [
       { id: `c-gfx-${i}`,    cls: 'c-gfx',    label: 'GFX',       unit: '%',   bar: true  },
       { id: `c-media-${i}`,  cls: 'c-media',  label: 'Media',     unit: '%',   bar: true  },
-      { id: `c-vram-${i}`,   cls: 'c-vram',   label: 'BIOS VRAM',      unit: 'GiB', bar: true  },
+      { id: `c-vram-${i}`,   cls: 'c-vram',   label: 'BIOS Reserved VRAM',      unit: 'GiB', bar: true  },
       { id: `c-gtt-${i}`,    cls: 'c-gtt',    label: 'GTT',  unit: 'GiB', bar: true  },
       { id: `c-sclk-${i}`,   cls: 'c-sclk',   label: 'GFX Clock', unit: 'MHz', bar: false },
-      { id: `c-fclk-${i}`,   cls: 'c-fclk',   label: 'FCLK',      unit: 'MHz', bar: false },
+      { id: `c-fclk-${i}`,   cls: 'c-fclk',   label: 'FCLK (Fabric Clock)',      unit: 'MHz', bar: false },
       { id: `c-mclk-${i}`,   cls: 'c-mclk',   label: 'Mem Clock', unit: 'MHz', bar: false },
       { id: `c-vddgfx-${i}`, cls: 'c-vddgfx', label: 'VDDGFX',   unit: 'mV',  bar: false },
       { id: `c-vddnb-${i}`,  cls: 'c-vddnb',  label: 'VDDNB',    unit: 'mV',  bar: false },
@@ -481,7 +481,7 @@ function buildDom(devices) {
         key: 'activity', title: 'GPU Activity (%)', height: 175, yMax: 100,
         datasets: () => [
           makeDataset('GFX',    '#e85d04', h.gfx,   `devices[${i}].gpu_activity['GFX']`),
-          makeDataset('Memory', '#388bfd', h.mem,   `devices[${i}].gpu_activity['Memory']`),
+          // makeDataset('Memory', '#388bfd', h.mem,   `devices[${i}].gpu_activity['Memory']`),
           makeDataset('Media',  '#bc8cff', h.media, `devices[${i}].gpu_activity['MediaEngine']`),
         ]
       },
@@ -702,7 +702,7 @@ function buildDom(devices) {
       const col = el('div', 'grbm-col');
       col.appendChild(el('div', 'grbm-col-title', colTitle));
       keys.forEach((key, ki) => {
-        const label = key.length > 30 ? key.slice(0, 28) + '…' : key;
+        const label = key; //key.length > 30 ? key.slice(0, 28) + '…' : key;
         const item = el('div', 'grbm-item');
         item.innerHTML = `
           <div class="grbm-item-header">
@@ -774,10 +774,19 @@ function buildDom(devices) {
     tbl.innerHTML = `
       <thead>
         <tr>
-          <th>PID</th><th>Name</th>
-          <th>VRAM (MiB)</th><th>GTT (MiB)</th>
-          <th>GFX%</th><th>Compute%</th><th>DMA%</th><th>Media%</th>
-          <th>VCN%</th><th>VPE%</th><th>CPU%</th><th>NPU%</th><th>NPU Mem (MiB)</th>
+          <th>PID</th>
+          <th>Name</th>
+          <th>CPU%</th>
+          <th>VRAM (MiB)</th>
+          <th>GTT (MiB)</th>
+          <th>GFX%</th>
+          <th>Compute%</th>
+          <th>DMA%</th>
+          <th>Media%</th>
+          <th>VCN%</th>
+          <th>VPE%</th>
+          <th>NPU%</th>
+          <th>NPU Mem (MiB)</th>
         </tr>
       </thead>
       <tbody id="proc-body-${i}"></tbody>`;
@@ -933,7 +942,7 @@ function makeLimitLine(val, label, color, unit, position) {
     borderColor: color, borderWidth: 1, borderDash: [6, 4],
     label: {
       display: true,
-      content: `${label} ${val.toFixed(0)}${unit}`,
+      content: `${label} ${val.toFixed(3)}${unit}`,
       position: position ?? 'center',
       color,
       font: { size: 9 },
@@ -990,9 +999,9 @@ function memoryLimitAnnotations(h) {
   const ramGiB      = state.totalRAMMiB != null ? state.totalRAMMiB / 1024 : null;
   const specs = staggerLimitPositions([
     { key: 'vramGttLine', val: combinedGiB > 0 ? combinedGiB : null,
-      label: 'VRAM+GTT', color: '#bc8cff', unit: ' GiB' },
+      label: 'VRAM+GTT', color: '#e3b341', unit: ' GiB' },
     { key: 'physLine',    val: ramGiB,
-      label: 'Phys Mem', color: '#e3b341', unit: ' GiB' },
+      label: 'Phys Mem', color: '#f85149', unit: ' GiB' },
   ]);
   for (const s of specs) out[s.key] = makeLimitLine(s.val, s.label, s.color, s.unit, s.position);
   return out;
@@ -1002,7 +1011,7 @@ function setAnnotations(chart, times, extra, ...arrays) {
   const mm = minMaxAnnotations(times, chart.options.scales.x.min, ...arrays);
   chart.options.plugins.annotation.annotations = { ...mm, ...extra };
 
-  // Always re-apply 20%-of-range grace. Range covers data min/max AND any
+  // Always re-apply %-of-range grace. Range covers data min/max AND any
   // line-type annotation values (limit lines) so that explicitly-set limits
   // are never pushed off-screen by a narrow data range.
   const opts = chart.options.scales.y;
@@ -1017,7 +1026,7 @@ function setAnnotations(chart, times, extra, ...arrays) {
   }
   if (Number.isFinite(lo) && Number.isFinite(hi)) {
     const range = (hi - lo) || Math.max(Math.abs(hi), 1);
-    const pad   = range * 0.20;
+    const pad   = range * 0.15;
     const floor = chart._yFloorHint;
     const ceil  = chart._yCeilingHint;
     opts.suggestedMin = floor != null ? Math.min(lo - pad, floor) : lo - pad;
@@ -1295,6 +1304,7 @@ function updateDevice(i, dev) {
     return `<tr>
       <td class="proc-pid">${pid}</td>
       <td class="proc-name">${proc.name || '?'}</td>
+      <td data-src="devices[${i}].fdinfo[${pid}].usage.CPU">${fmt(cpu,     1)}</td>
       <td data-src="devices[${i}].fdinfo[${pid}].usage.VRAM">${fmt(vram,    1)}</td>
       <td data-src="devices[${i}].fdinfo[${pid}].usage.GTT">${fmt(gtt,     1)}</td>
       <td data-src="devices[${i}].fdinfo[${pid}].usage.GFX">${fmt(gfx,     1)}</td>
@@ -1303,7 +1313,6 @@ function updateDevice(i, dev) {
       <td data-src="devices[${i}].fdinfo[${pid}].usage.Media">${fmt(media,   1)}</td>
       <td data-src="devices[${i}].fdinfo[${pid}].usage.VCN_Unified">${fmt(vcn,     1)}</td>
       <td data-src="devices[${i}].fdinfo[${pid}].usage.VPE">${fmt(vpe,     1)}</td>
-      <td data-src="devices[${i}].fdinfo[${pid}].usage.CPU">${fmt(cpu,     1)}</td>
       <td data-src="devices[${i}].xdna_fdinfo[${pid}].usage.NPU">${fmt(npu,     1)}</td>
       <td data-src="devices[${i}].xdna_fdinfo[${pid}].usage['NPU Mem']">${fmt(npuMem,  1)}</td>
     </tr>`;
