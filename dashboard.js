@@ -170,6 +170,11 @@ function scheduleRender() {
   requestAnimationFrame(() => {
     _rafPending = false;
     const now = Date.now();
+    const setDisplay = (el, visible) => {
+      if (!el) return;
+      const d = visible ? '' : 'none';
+      if (el.style.display !== d) el.style.display = d;
+    };
     for (const [key, c] of Object.entries(state.charts)) {
       const isCoreFreq = key.includes('-cpu-core-');
       const widthMs    = isCoreFreq ? state.coreTimeWidthMs : state.timeWidthMs;
@@ -179,9 +184,16 @@ function scheduleRender() {
       // or when this chart has received no finite data within 10% of its window.
       const debounceMs  = widthMs * 0.1;
       const chartActive = (now - (state.chartLastData[key] || 0)) <= debounceMs;
+      setDisplay(document.getElementById(`chart-box-${key}`), chartActive);
       if (!state.paused && !hasOverlay && chartActive &&
           (state.n <= 1 || parseInt(key, 10) === state.cur))
         c.update('none');
+    }
+    const cardDebounce = state.timeWidthMs * 0.1;
+    for (const id in state.cardLastData) {
+      const active = (now - state.cardLastData[id]) <= cardDebounce;
+      const el = document.getElementById(id);
+      setDisplay(el?.closest('.card'), active);
     }
     if (hasOverlay && !state.paused) {
       state.overlayChart.options.scales.x.min = now - state.overlayWidthMs;
@@ -208,6 +220,7 @@ const state = {
   overlayChart:    null,
   overlayWidthMs:  0,
   chartLastData:   {},   // chartKey → ms timestamp of last tick with any finite data
+  cardLastData:    {},   // cardId   → ms timestamp of last tick with any finite value
 };
 
 // History size = time window / update interval, so the x-axis always shows a
@@ -383,6 +396,7 @@ function buildDom(devices) {
   state.hist = devices.map(() => makeHist(getHistorySize(), getCoreHistorySize()));
   state.charts = {};
   state.chartLastData = {};
+  state.cardLastData  = {};
 
   if (devices.length > 1) tabs.classList.add('visible');
   updateStickyOffset();
@@ -420,6 +434,7 @@ function buildDom(devices) {
 
     cardDefs.forEach(def => {
       const card = el('div', `card ${def.cls}`);
+      card.style.display = 'none'; // revealed once data arrives
       card.innerHTML = `
         <div class="card-label">${def.label}</div>
         <div>
@@ -429,6 +444,7 @@ function buildDom(devices) {
         ${def.bar ? `<div class="card-bar-wrap"><div class="card-bar" id="${def.id}-bar"></div></div>` : ''}
       `;
       cards.appendChild(card);
+      state.cardLastData[def.id] = 0;
     });
     panel.appendChild(cards);
 
@@ -481,6 +497,14 @@ function buildDom(devices) {
         }))
       },
       {
+        key: 'power', title: 'Package Power (W)', height: 175, yMax: null,
+        datasets: () => [
+          makeDataset('Power',     '#ffffff', h.pwr,    `devices[${i}].Sensors['Average Power']`),
+          makeDataset('CPU Cores', '#388bfd', h.cpuPwr, `devices[${i}].gpu_metrics.average_all_core_power / 1000`),
+          makeDataset('NPU',       '#bc8cff', h.npuPwr, `devices[${i}].gpu_metrics.average_ipu_power / 1000`),
+        ]
+      },
+      {
         key: 'gfx-clk', title: 'Clocks (MHz)', height: 175, yMax: null,
         datasets: () => [
           makeDataset('SCLK',     '#e85d04', h.sclk,    `devices[${i}].Sensors['GFX_SCLK']`),
@@ -489,14 +513,6 @@ function buildDom(devices) {
           makeDataset('FCLK avg', '#00b4d8', h.fclkAvg, `devices[${i}].gpu_metrics.average_fclk_frequency`),
           makeDataset('SoC Clk',  '#e3b341', h.socClk,  `devices[${i}].gpu_metrics.average_socclk_frequency`),
           makeDataset('VCN Clk',  '#f85149', h.vclk,    `devices[${i}].gpu_metrics.average_vclk_frequency`),
-        ]
-      },
-      {
-        key: 'power', title: 'Package Power (W)', height: 175, yMax: null,
-        datasets: () => [
-          makeDataset('Power',     '#ffffff', h.pwr,    `devices[${i}].Sensors['Average Power']`),
-          makeDataset('CPU Cores', '#388bfd', h.cpuPwr, `devices[${i}].gpu_metrics.average_all_core_power / 1000`),
-          makeDataset('NPU',       '#bc8cff', h.npuPwr, `devices[${i}].gpu_metrics.average_ipu_power / 1000`),
         ]
       },
       {
@@ -545,9 +561,12 @@ function buildDom(devices) {
     ];
 
     chartDefs.forEach(def => {
+      const chartKey = `${i}-${def.key}`;
       const box    = el('div', 'chart-box' + (def.wide ? ' chart-wide' : ''));
+      box.id = `chart-box-${chartKey}`;
+      box.style.display = 'none'; // revealed once data arrives
       const title  = el('div', 'chart-title', def.title);
-      title.addEventListener('click', () => openOverlay(`${i}-${def.key}`, def.title));
+      title.addEventListener('click', () => openOverlay(chartKey, def.title));
       const wrap   = el('div');
       wrap.style.height = (def.height || 160) + 'px';
       const canvas = el('canvas');
@@ -558,23 +577,25 @@ function buildDom(devices) {
 
       const cfg = cloneDefaults();
       cfg.scales.x.ticks.stepSize = xStepSize(state.timeWidthMs);
-      if (!def.noYMin) {
-        if (def.yMax != null) cfg.scales.y.min = 0;
-        else                  cfg.scales.y.suggestedMin = 0;
-      }
-      if (def.yMax != null) cfg.scales.y.max = def.yMax;
+      // Always use suggestedMin/Max (never hard min/max) so setAnnotations
+      // can extend bounds with grace regardless of chart-setup defaults.
+      if (!def.noYMin) cfg.scales.y.suggestedMin = 0;
+      if (def.yMax != null) cfg.scales.y.suggestedMax = def.yMax;
       if (def.hideLegend) cfg.plugins.legend.display = false;
       cfg.plugins.tooltip.callbacks = def.coreData
         ? makeCoreChartCallbacks(h, def.coreData, def.coreUnit)
         : makeChartCallbacks(h);
       cfg.scales.y.ticks.callback = def.tickFmt ?? fmtTick;
 
-      state.charts[`${i}-${def.key}`] = new Chart(canvas, {
+      const chart = new Chart(canvas, {
         type: 'line',
         data: { labels: h.times, datasets: def.datasets() },
         options: cfg,
         plugins: def.coreData ? [verticalLinePlugin] : [],
       });
+      chart._yFloorHint   = def.noYMin ? null : 0;
+      chart._yCeilingHint = def.yMax ?? null;
+      state.charts[chartKey] = chart;
     });
 
     panel.appendChild(chartGrid);
@@ -599,7 +620,13 @@ function buildDom(devices) {
       coreCfg.scales.y.max = 6000;
       coreCfg.scales.x.grid = { color: '#21262d' };
       coreCfg.scales.y.grid = { display: true, color: 'rgba(48,54,61,0.8)' };
-      coreCfg.plugins.legend.display = false;
+      coreCfg.plugins.legend.display  = true;
+      coreCfg.plugins.legend.position = 'top';
+      coreCfg.plugins.legend.align    = 'end';
+      coreCfg.plugins.legend.labels   = {
+        color: '#8b949e', font: { size: 9 },
+        boxWidth: 14, boxHeight: 2, padding: 6,
+      };
       coreCfg.plugins.tooltip.callbacks = makeChartCallbacks({ times: h.coreTimes });
       coreCfg.scales.y.ticks.callback = fmtTick;
       coreCfg.scales.y.ticks.font = { size: 9 };
@@ -616,7 +643,7 @@ function buildDom(devices) {
               label: 'Scaling',
               data: h.cpuScalingClk[j],
               sourcePath: `devices[${i}].Sensors['CPU Core freq'][${j}].cur_freq`,
-              borderColor: '#8b949e',
+              borderColor: `hsl(${hue}, 65%, 55%)`,
               backgroundColor: 'transparent',
               fill: false,
               tension: 0.25,
@@ -624,10 +651,10 @@ function buildDom(devices) {
               borderWidth: 1.5,
             },
             {
-              label: 'System Mgmt Unit',
+              label: 'SMU',
               data: h.coreClk[j],
               sourcePath: `devices[${i}].gpu_metrics.current_coreclk[${j}]`,
-              borderColor: `hsl(${hue}, 65%, 55%)`,
+              borderColor: '#ffffff',
               backgroundColor: 'transparent',
               fill: false,
               tension: 0.25,
@@ -771,7 +798,9 @@ function fmt(val, decimals) {
 
 function setCard(id, value, decimals) {
   const e = document.getElementById(id);
-  if (e) e.textContent = fmt(value, decimals);
+  if (!e) return;
+  e.textContent = fmt(value, decimals);
+  if (value != null && Number.isFinite(value)) state.cardLastData[id] = Date.now();
 }
 
 function setBar(id, pct) {
@@ -805,7 +834,7 @@ function makeEventAnnotation(ev, isCoreChart) {
       font:     { size: 10 },
       backgroundColor: 'rgba(22,27,34,0.85)',
       padding:  { x: 3, y: 2 },
-      xAdjust:  -8,
+      xAdjust:  -16,
     },
   };
   if (isCoreChart) {
@@ -915,16 +944,26 @@ function setAnnotations(chart, times, extra, ...arrays) {
   const mm = minMaxAnnotations(times, chart.options.scales.x.min, ...arrays);
   chart.options.plugins.annotation.annotations = { ...mm, ...extra };
 
-  // Always re-apply 20%-of-range grace so annotation labels never clip,
-  // even when updateDevice has just overwritten the scale bounds this tick.
+  // Always re-apply 20%-of-range grace. Range covers data min/max AND any
+  // line-type annotation values (limit lines) so that explicitly-set limits
+  // are never pushed off-screen by a narrow data range.
   const opts = chart.options.scales.y;
-  if (mm.minLine || mm.maxLine) {
-    const lo    = mm.minLine ? mm.minLine.yMin : mm.maxLine.yMax;
-    const hi    = mm.maxLine ? mm.maxLine.yMax : mm.minLine.yMin;
+  let lo = Infinity, hi = -Infinity;
+  if (mm.minLine) { lo = Math.min(lo, mm.minLine.yMin); hi = Math.max(hi, mm.minLine.yMin); }
+  if (mm.maxLine) { lo = Math.min(lo, mm.maxLine.yMax); hi = Math.max(hi, mm.maxLine.yMax); }
+  for (const ann of Object.values(extra || {})) {
+    if (ann?.type === 'line' && Number.isFinite(ann.yMin)) {
+      lo = Math.min(lo, ann.yMin);
+      hi = Math.max(hi, ann.yMin);
+    }
+  }
+  if (Number.isFinite(lo) && Number.isFinite(hi)) {
     const range = (hi - lo) || Math.max(Math.abs(hi), 1);
     const pad   = range * 0.20;
-    if (opts.min == null) opts.suggestedMin = lo - pad;
-    if (opts.max == null) opts.suggestedMax = Math.max(hi + pad, opts.suggestedMax ?? 0);
+    const floor = chart._yFloorHint;
+    const ceil  = chart._yCeilingHint;
+    opts.suggestedMin = floor != null ? Math.min(lo - pad, floor) : lo - pad;
+    opts.suggestedMax = ceil  != null ? Math.max(hi + pad, ceil)  : hi + pad;
   }
 }
 
@@ -983,13 +1022,19 @@ function updateDevice(i, dev) {
 
   // VRAM card: "used / total GiB"
   const vramEl = document.getElementById(`c-vram-${i}`);
-  if (vramEl) vramEl.textContent =
-    (vramU != null ? (vramU/1024).toFixed(3) : '—') + ' / ' + (vramT != null ? (vramT/1024).toFixed(3) : '—');
+  if (vramEl) {
+    vramEl.textContent =
+      (vramU != null ? (vramU/1024).toFixed(3) : '—') + ' / ' + (vramT != null ? (vramT/1024).toFixed(3) : '—');
+    if (vramU != null || vramT != null) state.cardLastData[`c-vram-${i}`] = Date.now();
+  }
 
   // GTT card: "used / total GiB"
   const gttEl = document.getElementById(`c-gtt-${i}`);
-  if (gttEl) gttEl.textContent =
-    (gttU != null ? (gttU/1024).toFixed(3) : '—') + ' / ' + (gttT != null ? (gttT/1024).toFixed(3) : '—');
+  if (gttEl) {
+    gttEl.textContent =
+      (gttU != null ? (gttU/1024).toFixed(3) : '—') + ' / ' + (gttT != null ? (gttT/1024).toFixed(3) : '—');
+    if (gttU != null || gttT != null) state.cardLastData[`c-gtt-${i}`] = Date.now();
+  }
 
   // Progress bars
   setBar(`c-gfx-${i}`,   gfx);
@@ -1067,26 +1112,7 @@ function updateDevice(i, dev) {
   const cNpuClk  = state.charts[`${i}-npu-clk`];
   const cNpuBw   = state.charts[`${i}-npu-bw`];
 
-  if (cVram) cVram.options.scales.y.suggestedMax = h.vramMax;
-
-  // Ensure power chart y-axis includes the ryzenadj limit lines.
-  if (cPwr) {
-    const limitMax = Math.max(
-      state.powerLimits.stapm_w    ?? 0,
-      state.powerLimits.fast_w     ?? 0,
-      state.powerLimits.slow_w     ?? 0,
-      state.powerLimits.apu_slow_w ?? 0,
-    );
-    if (limitMax > 0) {
-      const dataMax = Math.max(
-        ...h.pwr.filter(x => x != null),
-        ...h.cpuPwr.filter(x => x != null),
-        ...h.npuPwr.filter(x => x != null),
-        0,
-      );
-      cPwr.options.scales.y.max = Math.max(limitMax, dataMax) * 1.1;
-    }
-  }
+  if (cVram) cVram._yCeilingHint = h.vramMax;
 
   if (cAct)     setAnnotations(cAct,    h.times, {},                          h.gfx, h.mem, h.media);
   if (cVram)    setAnnotations(cVram,   h.times, {},                          h.vram, h.vramOnly, h.gttOnly);
@@ -1298,12 +1324,14 @@ function updateDeviceInfoHeader(dev) {
   const info = dev.Info || {};
   const name = info.DeviceName || info['ASIC Name'] || '';
   const asic = info['ASIC Name'] || '';
-  const nameStr = (name && asic && asic !== name) ? `${name} — ${asic}` : (name || asic);
   const rocm = info['ROCm Version'] || null;
 
-  const metaParts = [];
-  if (rocm) metaParts.push(`ROCm ${rocm}`);
-  const metaHtml = metaParts.length ? `<div class="di-meta">${metaParts.join('  ')}</div>` : '';
+  const nameParts = [];
+  if (name) nameParts.push(name);
+  if (asic && asic !== name) nameParts.push(asic);
+  if (rocm) nameParts.push(`ROCm ${rocm}`);
+  const nameStr = nameParts.join(' ◆ ');
+  const metaHtml = '';
 
   const specsParts = [];
   const cu = info['Compute Unit'] ?? info['Compute Units'] ?? null;
@@ -1335,7 +1363,7 @@ function updateDeviceInfoHeader(dev) {
   if (pl.thm_gfx_c  != null) limitParts.push(`<span class="di-limit-thm-gfx">THM GFX ${pl.thm_gfx_c.toFixed(0)}°C</span>`);
   if (pl.thm_soc_c  != null) limitParts.push(`<span class="di-limit-thm-soc">THM SoC ${pl.thm_soc_c.toFixed(0)}°C</span>`);
   if (limitParts.length) {
-    limitsHtml = `<div class="di-limits"><span class="di-limit-label">ryzenadj limits:</span>  ${limitParts.join('  ')}</div>`;
+    limitsHtml = `<div class="di-limits"><span class="di-limit-label">ryzenadj limits:</span> ${limitParts.join(' ◆ ')}</div>`;
   }
 
   el.innerHTML = (nameStr ? `<div class="di-name">${nameStr}</div>` : '') + metaHtml + specsHtml + limitsHtml;
