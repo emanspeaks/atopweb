@@ -502,14 +502,17 @@ type configInfo struct {
 	IntervalMs     int    `json:"interval_ms"`
 	AtopwebVersion string `json:"atopweb_version"`
 	AtopTopVersion string `json:"amdgpu_top_version"`
+	TotalRAMMiB    uint64 `json:"total_ram_mib"`
 }
 
 func (h *hub) serveConfig(w http.ResponseWriter, r *http.Request) {
+	total, _ := readMemInfo()
 	h.mu.Lock()
 	info := configInfo{
 		IntervalMs:     h.intervalMs,
 		AtopwebVersion: version,
 		AtopTopVersion: h.atopVersion,
+		TotalRAMMiB:    total,
 	}
 	h.mu.Unlock()
 
@@ -820,6 +823,161 @@ func (h *hub) serveLimits(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(result)
 }
 
+// ── /api/system ──────────────────────────────────────────────────────────────
+// System-wide stats not specific to a GPU: memory, uptime, load, and every
+// hwmon sensor the kernel exposes. Polled from the browser at low frequency
+// (≤ 1 Hz) since these change slowly compared to GPU metrics. Each section is
+// best-effort — missing files are simply omitted from the response.
+
+type sysSensor struct {
+	Chip  string  `json:"chip"`
+	Label string  `json:"label"`
+	Value float64 `json:"value"`
+}
+
+type systemInfo struct {
+	TotalRAMMiB uint64      `json:"total_ram_mib"`
+	AvailRAMMiB uint64      `json:"avail_ram_mib"`
+	UptimeSec   uint64      `json:"uptime_sec"`
+	LoadAvg     [3]float64  `json:"loadavg"`
+	Fans        []sysSensor `json:"fans"`     // RPM
+	Voltages    []sysSensor `json:"voltages"` // mV
+	Currents    []sysSensor `json:"currents"` // mA
+	Powers      []sysSensor `json:"powers"`   // µW
+	Temps       []sysSensor `json:"temps"`    // °C
+}
+
+func readFileTrim(path string) string {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(b))
+}
+
+// splitSensorName turns "fan1_input" → ("fan1", "fan"), "in0_input" → ("in0", "in").
+func splitSensorName(base string) (prefix, kind string) {
+	prefix = strings.TrimSuffix(base, "_input")
+	for i := 0; i < len(prefix); i++ {
+		if prefix[i] >= '0' && prefix[i] <= '9' {
+			return prefix, prefix[:i]
+		}
+	}
+	return prefix, prefix
+}
+
+func readHwmon() (fans, volts, currs, pows, temps []sysSensor) {
+	dirs, _ := filepath.Glob("/sys/class/hwmon/hwmon*")
+	for _, dir := range dirs {
+		chip := readFileTrim(filepath.Join(dir, "name"))
+		if chip == "" {
+			chip = filepath.Base(dir)
+		}
+		inputs, _ := filepath.Glob(filepath.Join(dir, "*_input"))
+		for _, input := range inputs {
+			prefix, kind := splitSensorName(filepath.Base(input))
+			valStr := readFileTrim(input)
+			if valStr == "" {
+				continue
+			}
+			val, err := strconv.ParseFloat(valStr, 64)
+			if err != nil {
+				continue
+			}
+			label := readFileTrim(filepath.Join(dir, prefix+"_label"))
+			if label == "" {
+				label = prefix
+			}
+			s := sysSensor{Chip: chip, Label: label, Value: val}
+			switch kind {
+			case "fan":
+				fans = append(fans, s)
+			case "in":
+				volts = append(volts, s)
+			case "curr":
+				currs = append(currs, s)
+			case "power":
+				pows = append(pows, s)
+			case "temp":
+				s.Value = val / 1000 // m°C → °C
+				temps = append(temps, s)
+			}
+		}
+	}
+	return
+}
+
+func readMemInfo() (total, avail uint64) {
+	data, err := os.ReadFile("/proc/meminfo")
+	if err != nil {
+		return
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		var dst *uint64
+		switch {
+		case strings.HasPrefix(line, "MemTotal:"):
+			dst = &total
+		case strings.HasPrefix(line, "MemAvailable:"):
+			dst = &avail
+		default:
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		if kb, err := strconv.ParseUint(fields[1], 10, 64); err == nil {
+			*dst = kb / 1024 // KiB → MiB
+		}
+	}
+	return
+}
+
+func readLoadAvg() [3]float64 {
+	var avg [3]float64
+	data, err := os.ReadFile("/proc/loadavg")
+	if err != nil {
+		return avg
+	}
+	fields := strings.Fields(string(data))
+	for i := 0; i < 3 && i < len(fields); i++ {
+		avg[i], _ = strconv.ParseFloat(fields[i], 64)
+	}
+	return avg
+}
+
+func readUptime() uint64 {
+	data, err := os.ReadFile("/proc/uptime")
+	if err != nil {
+		return 0
+	}
+	fields := strings.Fields(string(data))
+	if len(fields) < 1 {
+		return 0
+	}
+	sec, _ := strconv.ParseFloat(fields[0], 64)
+	return uint64(sec)
+}
+
+func serveSystem(w http.ResponseWriter, r *http.Request) {
+	fans, volts, currs, pows, temps := readHwmon()
+	total, avail := readMemInfo()
+	info := systemInfo{
+		TotalRAMMiB: total,
+		AvailRAMMiB: avail,
+		UptimeSec:   readUptime(),
+		LoadAvg:     readLoadAvg(),
+		Fans:        fans,
+		Voltages:    volts,
+		Currents:    currs,
+		Powers:      pows,
+		Temps:       temps,
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	json.NewEncoder(w).Encode(info)
+}
+
 // ── CPU core performance ranks ────────────────────────────────────────────────
 
 var (
@@ -1066,6 +1224,7 @@ func main() {
 	http.HandleFunc("/api/vram",         h.serveVRAM)
 	http.HandleFunc("/api/gpu-pct",      h.serveGPUPct)
 	http.HandleFunc("/api/limits",       h.serveLimits)
+	http.HandleFunc("/api/system",       serveSystem)
 	http.HandleFunc("/api/cpu-ranks",    serveCoreRanks)
 	http.HandleFunc("/ws",               h.serveWS)
 

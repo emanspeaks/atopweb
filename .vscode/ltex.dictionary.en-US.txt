@@ -8,6 +8,7 @@ Clk
 CLOEXEC
 coreclk
 cputmp
+currs
 degc
 etmp
 fanotify
@@ -21,6 +22,7 @@ gofmt
 gomod
 GRBM
 GTT-only
+hwmon
 ints
 Jnct
 journalctl

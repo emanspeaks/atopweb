@@ -210,6 +210,8 @@ const state = {
   hist:            [],
   charts:          {},
   powerLimits:     { stapm_w: null, fast_w: null, slow_w: null, apu_slow_w: null, thm_core_c: null, thm_gfx_c: null, thm_soc_c: null },
+  totalRAMMiB:     null,
+  systemInfo:      null,
   coreRanks:       [],
   lastDev0:        null,
   lastDevices:     null,
@@ -488,7 +490,7 @@ function buildDom(devices) {
           label: `CPU ${coreLabel(j)}`,
           data: h.corePwr[j],
           sourcePath: `devices[${i}].gpu_metrics.average_core_power[${j}] / 1000`,
-          borderColor: `hsl(${Math.round(j * 137.5) % 360}, 65%, 55%)`,
+          borderColor: coreColor(j),
           backgroundColor: 'transparent',
           fill: false,
           tension: 0.25,
@@ -536,7 +538,7 @@ function buildDom(devices) {
           label: `NPU Tile ${j}`,
           data: h.npuBusy[j],
           sourcePath: `devices[${i}].npu_metrics.npu_busy[${j}]`,
-          borderColor: `hsl(${Math.round(j * 137.5) % 360}, 65%, 55%)`,
+          borderColor: coreColor(j),
           backgroundColor: 'transparent',
           fill: false,
           tension: 0.25,
@@ -642,7 +644,6 @@ function buildDom(devices) {
       coreCfg.scales.y.ticks.maxTicksLimit = 7;
       coreCfg.scales.y.ticks.stepSize = 1000;
 
-      const hue = Math.round(j * 137.5) % 360;
       state.charts[`${i}-cpu-core-${j}`] = new Chart(canvas, {
         type: 'line',
         data: {
@@ -652,7 +653,7 @@ function buildDom(devices) {
               label: 'Scaling',
               data: h.cpuScalingClk[j],
               sourcePath: `devices[${i}].Sensors['CPU Core freq'][${j}].cur_freq`,
-              borderColor: `hsl(${hue}, 65%, 55%)`,
+              borderColor: coreColor(j),
               backgroundColor: 'transparent',
               fill: false,
               tension: 0.25,
@@ -913,14 +914,14 @@ function minMaxAnnotations(times, windowStart, ...arrays) {
   return out;
 }
 
-function makeLimitLine(val, label, color, unit) {
+function makeLimitLine(val, label, color, unit, position) {
   return {
     type: 'line', yMin: val, yMax: val, drawTime: 'afterDraw',
     borderColor: color, borderWidth: 1, borderDash: [6, 4],
     label: {
       display: true,
       content: `${label} ${val.toFixed(0)}${unit}`,
-      position: 'center',
+      position: position ?? 'center',
       color,
       font: { size: 9 },
       backgroundColor: 'rgba(22,27,34,0.85)',
@@ -931,22 +932,55 @@ function makeLimitLine(val, label, color, unit) {
   };
 }
 
+// Assigns evenly-spaced label positions ("20%", "40%", …) across present
+// limit lines so their label backgrounds don't stack when values are close.
+function staggerLimitPositions(specs) {
+  const present = specs.filter(s => s.val != null);
+  const n = present.length;
+  if (n === 0) return [];
+  const step = 100 / (n + 1);
+  return present.map((s, i) => ({ ...s, position: `${Math.round(step * (i + 1))}%` }));
+}
+
 function powerLimitAnnotations() {
   const pl = state.powerLimits;
   const out = {};
-  if (pl.stapm_w    != null) out.stapLine    = makeLimitLine(pl.stapm_w,    'STAPM',    '#e3b341', 'W');
-  if (pl.fast_w     != null) out.fastLine    = makeLimitLine(pl.fast_w,     'Fast',     '#f85149', 'W');
-  if (pl.slow_w     != null) out.slowLine    = makeLimitLine(pl.slow_w,     'Slow',     '#3fb950', 'W');
-  if (pl.apu_slow_w != null) out.apuSlowLine = makeLimitLine(pl.apu_slow_w, 'APU Slow', '#bc8cff', 'W');
+  const specs = staggerLimitPositions([
+    { key: 'stapLine',    val: pl.stapm_w,    label: 'STAPM',    color: '#e3b341', unit: 'W' },
+    { key: 'fastLine',    val: pl.fast_w,     label: 'Fast',     color: '#f85149', unit: 'W' },
+    { key: 'slowLine',    val: pl.slow_w,     label: 'Slow',     color: '#3fb950', unit: 'W' },
+    { key: 'apuSlowLine', val: pl.apu_slow_w, label: 'APU Slow', color: '#bc8cff', unit: 'W' },
+  ]);
+  for (const s of specs) out[s.key] = makeLimitLine(s.val, s.label, s.color, s.unit, s.position);
   return out;
 }
 
 function temperatureLimitAnnotations() {
   const pl = state.powerLimits;
   const out = {};
-  if (pl.thm_core_c != null) out.thmCoreLine = makeLimitLine(pl.thm_core_c, 'THM Core', '#e3b341', '°C');
-  if (pl.thm_gfx_c  != null) out.thmGfxLine  = makeLimitLine(pl.thm_gfx_c,  'THM GFX',  '#f85149', '°C');
-  if (pl.thm_soc_c  != null) out.thmSocLine  = makeLimitLine(pl.thm_soc_c,  'THM SoC',  '#388bfd', '°C');
+  const specs = staggerLimitPositions([
+    { key: 'thmCoreLine', val: pl.thm_core_c, label: 'THM Core', color: '#e3b341', unit: '°C' },
+    { key: 'thmGfxLine',  val: pl.thm_gfx_c,  label: 'THM GFX',  color: '#f85149', unit: '°C' },
+    { key: 'thmSocLine',  val: pl.thm_soc_c,  label: 'THM SoC',  color: '#388bfd', unit: '°C' },
+  ]);
+  for (const s of specs) out[s.key] = makeLimitLine(s.val, s.label, s.color, s.unit, s.position);
+  return out;
+}
+
+// VRAM chart gets two ceiling lines: total GPU-addressable memory (VRAM+GTT)
+// and total physical memory (that plus system RAM). Plotted in GiB since the
+// chart's y-axis is GiB.
+function memoryLimitAnnotations(h) {
+  const out = {};
+  const combinedGiB = h.vramMax; // already GiB
+  const ramGiB      = state.totalRAMMiB != null ? state.totalRAMMiB / 1024 : null;
+  const specs = staggerLimitPositions([
+    { key: 'vramGttLine', val: combinedGiB > 0 ? combinedGiB : null,
+      label: 'VRAM+GTT', color: '#bc8cff', unit: ' GiB' },
+    { key: 'physLine',    val: (combinedGiB > 0 && ramGiB != null) ? combinedGiB + ramGiB : null,
+      label: 'Phys Mem', color: '#e3b341', unit: ' GiB' },
+  ]);
+  for (const s of specs) out[s.key] = makeLimitLine(s.val, s.label, s.color, s.unit, s.position);
   return out;
 }
 
@@ -1125,7 +1159,7 @@ function updateDevice(i, dev) {
   if (cVram) cVram._yCeilingHint = h.vramMax;
 
   if (cAct)     setAnnotations(cAct,    h.times, {},                          h.gfx, h.mem, h.media);
-  if (cVram)    setAnnotations(cVram,   h.times, {},                          h.vram, h.vramOnly, h.gttOnly);
+  if (cVram)    setAnnotations(cVram,   h.times, memoryLimitAnnotations(h),   h.vram, h.vramOnly, h.gttOnly);
   if (cPwr)     setAnnotations(cPwr,    h.times, powerLimitAnnotations(),     h.pwr, h.cpuPwr, h.npuPwr);
   if (cTemp)    setAnnotations(cTemp,   h.times, temperatureLimitAnnotations(), h.tempE, h.tempC, h.tempS, h.tempGfx, h.tempHot, h.tempMem);
   if (cGfxClk)  setAnnotations(cGfxClk, h.times, {},                         h.sclk, h.mclk, h.fclk, h.fclkAvg, h.socClk, h.vclk);
@@ -1381,6 +1415,29 @@ function updateDeviceInfoHeader(dev) {
 
 // ── CPU core performance ranks ────────────────────────────────────────────────
 
+// 16-color categorical palette hand-picked for a dark background. Arranged so
+// that consecutive indices land in different hue families (e.g. red→blue→
+// yellow→purple) and neighbouring cores never share a look-alike tone.
+const CORE_COLORS = [
+  '#ff6b6b', // red
+  '#4dc9f6', // sky blue
+  '#ffd93d', // yellow
+  '#a78bfa', // violet
+  '#3fb950', // green
+  '#ff4d94', // pink
+  '#40e0d0', // turquoise
+  '#ffa500', // orange
+  '#388bfd', // blue
+  '#a0e85f', // lime
+  '#e879f9', // magenta
+  '#1dd1a1', // teal
+  '#c08968', // tan
+  '#5d6dff', // indigo
+  '#e6edf3', // off-white
+  '#8b949e', // gray
+];
+function coreColor(j) { return CORE_COLORS[j % CORE_COLORS.length]; }
+
 function coreLabel(j) {
   const rank = state.coreRanks[j];
   return rank != null ? `C${j} (R#${rank})` : `C${j}`;
@@ -1396,6 +1453,53 @@ function fetchCoreRanks() {
       }
     })
     .catch(() => {});
+}
+
+// ── System info (fan / voltage / power / temp / RAM via /api/system) ────────
+// Polled at low frequency (1 Hz) since these metrics change slowly and the
+// endpoint is cheap to serve but not instant.
+function fetchSystem() {
+  fetch('/api/system')
+    .then(r => r.ok ? r.json() : null)
+    .then(sys => { if (sys) renderSystemInfo(sys); })
+    .catch(() => {});
+}
+
+function renderSystemInfo(sys) {
+  state.systemInfo = sys;
+  const host = document.getElementById('system-cards');
+  if (!host) return;
+
+  const makeCard = (cls, label, value, unit) => {
+    const card = el('div', `card ${cls}`);
+    const lbl  = el('div', 'card-label', label);
+    const row  = el('div');
+    row.appendChild(el('span', 'card-value', value));
+    row.appendChild(el('span', 'card-unit',  unit));
+    card.appendChild(lbl);
+    card.appendChild(row);
+    return card;
+  };
+
+  const next = document.createDocumentFragment();
+  for (const f of sys.fans || []) {
+    if (!(f.value > 0)) continue;
+    next.appendChild(makeCard('c-sys-fan',   f.label, String(Math.round(f.value)), 'RPM'));
+  }
+  for (const p of sys.powers || []) {
+    if (!(p.value > 0)) continue;
+    next.appendChild(makeCard('c-sys-power', p.label, (p.value / 1_000_000).toFixed(1), 'W'));
+  }
+  for (const v of sys.voltages || []) {
+    if (!Number.isFinite(v.value)) continue;
+    next.appendChild(makeCard('c-sys-volt',  v.label, String(Math.round(v.value)), 'mV'));
+  }
+  for (const c of sys.currents || []) {
+    if (!(c.value > 0)) continue;
+    next.appendChild(makeCard('c-sys-curr',  c.label, String(Math.round(c.value)), 'mA'));
+  }
+
+  host.replaceChildren(next);
 }
 
 // ── Power limits ─────────────────────────────────────────────────────────────
@@ -1484,6 +1588,7 @@ function initIntervalCtrl() {
       if (cfg.amdgpu_top_version) {
         document.getElementById('page-subtitle').textContent = cfg.amdgpu_top_version;
       }
+      if (cfg.total_ram_mib) state.totalRAMMiB = cfg.total_ram_mib;
     })
     .catch(() => {});
 
@@ -1686,4 +1791,6 @@ updateStickyOffset();
 fetchPowerLimits();
 setInterval(fetchPowerLimits, 300_000);
 fetchCoreRanks();
+fetchSystem();
+setInterval(fetchSystem, 1000);
 connect();

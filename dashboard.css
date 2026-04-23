@@ -186,6 +186,21 @@ header .period {
 .pause-btn:hover  { border-color: var(--orange); color: var(--orange); }
 .pause-btn.paused { border-color: var(--yellow); color: var(--yellow); }
 
+/* ── System cards (fan / voltage / power, fed by /api/system) ─────── */
+.system-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 8px;
+  padding: 8px 20px 0;
+}
+.system-cards:empty { display: none; }
+
+.c-sys-fan   .card-value { color: var(--muted); }
+.c-sys-volt  .card-value { color: var(--yellow); }
+.c-sys-curr  .card-value { color: var(--blue); }
+.c-sys-power .card-value { color: var(--orange); }
+.c-sys-temp  .card-value { color: var(--red); }
+
 /* ── Tabs ────────────────────────────────────────────────────────── */
 #tabs {
   display: none;
