@@ -285,7 +285,7 @@ main { padding: 6px 8px; }
 /* ── Stat cards ──────────────────────────────────────────────────── */
 .cards {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
   gap: 5px;
   margin-bottom: 8px;
   position: sticky;
@@ -388,10 +388,9 @@ main { padding: 6px 8px; }
 .mem-bar-outer {
   display: flex;
   height: 18px;
-  gap: 2px;
   border-radius: 4px;
   overflow: hidden;
-  background: var(--bg);
+  border: 1px solid rgba(255,255,255,0.15);
 }
 
 .mem-bar-vram-part,
@@ -437,7 +436,8 @@ main { padding: 6px 8px; }
   display: inline-block;
 }
 
-.mem-lswatch-vram   { background: var(--purple); }
+.mem-lswatch-vram-free { background: rgba(188,140,255,0.12); border: 1px solid rgba(188,140,255,0.35); }
+.mem-lswatch-vram      { background: var(--purple); }
 .mem-lswatch-gtt    { background: rgba(188,140,255,0.6); border: 1px solid rgba(188,140,255,0.4); }
 .mem-lswatch-hard   { background: var(--blue); }
 .mem-lswatch-buf    { background: #0097a7; }
