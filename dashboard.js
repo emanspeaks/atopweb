@@ -1755,6 +1755,18 @@ function connect() {
     // Server-pushed system info (fan, temp, power, RAM, uptime).
     if (data.type === 'system') { renderSystemInfo(data); return; }
 
+    // Immediate shutdown/reboot alert pushed by the inotify watcher.
+    if (data.type === 'system_alert') {
+      if (data.shutdown_pending) {
+        const mode = data.shutdown_pending.split(' ')[0];
+        if (state.lastShutdownMode !== mode) {
+          state.lastShutdownMode = mode;
+          appendLog('system: ' + data.shutdown_pending, 'error');
+        }
+      }
+      return;
+    }
+
     // Server-side early process detection (KFD watcher / known-proc watcher).
     if (data.type === 'proc_event' && data.event === 'start') {
       const pidStr = String(data.pid);
@@ -1926,8 +1938,19 @@ function renderSystemInfo(sys) {
     for (const msg of sys.errors) {
       if (state.seenErrors.has(msg)) continue;
       state.seenErrors.add(msg);
-      appendLog('server: ' + msg, 'warn');
+      appendLog('server: ' + msg, 'error');
     }
+  }
+
+  // Shutdown/reboot detection: log once when mode first appears, re-log if mode changes.
+  if (sys.shutdown_pending) {
+    const mode = sys.shutdown_pending.split(' ')[0];
+    if (state.lastShutdownMode !== mode) {
+      state.lastShutdownMode = mode;
+      appendLog('system: ' + sys.shutdown_pending, 'error');
+    }
+  } else {
+    state.lastShutdownMode = undefined;
   }
 
   // Push the current value into every device's copy of a permanent card.
