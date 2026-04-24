@@ -72,6 +72,21 @@ func (h *hub) broadcast(msg []byte) {
 	}
 }
 
+// pushAll sends msg to all connected clients without updating h.last.
+// Used for non-GPU push frames (system info, etc.) so that h.last always
+// holds the most recent GPU frame for /api/vram, /api/gpu-pct, and the
+// proc-name learning goroutine.
+func (h *hub) pushAll(msg []byte) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for c := range h.clients {
+		if err := c.WriteMessage(websocket.TextMessage, msg); err != nil {
+			c.Close()
+			delete(h.clients, c)
+		}
+	}
+}
+
 func (h *hub) serveWS(w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -903,11 +918,12 @@ func (h *hub) serveLimits(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(result)
 }
 
-// ── /api/system ──────────────────────────────────────────────────────────────
+// ── /api/system + WebSocket system pusher ────────────────────────────────────
 // System-wide stats not specific to a GPU: memory, uptime, load, and every
-// hwmon sensor the kernel exposes. Polled from the browser at low frequency
-// (≤ 1 Hz) since these change slowly compared to GPU metrics. Each section is
-// best-effort — missing files are simply omitted from the response.
+// hwmon sensor the kernel exposes.  The HTTP endpoint is kept for tooling;
+// the primary delivery path is runSystemPusher, which pushes a typed WS frame
+// at 1 Hz so browsers receive updates even when the tab is backgrounded
+// (setInterval is throttled in background tabs; WS message events are not).
 
 type sysSensor struct {
 	Chip  string  `json:"chip"`
@@ -1039,10 +1055,10 @@ func readUptime() float64 {
 	return sec
 }
 
-func serveSystem(w http.ResponseWriter, r *http.Request) {
+func buildSystemInfo() systemInfo {
 	fans, volts, currs, pows, temps := readHwmon()
 	total, avail := readMemInfo()
-	info := systemInfo{
+	return systemInfo{
 		TotalRAMMiB: total,
 		AvailRAMMiB: avail,
 		UptimeSec:   readUptime(),
@@ -1053,9 +1069,36 @@ func serveSystem(w http.ResponseWriter, r *http.Request) {
 		Powers:      pows,
 		Temps:       temps,
 	}
+}
+
+func serveSystem(w http.ResponseWriter, r *http.Request) {
+	info := buildSystemInfo()
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	json.NewEncoder(w).Encode(info)
+}
+
+// wsSysFrame is the WebSocket envelope for server-pushed system data.
+// The "type" field lets the client dispatcher route it before the GPU-frame path.
+type wsSysFrame struct {
+	Type string `json:"type"`
+	systemInfo
+}
+
+// runSystemPusher pushes a system-info frame over the WebSocket to all
+// connected clients once per second.  It uses pushAll (not broadcast) so
+// h.last always holds the last GPU frame.
+func runSystemPusher(h *hub) {
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	for range ticker.C {
+		frame := wsSysFrame{Type: "system", systemInfo: buildSystemInfo()}
+		b, err := json.Marshal(frame)
+		if err != nil {
+			continue
+		}
+		h.pushAll(b)
+	}
 }
 
 // ── CPU core performance ranks ────────────────────────────────────────────────
@@ -1265,6 +1308,7 @@ func main() {
 		ryzenAdjArgs: ryzenAdjArgs,
 	}
 	go runStreamer(binary, atopArgs, h)
+	go runSystemPusher(h)
 
 	// GPU process early-detection pipeline.
 	gpuCache := loadGPUProcCache(*procCache)
