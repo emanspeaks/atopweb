@@ -219,6 +219,7 @@ const state = {
   lastPPT:         { value: null, receivedAt: 0 },  // W; reused on each GPU tick
   lastFan:         { value: null, receivedAt: 0 },  // RPM; reused on each GPU tick
   seenFanSensor:   false,  // latched true when any fan sensor has been observed
+  lastCPU:         { value: null, receivedAt: 0 },  // %; reused on each GPU tick
   coreRanks:       [],
   lastDev0:        null,
   lastDevices:     null,
@@ -451,6 +452,7 @@ function el(tag, cls, text) {
 function setConnStatus(status, label) {
   document.getElementById('conn-dot').className = 'conn-dot ' + status;
   document.getElementById('conn-label').textContent = label;
+  document.body.classList.toggle('data-stale', status !== 'connected');
 }
 
 // ── Chart tooltip / tick helpers ─────────────────────────────────────────────
@@ -584,6 +586,8 @@ function buildDom(devices) {
       { id: `c-etmp-${i}`,   cls: 'c-etmp',   label: 'Edge Temp',          unit: '°C',  bar: false, src: `devices[${i}].Sensors['Edge Temperature'].value` },
       { id: `c-cputmp-${i}`, cls: 'c-cputmp', label: 'CPU Tctl',           unit: '°C',  bar: false, src: `devices[${i}].Sensors['CPU Tctl'].value` },
       { id: `c-pwr-${i}`,    cls: 'c-pwr',    label: 'GPU Power',          unit: 'W',   bar: false, src: `devices[${i}].Sensors['Average Power' || 'Socket Power' || 'Input Power'].value` },
+      { id: `c-cpu-${i}`,    cls: 'c-cpu',    label: 'CPU Usage',          unit: '%',   bar: true,  src: `/api/system → cpu_usage_pct (/proc/stat delta)` },
+      { id: `c-ram-${i}`,    cls: 'c-ram',    label: 'System RAM',         unit: 'GiB', bar: true,  split: true, srcU: `/api/system → total_ram_mib − avail_ram_mib + VRAM_used + GTT_used (MiB→GiB)`, srcT: `/api/system → total_ram_mib (MiB→GiB)` },
       // Permanent system cards (fed by /api/system, never idle-hidden).
       // { id: `c-ppt-${i}`,    cls: 'c-ppt',    label: 'Package Power Tracking', unit: 'W',   bar: false, permanent: true },
       { id: `c-fan-${i}`,    cls: 'c-fan',    label: 'Fan Speed',          unit: 'RPM', bar: false, permanent: true, src: `/api/system → fans[0].value` },
@@ -1196,7 +1200,7 @@ function setAnnotations(chart, times, extra, ...arrays) {
   }
   if (Number.isFinite(lo) && Number.isFinite(hi)) {
     const range = (hi - lo) || Math.max(Math.abs(hi), 1);
-    const pad   = range * 0.15;
+    const pad   = range * 0.18;
     const floor = chart._yFloorHint;
     const ceil  = chart._yCeilingHint;
     opts.suggestedMin = floor != null ? Math.min(lo - pad, floor) : lo - pad;
@@ -1279,12 +1283,39 @@ function updateDevice(i, dev) {
   if (gttTEl) gttTEl.textContent = gttT != null ? (gttT/1024).toFixed(3) : '—';
   if (gttU != null || gttT != null) state.cardLastData[`c-gtt-${i}`] = Date.now();
 
+  // CPU usage card (sourced from /api/system 1 Hz push)
+  const cpuNow = Date.now();
+  const cpuFresh = state.lastCPU.value != null && (cpuNow - state.lastCPU.receivedAt) < 3000;
+  setCard(`c-cpu-${i}`, cpuFresh ? state.lastCPU.value : null, 1);
+
+  // System RAM card: used = total − (avail − GPU used); GPU memory subtracted because
+  // GTT is system RAM lent to the GPU, and VRAM on APUs is carved from system RAM.
+  const sysInfo = state.systemInfo;
+  const ramUEl  = document.getElementById(`c-ram-${i}-u`);
+  const ramTEl  = document.getElementById(`c-ram-${i}-t`);
+  let ramUsedGiB = null, ramTotGiB = null, ramPct = null;
+  if (sysInfo && sysInfo.total_ram_mib > 0) {
+    const gpuUsedMiB  = (vramU ?? 0) + (gttU ?? 0);
+    const availMiB    = Math.max(0, sysInfo.avail_ram_mib - gpuUsedMiB);
+    ramUsedGiB = (sysInfo.total_ram_mib - availMiB) / 1024;
+    ramTotGiB  = sysInfo.total_ram_mib / 1024;
+    ramPct     = ramUsedGiB / ramTotGiB * 100;
+    if (ramUEl) ramUEl.textContent = ramUsedGiB.toFixed(3);
+    if (ramTEl) ramTEl.textContent = ramTotGiB.toFixed(3);
+    state.cardLastData[`c-ram-${i}`] = cpuNow;
+  } else {
+    if (ramUEl) ramUEl.textContent = '—';
+    if (ramTEl) ramTEl.textContent = '—';
+  }
+
   // Progress bars
   setBar(`c-gfx-${i}`,   gfx);
   setBar(`c-media-${i}`, media);
   setBar(`c-vmem-${i}`,  combinedT > 0 ? combinedU / combinedT * 100 : null);
   setBar(`c-vram-${i}`,  vramT  > 0 ? vramU  / vramT  * 100 : null);
   setBar(`c-gtt-${i}`,   gttT   > 0 ? gttU   / gttT   * 100 : null);
+  setBar(`c-cpu-${i}`,   cpuFresh ? state.lastCPU.value : null);
+  setBar(`c-ram-${i}`,   ramPct);
 
   // ── History ──
   const nowMs = Date.now();
@@ -1752,6 +1783,11 @@ function renderSystemInfo(sys) {
     state.lastFan = { value: null, receivedAt: 0 };
   }
   update('c-fan', fan ? String(Math.round(fan.value)) : state.seenFanSensor ? '0' : '—');
+
+  const cpuPct = sys.cpu_usage_pct ?? null;
+  state.lastCPU = cpuPct != null
+    ? { value: cpuPct, receivedAt: Date.now() }
+    : { value: null, receivedAt: 0 };
 
   const ppt = (sys.powers || []).find(p => /^ppt$/i.test(p.label) && p.value > 0);
   // Stash for the Package Power chart; µW → W.
