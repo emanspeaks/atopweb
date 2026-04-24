@@ -41,6 +41,7 @@ gofmt
 gomod
 GRBM
 GTT-only
+hidepid
 hwmon
 initrd
 Inotify
@@ -119,3 +120,5 @@ vmem
 XDNA
 xorg
 µW
+
+Strix

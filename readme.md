@@ -48,11 +48,10 @@ Byte-exact reconciliation uses AMD MSRs (`TOP_MEM`, `TOP_MEM2`, `SMM_ADDR`,
 e820-only fallback — summing e820 Reserved entries alone would quietly
 over-count by whatever MMIO region AMD firmware places above top-of-DRAM
 (~770 MiB on Strix Halo), which was judged worse than showing no number at
-all.  If the MSRs are unreadable (no `msr` module, missing `CAP_SYS_RAWIO`,
-or DAC denied on `/dev/cpu/*/msr`) the firmware and kernel-reserved
+all.  If the MSRs are unreadable (the `msr` kernel module is not loaded, or
+`/dev/cpu/*/msr` is not accessible) the firmware and kernel-reserved
 segments are left blank and a diagnostic is written to the systemd journal
-and pushed to the dashboard log pane explaining exactly what needs to be
-fixed.
+and surfaced in the dashboard log pane as a red error.
 
 The legend shows per-segment GiB values (DQI-colored) plus a summary group
 on the right: **Installed** (MSR-authoritative physical total, typically
@@ -194,11 +193,12 @@ overview bar.
 | `cpu_usage_pct` | Aggregate CPU utilization `0–100` computed from `/proc/stat` deltas between successive 1 Hz ticks (absent on the very first tick) |
 | `meminfo_kb` | Map of every `/proc/meminfo` key to its numeric value (kB for most fields, plain counts for `HugePages_*`) |
 | `firmware_reserved_mib` | Total DRAM reserved above top-of-System-RAM including the BIOS VRAM carveout; the dashboard subtracts `VRAM total` to derive the non-VRAM firmware segment |
-| `mem_reservation` | Full memory-topology report: `system_ram_mib`, `system_ram_top_bytes`, MSR-derived `top_mem_bytes` / `top_mem2_bytes` / `tseg_base_bytes` / `tseg_size_bytes`, `installed_mib` (= `TOP_MEM + (TOP_MEM2 − 4 GiB)`), and the split `firmware_high_mib` (above top of System RAM) + `firmware_low_mib` (below TOP_MEM + any hidden e820 gap).  `source_msr = true` when the numbers came from MSRs; `false` when they fell back to an e820-only estimate |
+| `mem_reservation` | Full memory-topology report: `system_ram_mib`, `system_ram_top_bytes`, MSR-derived `top_mem_bytes` / `top_mem2_bytes` / `tseg_base_bytes` / `tseg_size_bytes`, `installed_mib` (= `TOP_MEM + (TOP_MEM2 − 4 GiB)`), and the split `firmware_high_mib` (above top of System RAM) + `firmware_low_mib` (below TOP_MEM + any hidden e820 gap).  `source_msr = true` when the numbers came from AMD MSRs (byte-exact); `false` when the msr module is not loaded and MSRs could not be read |
 | `drm_mem` | Per-GPU authoritative totals from `/sys/class/drm/card*/device/mem_info_*` (`vram_total_mib`, `vram_used_mib`, `vis_vram_total_mib`, `vis_vram_used_mib`, `gtt_total_mib`, `gtt_used_mib`) plus aggregated per-process breakdown from `/proc/*/fdinfo/*` (`total_vram_kib`, `total_gtt_kib`, `total_cpu_kib`, and a `processes[]` array with `{pid, comm, driver, vram_kib, gtt_kib, cpu_kib, vis_vram_kib}` per DRM-holding process, the largest first) |
 | `sock_mem_kb` | Kernel network-buffer memory: sum of the `mem` / `memory` fields in `/proc/net/sockstat` and `/proc/net/sockstat6`, multiplied by the system page size |
 | `dma_buf_bytes` | Total size column from `/sys/kernel/debug/dma_buf/bufinfo` (diagnostic only — dma-bufs are usually backed by VRAM/GTT/shmem so adding this to the bar would double-count) |
-| `errors` | Array of sticky server-side diagnostics (permission denied on MSR/fdinfo/debugfs, missing kernel modules, etc.).  Each unique message appears once per process lifetime; the same list is emitted to the systemd journal via `log.Printf` and pushed to the dashboard log pane, so the user is told exactly which capability or module is missing |
+| `errors` | Array of sticky server-side diagnostics (missing kernel modules, unexpected permission errors, etc.).  Each unique message appears once per process lifetime; the same list is emitted to the systemd journal via `log.Printf` and surfaced in the dashboard log pane as a red error entry |
+| `shutdown_pending` | Non-empty string when systemd has a shutdown or reboot queued — e.g. `"reboot scheduled in 45s (at 17:33:00)"`.  Written within milliseconds of the user running `sudo reboot` or `sudo shutdown`, via an inotify watch on `/run/systemd/shutdown/scheduled`. Empty when no shutdown is pending |
 
 ---
 
@@ -243,7 +243,7 @@ Then open `http://localhost:5899` in a browser.
 | --- | --- | --- |
 | `--port` | `5899` | TCP port to listen on |
 | `--amdgpu-top` | *(search PATH)* | Path to the `amdgpu_top` binary |
-| `--sudo` | `false` | Launch `amdgpu_top` (and `ryzenadj`) via `sudo -n` instead of running atopweb as root |
+| `--sudo` | `false` | Launch `amdgpu_top` (and `ryzenadj`) via `sudo -n` (for non-root deployments that use a NOPASSWD sudoers entry instead of running atopweb as root) |
 | `--sudo-bin` | `sudo` | Path to the sudo binary (NixOS: `/run/wrappers/bin/sudo`) |
 | `--ryzenadj` | | Path to `ryzenadj`; when set, polls `ryzenadj -i` for APU power and thermal limits |
 | `-s <ms>` | `1000` | amdgpu_top refresh period in milliseconds |
@@ -254,7 +254,7 @@ Then open `http://localhost:5899` in a browser.
 | `--single` | `false` | Display only the selected GPU |
 | `--no-pc` | `false` | Skip GPU performance counter reads |
 | `--proc-cache <path>` | | Path to a JSON file used as a persistent cache of process names that have previously touched the GPU. When set, enables early-detection of known processes across service restarts. Empty = in-memory only |
-| `--fanotify` | `false` | Enable the fanotify-based GPU device watcher for zero-lag process-start detection. Requires `CAP_SYS_ADMIN`; falls back silently when the capability is absent |
+| `--fanotify` | `false` | Enable the fanotify-based GPU device watcher for zero-lag process-start detection (requires root or `CAP_SYS_ADMIN`; falls back silently when unavailable) |
 
 ---
 
@@ -339,65 +339,36 @@ http://<server-ip>:5899
 
 ### What the module configures for you
 
-Beyond the systemd unit and `atopweb` user, enabling the module also:
+Enabling the module:
 
 - Loads the `msr` kernel module (`boot.kernelModules = [ "msr" ]`) so the
   service can open `/dev/cpu/*/msr` to read AMD memory-topology MSRs
   (`TOP_MEM`, `TOP_MEM2`, `SMM_ADDR`, `SMM_MASK`) for byte-exact memory
   reconciliation.
-- Adds a udev rule granting the `atopweb` group read access on
-  `/dev/cpu/*/msr` (default kernel mode is `0600 root:root`; the msr
-  driver's own `CAP_SYS_RAWIO` check still applies on top).
-- Grants the service unit three Linux capabilities at all times via
-  `AmbientCapabilities` and `CapabilityBoundingSet`:
-  - **`CAP_SYS_RAWIO`** — required to open `/dev/cpu/*/msr`.
-  - **`CAP_SYS_PTRACE`** — required to read `/proc/<pid>/fdinfo/*` across
-    users, so the per-process DRM memory scan can see every client's
-    `drm-memory-*` counters (not just those owned by the `atopweb` user).
-  - **`CAP_SYS_ADMIN`** — required to read
-    `/sys/kernel/debug/dma_buf/bufinfo` for the dma-buf total, and used by
-    the fanotify device-node watcher when `fanotify = true`.
-
-This is a behavior change from earlier versions of the module, where
-`CAP_SYS_ADMIN` was only granted when `fanotify = true`.  If you were
-relying on the minimal-privilege profile, note that the service now runs
-with these three ambient capabilities unconditionally; they're needed for
-the full memory-bar reconciliation the dashboard now performs.
+- Runs the systemd unit as **root** (`User = "root"`), which gives it
+  unrestricted access to `/proc/*/fdinfo` (per-process DRM memory),
+  `/dev/cpu/*/msr` (AMD memory topology), and
+  `/sys/kernel/debug/dma_buf/bufinfo` (dma-buf totals) without any
+  capability juggling.  `amdgpu_top` is therefore also invoked directly as
+  root — no sudo wrapper required.
 
 ### Running amdgpu_top as root
 
-`amdgpu_top` needs elevated privileges to read GPU performance counters and
-full fdinfo data.  The recommended approach is `sudo = true` in the module,
-which:
-
-- passes `--sudo --sudo-bin /run/wrappers/bin/sudo` to atopweb
-- automatically adds a NOPASSWD sudoers entry so the `atopweb` service user
-  can run `amdgpu_top` (and `ryzenadj` if configured) without a password
+Because the NixOS module runs the service as root, `amdgpu_top` inherits
+root privileges and can read GPU performance counters and full fdinfo data
+without any additional configuration.  The `sudo = true` option is no longer
+needed when using the module:
 
 ```nix
-services.atopweb = {
-  enable      = true;
-  sudo        = true;
-  ryzenAdjBin = "${pkgs.ryzenadj}/bin/ryzenadj";
-};
-```
-
-Alternatively, a `security.wrappers` setuid wrapper works too:
-
-```nix
-security.wrappers.amdgpu_top = {
-  source      = "${pkgs.amdgpu_top}/bin/amdgpu_top";
-  owner       = "root";
-  group       = "atopweb";
-  setuid      = true;
-  permissions = "u+rx,g+rx,o-rwx";
-};
-
 services.atopweb = {
   enable       = true;
-  amdgpuTopBin = "/run/wrappers/bin/amdgpu_top";
+  ryzenAdjBin  = "${pkgs.ryzenadj}/bin/ryzenadj";
 };
 ```
+
+The `--sudo` flag and `sudo` module option remain available for non-NixOS
+deployments where atopweb runs as a non-root user with a NOPASSWD sudoers
+entry for `amdgpu_top`.
 
 ---
 
