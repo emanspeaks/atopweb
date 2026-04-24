@@ -216,8 +216,6 @@ const state = {
   powerLimits:     { stapm_w: null, fast_w: null, slow_w: null, apu_slow_w: null, thm_core_c: null, thm_gfx_c: null, thm_soc_c: null },
   totalRAMMiB:     null,
   systemInfo:      null,
-  systemUptimeBaseSec:    null,  // uptime value at last /api/system poll
-  systemUptimeReceivedAt: null,  // Date.now() when the above was received
   lastPPT:         { value: null, receivedAt: 0 },  // W; reused on each GPU tick
   lastFan:         { value: null, receivedAt: 0 },  // RPM; reused on each GPU tick
   coreRanks:       [],
@@ -347,6 +345,39 @@ function encodeHist(h) {
   };
 }
 
+// Shift every data array in h left by `g` samples and fill the vacated tail
+// with NaN, then advance the time axes by the same amount.  This injects a
+// break that Chart.js (spanGaps:false by default) will render as a gap rather
+// than a false connecting line.
+function shiftHistGap(h, g, ms) {
+  const n  = h.times.length;
+  const cn = h.coreTimes.length;
+  const g1 = Math.min(Math.max(0, g), n);
+  const g2 = Math.min(g1, cn);
+  if (g1 === 0) return;
+  const sft = (a, gap) => { a.copyWithin(0, gap); a.fill(NaN, a.length - gap); };
+  sft(h.gfx, g1); sft(h.mem, g1); sft(h.media, g1);
+  sft(h.vram, g1); sft(h.vramOnly, g1); sft(h.gttOnly, g1);
+  sft(h.pwr, g1); sft(h.fan, g1); sft(h.ppt, g1);
+  sft(h.cpuPwr, g1); sft(h.npuPwr, g1);
+  sft(h.tempE, g1); sft(h.tempC, g1); sft(h.tempS, g1);
+  sft(h.tempGfx, g1); sft(h.tempHot, g1); sft(h.tempMem, g1);
+  sft(h.sclk, g1); sft(h.mclk, g1); sft(h.fclk, g1);
+  sft(h.fclkAvg, g1); sft(h.socClk, g1); sft(h.vclk, g1);
+  sft(h.vddgfx, g1); sft(h.vddnb, g1);
+  sft(h.dramReads, g1); sft(h.dramWrites, g1);
+  sft(h.npuClk, g1); sft(h.npuMpClk, g1);
+  sft(h.npuReads, g1); sft(h.npuWrites, g1);
+  h.npuBusy.forEach(a => sft(a, g1));
+  h.corePwr.forEach(a => sft(a, g1));
+  h.grbm.forEach(a => sft(a, g1));
+  h.grbm2.forEach(a => sft(a, g1));
+  h.coreClk.forEach(a => sft(a, g2));
+  h.cpuScalingClk.forEach(a => sft(a, g2));
+  for (let k = 0; k < n;  k++) h.times[k]    += g1 * ms;
+  for (let k = 0; k < cn; k++) h.coreTimes[k] += g2 * ms;
+}
+
 function decodeHist(c, h, ts, ms) {
   const d1 = (b, a) => { if (b && a) _decF32(b, a); };
   const d2 = (bs, as) => { if (bs && as) bs.forEach((b, j) => d1(b, as[j])); };
@@ -369,39 +400,12 @@ function decodeHist(c, h, ts, ms) {
   // Reconstruct time axes from cached end-timestamp.
   const n  = h.times.length;
   const cn = h.coreTimes.length;
-  for (let k = 0; k < n;  k++) h.times[k]     = ts - (n  - 1 - k) * ms;
-  for (let k = 0; k < cn; k++) h.coreTimes[k]  = ts - (cn - 1 - k) * ms;
+  for (let k = 0; k < n;  k++) h.times[k]    = ts - (n  - 1 - k) * ms;
+  for (let k = 0; k < cn; k++) h.coreTimes[k] = ts - (cn - 1 - k) * ms;
 
-  // Shift every data array left by the number of samples that elapsed while the
-  // page was away, filling the vacated tail with NaN.  Chart.js's default
-  // spanGaps:false then naturally breaks the line at the gap boundary, so
-  // cached history and live data are never visually connected.
-  const g  = Math.min(Math.max(0, Math.round((Date.now() - ts) / ms)), n);
-  const gc = Math.min(g, cn);
-  if (g > 0) {
-    const sft = (a, gap) => { a.copyWithin(0, gap); a.fill(NaN, a.length - gap); };
-    sft(h.gfx, g); sft(h.mem, g); sft(h.media, g);
-    sft(h.vram, g); sft(h.vramOnly, g); sft(h.gttOnly, g);
-    sft(h.pwr, g); sft(h.fan, g); sft(h.ppt, g);
-    sft(h.cpuPwr, g); sft(h.npuPwr, g);
-    sft(h.tempE, g); sft(h.tempC, g); sft(h.tempS, g);
-    sft(h.tempGfx, g); sft(h.tempHot, g); sft(h.tempMem, g);
-    sft(h.sclk, g); sft(h.mclk, g); sft(h.fclk, g);
-    sft(h.fclkAvg, g); sft(h.socClk, g); sft(h.vclk, g);
-    sft(h.vddgfx, g); sft(h.vddnb, g);
-    sft(h.dramReads, g); sft(h.dramWrites, g);
-    sft(h.npuClk, g); sft(h.npuMpClk, g);
-    sft(h.npuReads, g); sft(h.npuWrites, g);
-    h.npuBusy.forEach(a => sft(a, g));
-    h.corePwr.forEach(a => sft(a, g));
-    h.grbm.forEach(a => sft(a, g));
-    h.grbm2.forEach(a => sft(a, g));
-    h.coreClk.forEach(a => sft(a, gc));
-    h.cpuScalingClk.forEach(a => sft(a, gc));
-    // Advance time axes to match the shifted data positions.
-    for (let k = 0; k < n;  k++) h.times[k]    += g  * ms;
-    for (let k = 0; k < cn; k++) h.coreTimes[k] += gc * ms;
-  }
+  // Shift by however many samples elapsed while the page was away so the tail
+  // fills with NaN and Chart.js naturally breaks the line at the boundary.
+  shiftHistGap(h, Math.round((Date.now() - ts) / ms), ms);
 }
 
 function saveCache() {
@@ -702,12 +706,12 @@ function buildDom(devices) {
       {
         key: 'gfx-clk', title: 'Clocks (MHz)', height: 175, yMax: null,
         datasets: () => [
-          makeDataset('SCLK',     '#e85d04', h.sclk,    `devices[${i}].Sensors['GFX_SCLK']`),
+          makeDataset('SCLK',     '#e88504', h.sclk,    `devices[${i}].Sensors['GFX_SCLK']`),
           makeDataset('MCLK',     '#388bfd', h.mclk,    `devices[${i}].Sensors['GFX_MCLK']`),
-          makeDataset('FCLK',     '#3fb950', h.fclk,    `devices[${i}].Sensors['FCLK']`),
+          makeDataset('FCLK',     '#e7241a', h.fclk,    `devices[${i}].Sensors['FCLK']`),
           makeDataset('FCLK avg', '#00b4d8', h.fclkAvg, `devices[${i}].gpu_metrics.average_fclk_frequency`),
-          makeDataset('SoC Clk',  '#e3b341', h.socClk,  `devices[${i}].gpu_metrics.average_socclk_frequency`),
-          makeDataset('VCN Clk',  '#f85149', h.vclk,    `devices[${i}].gpu_metrics.average_vclk_frequency`),
+          makeDataset('SoC Clk',  '#e3cb41', h.socClk,  `devices[${i}].gpu_metrics.average_socclk_frequency`),
+          makeDataset('VCN Clk',  '#3fb950', h.vclk,    `devices[${i}].gpu_metrics.average_vclk_frequency`),
         ]
       },
       {
@@ -1261,6 +1265,14 @@ function updateDevice(i, dev) {
 
   // ── History ──
   const nowMs = Date.now();
+  // If the gap since the last sample exceeds the idle threshold (same 10%-of-
+  // window debounce used to suppress idle charts in scheduleRender), inject NaN
+  // so Chart.js breaks the line instead of connecting across the discontinuity.
+  // This catches WebSocket reconnects after reboots/pauses without a page reload.
+  const idleMs = state.timeWidthMs * 0.1;
+  if (nowMs - h.times[h.times.length - 1] > idleMs)
+    shiftHistGap(h, Math.round((nowMs - h.times[h.times.length - 1]) / state.intervalMs), state.intervalMs);
+
   pushHistory(h.times,     nowMs);
   pushHistory(h.coreTimes, nowMs);
   pushHistory(h.gfx,   gfx);
@@ -1494,12 +1506,18 @@ function updateDevice(i, dev) {
 }
 
 // ── WebSocket ────────────────────────────────────────────────────────────────
-let ws         = null;
-let retryMs    = 1000;
-let retryTimer = null;
+let ws              = null;
+let retryMs         = 1000;
+let retryTimer      = null;
+let countdownTimer  = null;
 const MAX_RETRY = 30000;
 
+function clearCountdown() {
+  if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null; }
+}
+
 function connect() {
+  clearCountdown();
   if (ws && ws.readyState < 2) ws.close(); // CONNECTING or OPEN → close before replacing
   setConnStatus('connecting', 'Connecting…');
   ws = new WebSocket(`ws://${location.host}/ws`);
@@ -1541,9 +1559,15 @@ function connect() {
   });
 
   ws.addEventListener('close', () => {
-    const delaySec = (retryMs / 1000).toFixed(3);
-    setConnStatus('disconnected', `Reconnecting in ${delaySec}s…`);
+    const delaySec = retryMs / 1000;
     appendLog(`WebSocket disconnected — reconnecting in ${delaySec}s`, 'warn');
+    const reconnectAt = Date.now() + retryMs;
+    const tick = () => {
+      const rem = Math.ceil((reconnectAt - Date.now()) / 1000);
+      setConnStatus('disconnected', rem > 0 ? `Reconnecting in ${rem}s…` : 'Reconnecting…');
+    };
+    tick();
+    countdownTimer = setInterval(tick, 1000);
     retryTimer = setTimeout(connect, retryMs);
     retryMs = Math.min(retryMs * 2, MAX_RETRY);
   });
@@ -1556,6 +1580,7 @@ function connect() {
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden && (!ws || ws.readyState >= 2)) {
     clearTimeout(retryTimer);
+    clearCountdown();
     retryMs = 1000;
     appendLog('Tab visible — reconnecting immediately', 'warn');
     connect();
@@ -1693,11 +1718,8 @@ function renderSystemInfo(sys) {
     : { value: null, receivedAt: 0 };
   update('c-ppt', ppt ? state.lastPPT.value.toFixed(3) : '—');
 
-  if (sys.uptime_sec != null && sys.uptime_sec > 0) {
-    state.systemUptimeBaseSec    = sys.uptime_sec;
-    state.systemUptimeReceivedAt = Date.now();
+  if (sys.uptime_sec != null && sys.uptime_sec > 0)
     update('c-uptime', formatUptime(sys.uptime_sec));
-  }
 
   // The dynamic `#system-cards` row is intentionally left empty. Its
   // infrastructure (div + CSS + this function's `state.systemInfo` capture)
@@ -1715,15 +1737,6 @@ function formatUptime(totalSec) {
   const ms   = Math.floor((sRaw - sInt) * 1000);
   const pad  = (n, w) => String(n).padStart(w, '0');
   return `${days}/${pad(h, 2)}:${pad(m, 2)}:${pad(sInt, 2)}.${pad(ms, 3)}`;
-}
-
-// 20 Hz refresh of the live uptime card(s) between /api/system polls.
-function tickUptime() {
-  const base = state.systemUptimeBaseSec;
-  const rxAt = state.systemUptimeReceivedAt;
-  if (base == null || rxAt == null) return;
-  const text = formatUptime(base + (Date.now() - rxAt) / 1000);
-  document.querySelectorAll('[id^="c-uptime-"]').forEach(el => { el.textContent = text; });
 }
 
 // ── Power limits ─────────────────────────────────────────────────────────────
@@ -2024,7 +2037,6 @@ setInterval(fetchPowerLimits, 300_000);
 fetchCoreRanks();
 fetchSystem();
 setInterval(fetchSystem, 1000);
-setInterval(tickUptime, 50);
 setInterval(saveCache, CACHE_SAVE_MS);
 window.addEventListener('beforeunload', saveCache);
 connect();
