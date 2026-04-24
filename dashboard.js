@@ -26,6 +26,28 @@ const GRBM2_KEYS = [
   'Command Processor - Graphics',
 ];
 
+const MEM_TIPS = {
+  vramFree: "VRAM free: mem_info_vram_total − mem_info_vram_used (unallocated video RAM; includes firmware carveout region)",
+  vramVis:  "CPU-visible VRAM used: mem_info_vis_vram_used (allocated VRAM reachable by CPU via PCIe BAR mapping)",
+  vramInv:  "CPU-invisible VRAM used: mem_info_vram_used − mem_info_vis_vram_used (allocated VRAM not reachable via PCIe BAR — GPU-private only)",
+  gtt:      "GTT (Graphics Translation Table) used: amdgpu 'Total GTT Usage' (system RAM pinned into the GPU's address space via IOMMU page tables)",
+  drmCpu:   "DRM CPU buffers: Σ drm-memory-cpu across /proc/*/fdinfo (GPU buffers resident in CPU-accessible system RAM)",
+  anon:     "Application memory: /proc/meminfo AnonPages (anonymous pages: process heap, stack, and private mmap regions)",
+  shmem:    "Shared memory: /proc/meminfo Shmem (tmpfs files, SysV shared memory, and POSIX shared memory segments)",
+  cached:   "File cache: /proc/meminfo Cached − Shmem (reclaimable page cache for file-backed data; freed under memory pressure)",
+  buf:      "Block buffers: /proc/meminfo Buffers (reclaimable kernel buffer cache for block device metadata)",
+  sreclm:   "Reclaimable slab: /proc/meminfo SReclaimable (dentry and inode caches; freed under memory pressure)",
+  sunrec:   "Unreclaimable slab: /proc/meminfo SUnreclaim (kernel object caches that cannot be reclaimed under pressure)",
+  vmalloc:  "Vmalloc: /proc/meminfo VmallocUsed (kernel virtual memory area allocations including per-CPU data)",
+  kstack:   "Kernel stacks: /proc/meminfo KernelStack (per-thread kernel-mode stacks)",
+  ptables:  "Page tables: /proc/meminfo PageTables + SecPageTables (memory used to map process virtual address spaces)",
+  netbuf:   "Network buffers: /proc/net/sockstat mem × page_size (kernel memory reserved for socket send/receive buffers)",
+  drvpg:    "Driver pages: total used − Σ all named segments (kernel direct alloc_pages() for DMA-coherent buffers, driver scratch, and HugeTLB pool)",
+  free:     "Free memory: /proc/meminfo MemFree (unallocated system RAM)",
+  fw:       "Firmware reserved: mem_reservation.firmware_reserved_mib − BIOS VRAM carveout (PSP, SMU, ACPI tables, TSEG, and hidden firmware gaps)",
+  kres:     "Kernel reserved: e820 system RAM − /proc/meminfo MemTotal (memory reserved for kernel image, initrd, crashkernel dump region)"
+};
+
 // ── External DOM tooltip (can overflow chart canvas boundaries) ──────────────
 let _tooltipEl = null;
 
@@ -619,49 +641,49 @@ function buildDom(devices) {
     memSec.innerHTML = `
       <div class="mem-bar-outer">
         <div class="mem-bar-vram-part" id="mem-vram-part-${i}">
-          <div class="mem-seg mem-seg-vram-free" id="mem-vram-free-${i}" data-src="mem_info_vram_total − mem_info_vram_used (BIOS carveout free)"></div>
-          <div class="mem-seg mem-seg-vram-inv"  id="mem-vram-inv-${i}"  data-src="mem_info_vram_used − mem_info_vis_vram_used (CPU-invisible VRAM, GPU-only)"></div>
-          <div class="mem-seg mem-seg-vram-vis"  id="mem-vram-vis-${i}"  data-src="mem_info_vis_vram_used (CPU-visible VRAM used, reachable via PCIe BAR)"></div>
+          <div class="mem-seg mem-seg-vram-free" id="mem-vram-free-${i}" data-src="${MEM_TIPS.vramFree}"></div>
+          <div class="mem-seg mem-seg-vram-inv"  id="mem-vram-inv-${i}"  data-src="${MEM_TIPS.vramInv}"></div>
+          <div class="mem-seg mem-seg-vram-vis"  id="mem-vram-vis-${i}"  data-src="${MEM_TIPS.vramVis}"></div>
         </div>
         <div class="mem-bar-sys-part">
-          <div class="mem-seg mem-seg-gtt-used" id="mem-gtt-used-${i}" data-src="amdgpu 'Total GTT Usage' (system RAM pinned into GPU translation table)"></div>
-          <div class="mem-seg mem-seg-drmcpu"   id="mem-drmcpu-${i}"   data-src="Σ drm-memory-cpu across all /proc/*/fdinfo DRM FDs (CPU-domain GPU buffers)"></div>
-          <div class="mem-seg mem-seg-anon"     id="mem-anon-${i}"     data-src="/proc/meminfo AnonPages (user process heap/stack)"></div>
-          <div class="mem-seg mem-seg-shmem"    id="mem-shmem-${i}"    data-src="/proc/meminfo Shmem (tmpfs + SysV shared memory)"></div>
-          <div class="mem-seg mem-seg-cached"   id="mem-cached-${i}"   data-src="/proc/meminfo Cached − Shmem (file-backed page cache, reclaimable)"></div>
-          <div class="mem-seg mem-seg-buf"      id="mem-buf-${i}"      data-src="/proc/meminfo Buffers (block-device cache, reclaimable)"></div>
-          <div class="mem-seg mem-seg-sreclm"   id="mem-sreclm-${i}"   data-src="/proc/meminfo SReclaimable (dentry/inode slab, reclaimable)"></div>
-          <div class="mem-seg mem-seg-sunrec"   id="mem-sunrec-${i}"   data-src="/proc/meminfo SUnreclaim (non-reclaimable slab)"></div>
-          <div class="mem-seg mem-seg-vmalloc"  id="mem-vmalloc-${i}"  data-src="/proc/meminfo VmallocUsed (includes Percpu)"></div>
-          <div class="mem-seg mem-seg-kstack"   id="mem-kstack-${i}"   data-src="/proc/meminfo KernelStack"></div>
-          <div class="mem-seg mem-seg-ptables"  id="mem-ptables-${i}"  data-src="/proc/meminfo PageTables + SecPageTables"></div>
-          <div class="mem-seg mem-seg-netbuf"   id="mem-netbuf-${i}"   data-src="/proc/net/sockstat mem × page size (kernel socket buffers)"></div>
-          <div class="mem-seg mem-seg-drvpg"    id="mem-drvpg-${i}"    data-src="Used − Σ named buckets (kernel direct alloc_pages(): DMA-coherent, driver scratch, HugeTLB pool)"></div>
-          <div class="mem-seg mem-seg-free"     id="mem-free-${i}"     data-src="/proc/meminfo MemFree"></div>
+          <div class="mem-seg mem-seg-gtt-used" id="mem-gtt-used-${i}" data-src="${MEM_TIPS.gtt}"></div>
+          <div class="mem-seg mem-seg-drmcpu"   id="mem-drmcpu-${i}"   data-src="${MEM_TIPS.drmCpu}"></div>
+          <div class="mem-seg mem-seg-anon"     id="mem-anon-${i}"     data-src="${MEM_TIPS.anon}"></div>
+          <div class="mem-seg mem-seg-shmem"    id="mem-shmem-${i}"    data-src="${MEM_TIPS.shmem}"></div>
+          <div class="mem-seg mem-seg-cached"   id="mem-cached-${i}"   data-src="${MEM_TIPS.cached}"></div>
+          <div class="mem-seg mem-seg-buf"      id="mem-buf-${i}"      data-src="${MEM_TIPS.buf}"></div>
+          <div class="mem-seg mem-seg-sreclm"   id="mem-sreclm-${i}"   data-src="${MEM_TIPS.sreclm}"></div>
+          <div class="mem-seg mem-seg-sunrec"   id="mem-sunrec-${i}"   data-src="${MEM_TIPS.sunrec}"></div>
+          <div class="mem-seg mem-seg-vmalloc"  id="mem-vmalloc-${i}"  data-src="${MEM_TIPS.vmalloc}"></div>
+          <div class="mem-seg mem-seg-kstack"   id="mem-kstack-${i}"   data-src="${MEM_TIPS.kstack}"></div>
+          <div class="mem-seg mem-seg-ptables"  id="mem-ptables-${i}"  data-src="${MEM_TIPS.ptables}"></div>
+          <div class="mem-seg mem-seg-netbuf"   id="mem-netbuf-${i}"   data-src="${MEM_TIPS.netbuf}"></div>
+          <div class="mem-seg mem-seg-drvpg"    id="mem-drvpg-${i}"    data-src="${MEM_TIPS.drvpg}"></div>
+          <div class="mem-seg mem-seg-free"     id="mem-free-${i}"     data-src="${MEM_TIPS.free}"></div>
         </div>
-        <div class="mem-seg mem-seg-fw"   id="mem-fw-${i}"   data-src="mem_reservation.firmware_reserved_mib minus BIOS VRAM carveout (PSP/SMU/ACPI/TSEG + hidden gap)"></div>
-        <div class="mem-seg mem-seg-kres" id="mem-kres-${i}" data-src="System RAM (e820) − MemTotal (kernel-reserved: crashkernel, initrd, kernel image)"></div>
+        <div class="mem-seg mem-seg-fw"   id="mem-fw-${i}"   data-src="${MEM_TIPS.fw}"></div>
+        <div class="mem-seg mem-seg-kres" id="mem-kres-${i}" data-src="${MEM_TIPS.kres}"></div>
       </div>
       <div class="mem-legend">
-        <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-vram-free"></span>VRAM free: <span class="mem-legend-val" id="mem-lbl-vram-free-${i}">—</span></span>
-        <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-vram-vis"></span>VRAM vis: <span class="mem-legend-val" id="mem-lbl-vram-vis-${i}">—</span></span>
-        <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-vram-inv"></span>VRAM invis: <span class="mem-legend-val" id="mem-lbl-vram-inv-${i}">—</span></span>
-        <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-gtt"></span>GTT: <span class="mem-legend-val" id="mem-lbl-gtt-${i}">—</span></span>
-        <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-drmcpu"></span>DRM-CPU: <span class="mem-legend-val" id="mem-lbl-drmcpu-${i}">—</span></span>
-        <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-anon"></span>Apps: <span class="mem-legend-val" id="mem-lbl-anon-${i}">—</span></span>
-        <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-shmem"></span>Shared: <span class="mem-legend-val" id="mem-lbl-shmem-${i}">—</span></span>
-        <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-cached"></span>FCache: <span class="mem-legend-val" id="mem-lbl-cached-${i}">—</span></span>
-        <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-buf"></span>Bufs: <span class="mem-legend-val" id="mem-lbl-buf-${i}">—</span></span>
-        <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-sreclm"></span>SlabReclm: <span class="mem-legend-val" id="mem-lbl-sreclm-${i}">—</span></span>
-        <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-sunrec"></span>SlabUnreclm: <span class="mem-legend-val" id="mem-lbl-sunrec-${i}">—</span></span>
-        <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-vmalloc"></span>Vmalloc: <span class="mem-legend-val" id="mem-lbl-vmalloc-${i}">—</span></span>
-        <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-kstack"></span>KStack: <span class="mem-legend-val" id="mem-lbl-kstack-${i}">—</span></span>
-        <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-ptables"></span>PgTbls: <span class="mem-legend-val" id="mem-lbl-ptables-${i}">—</span></span>
-        <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-netbuf"></span>NetBufs: <span class="mem-legend-val" id="mem-lbl-netbuf-${i}">—</span></span>
-        <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-drvpg"></span>DrvPgs: <span class="mem-legend-val" id="mem-lbl-drvpg-${i}">—</span></span>
-        <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-free"></span>Free: <span class="mem-legend-val" id="mem-lbl-free-${i}">—</span></span>
-        <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-fw"></span>FW: <span class="mem-legend-val" id="mem-lbl-fw-${i}">—</span></span>
-        <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-kres"></span>KRes: <span class="mem-legend-val" id="mem-lbl-kres-${i}">—</span></span>
+        <span class="mem-legend-item" data-src="${MEM_TIPS.vramFree}"><span class="mem-lswatch mem-lswatch-vram-free"></span>V-free: <span class="mem-legend-val" id="mem-lbl-vram-free-${i}">—</span></span>
+        <span class="mem-legend-item" data-src="${MEM_TIPS.vramVis}"><span class="mem-lswatch mem-lswatch-vram-vis"></span>V-vis: <span class="mem-legend-val" id="mem-lbl-vram-vis-${i}">—</span></span>
+        <span class="mem-legend-item" data-src="${MEM_TIPS.vramInv}"><span class="mem-lswatch mem-lswatch-vram-inv"></span>V-invis: <span class="mem-legend-val" id="mem-lbl-vram-inv-${i}">—</span></span>
+        <span class="mem-legend-item" data-src="${MEM_TIPS.gtt}"><span class="mem-lswatch mem-lswatch-gtt"></span>GTT: <span class="mem-legend-val" id="mem-lbl-gtt-${i}">—</span></span>
+        <span class="mem-legend-item" data-src="${MEM_TIPS.drmCpu}"><span class="mem-lswatch mem-lswatch-drmcpu"></span>DRM: <span class="mem-legend-val" id="mem-lbl-drmcpu-${i}">—</span></span>
+        <span class="mem-legend-item" data-src="${MEM_TIPS.anon}"><span class="mem-lswatch mem-lswatch-anon"></span>Apps: <span class="mem-legend-val" id="mem-lbl-anon-${i}">—</span></span>
+        <span class="mem-legend-item" data-src="${MEM_TIPS.shmem}"><span class="mem-lswatch mem-lswatch-shmem"></span>Shm: <span class="mem-legend-val" id="mem-lbl-shmem-${i}">—</span></span>
+        <span class="mem-legend-item" data-src="${MEM_TIPS.cached}"><span class="mem-lswatch mem-lswatch-cached"></span>FCache: <span class="mem-legend-val" id="mem-lbl-cached-${i}">—</span></span>
+        <span class="mem-legend-item" data-src="${MEM_TIPS.buf}"><span class="mem-lswatch mem-lswatch-buf"></span>Bufs: <span class="mem-legend-val" id="mem-lbl-buf-${i}">—</span></span>
+        <span class="mem-legend-item" data-src="${MEM_TIPS.sreclm}"><span class="mem-lswatch mem-lswatch-sreclm"></span>SReclm: <span class="mem-legend-val" id="mem-lbl-sreclm-${i}">—</span></span>
+        <span class="mem-legend-item" data-src="${MEM_TIPS.sunrec}"><span class="mem-lswatch mem-lswatch-sunrec"></span>SUnreclm: <span class="mem-legend-val" id="mem-lbl-sunrec-${i}">—</span></span>
+        <span class="mem-legend-item" data-src="${MEM_TIPS.vmalloc}"><span class="mem-lswatch mem-lswatch-vmalloc"></span>Vmalloc: <span class="mem-legend-val" id="mem-lbl-vmalloc-${i}">—</span></span>
+        <span class="mem-legend-item" data-src="${MEM_TIPS.kstack}"><span class="mem-lswatch mem-lswatch-kstack"></span>KStack: <span class="mem-legend-val" id="mem-lbl-kstack-${i}">—</span></span>
+        <span class="mem-legend-item" data-src="${MEM_TIPS.ptables}"><span class="mem-lswatch mem-lswatch-ptables"></span>PgTbls: <span class="mem-legend-val" id="mem-lbl-ptables-${i}">—</span></span>
+        <span class="mem-legend-item" data-src="${MEM_TIPS.netbuf}"><span class="mem-lswatch mem-lswatch-netbuf"></span>NetBufs: <span class="mem-legend-val" id="mem-lbl-netbuf-${i}">—</span></span>
+        <span class="mem-legend-item" data-src="${MEM_TIPS.drvpg}"><span class="mem-lswatch mem-lswatch-drvpg"></span>DrvPgs: <span class="mem-legend-val" id="mem-lbl-drvpg-${i}">—</span></span>
+        <span class="mem-legend-item" data-src="${MEM_TIPS.free}"><span class="mem-lswatch mem-lswatch-free"></span>Free: <span class="mem-legend-val" id="mem-lbl-free-${i}">—</span></span>
+        <span class="mem-legend-item" data-src="${MEM_TIPS.fw}"><span class="mem-lswatch mem-lswatch-fw"></span>FW: <span class="mem-legend-val" id="mem-lbl-fw-${i}">—</span></span>
+        <span class="mem-legend-item" data-src="${MEM_TIPS.kres}"><span class="mem-lswatch mem-lswatch-kres"></span>KRes: <span class="mem-legend-val" id="mem-lbl-kres-${i}">—</span></span>
         <span class="mem-legend-total">
           Installed: <span class="mem-legend-val" id="mem-lbl-total-${i}">—</span> GiB
           <span class="mem-legend-sep">◆</span>
@@ -2262,60 +2284,61 @@ function buildMemorySnapshotCSV(i = 0) {
   // leading rows are the exact byte values used to size the segments in that
   // zone; the final freeform section carries supporting/context values that
   // don't themselves drive a segment width.
+  const csvQ = s => /[,"]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
   const sections = [
     // ── VRAM zone (left) ──
     [
-      ['vram_free',           fromMiB(vramTotalMiB - vramUsedMiB)],
-      ['vram_invisible_used', fromMiB(invUsedMiB)],
-      ['vram_visible_used',   fromMiB(visUsedMiB)],
+      ['vram_free',           fromMiB(vramTotalMiB - vramUsedMiB), MEM_TIPS.vramFree],
+      ['vram_invisible_used', fromMiB(invUsedMiB),                 MEM_TIPS.vramInv],
+      ['vram_visible_used',   fromMiB(visUsedMiB),                 MEM_TIPS.vramVis],
     ],
     // ── System RAM zone (middle sys-part, left-to-right) ──
     [
-      ['gtt_used',         fromMiB(gttUsedMiB)],
-      ['drm_cpu',          drmCpuKB * kib],
-      ['apps_anonpages',   fromKB('AnonPages')],
-      ['shared_shmem',     fromKB('Shmem')],
-      ['file_cache',       cachedKB * kib],
-      ['buffers',          fromKB('Buffers')],
-      ['slab_reclaimable', fromKB('SReclaimable')],
-      ['slab_unreclaim',   fromKB('SUnreclaim')],
-      ['vmalloc_used',     fromKB('VmallocUsed')],
-      ['kernel_stack',     fromKB('KernelStack')],
-      ['page_tables',      ptablesKB * kib],
-      ['net_buffers',      netbufKB * kib],
-      ['driver_pages',     drvpgKB * kib],
-      ['mem_free',         freeKB * kib],
+      ['gtt_used',         fromMiB(gttUsedMiB),   MEM_TIPS.gtt],
+      ['drm_cpu',          drmCpuKB * kib,        MEM_TIPS.drmCpu],
+      ['apps_anonpages',   fromKB('AnonPages'),    MEM_TIPS.anon],
+      ['shared_shmem',     fromKB('Shmem'),        MEM_TIPS.shmem],
+      ['file_cache',       cachedKB * kib,         MEM_TIPS.cached],
+      ['buffers',          fromKB('Buffers'),      MEM_TIPS.buf],
+      ['slab_reclaimable', fromKB('SReclaimable'), MEM_TIPS.sreclm],
+      ['slab_unreclaim',   fromKB('SUnreclaim'),   MEM_TIPS.sunrec],
+      ['vmalloc_used',     fromKB('VmallocUsed'),  MEM_TIPS.vmalloc],
+      ['kernel_stack',     fromKB('KernelStack'),  MEM_TIPS.kstack],
+      ['page_tables',      ptablesKB * kib,        MEM_TIPS.ptables],
+      ['net_buffers',      netbufKB * kib,         MEM_TIPS.netbuf],
+      ['driver_pages',     drvpgKB * kib,          MEM_TIPS.drvpg],
+      ['mem_free',         freeKB * kib,           MEM_TIPS.free],
     ],
     // ── Reserved zone (right, unavailable at runtime) ──
     [
-      ['kernel_reserved',   fromMiB(kernelResMiB)],
-      ['firmware_non_vram', fromMiB(fwNonVramMiB)],
+      ['kernel_reserved',   fromMiB(kernelResMiB),  MEM_TIPS.kres],
+      ['firmware_non_vram', fromMiB(fwNonVramMiB),  MEM_TIPS.fw],
     ],
     // ── Legend totals / margin readouts ──
     [
-      ['installed',     fromMiB(installedMiB)],
-      ['non_gtt_total', nonGttTotalKB * kib],
-      ['system_margin', marginKB * kib],
+      ['installed',     fromMiB(installedMiB),   'Total installed memory: VRAM + system RAM + firmware reserved + kernel-reserved'],
+      ['non_gtt_total', nonGttTotalKB * kib,     'System RAM not mapped as GTT: MemTotal − gtt_total'],
+      ['system_margin', marginKB * kib,           'Unallocated non-GTT system RAM: non_gtt_total − used_non_gtt'],
     ],
     // ── Supporting detail (not rendered as bar segments) ──
     [
-      ['mem_total',       totalKB * kib],
-      ['system_ram_e820', fromMiB(sysRamMiB)],
-      ['vram_total',      fromMiB(vramTotalMiB)],
-      ['vram_used',       fromMiB(vramUsedMiB)],
-      ['gtt_total',       fromMiB(gttTotalMiB)],
-      ['firmware_total',  fromMiB(fwTotalMiB)],
-      ['dma_buf_total',   sysInfo.dma_buf_bytes ?? 0],
-      ['top_mem_msr',     memRes.top_mem_bytes   ?? 0],
-      ['top_mem2_msr',    memRes.top_mem2_bytes  ?? 0],
-      ['tseg_base_msr',   memRes.tseg_base_bytes ?? 0],
-      ['tseg_size_msr',   memRes.tseg_size_bytes ?? 0],
+      ['mem_total',       totalKB * kib,             '/proc/meminfo MemTotal (system RAM addressable by OS)'],
+      ['system_ram_e820', fromMiB(sysRamMiB),        'Total system RAM from e820 map (includes kernel-reserved region)'],
+      ['vram_total',      fromMiB(vramTotalMiB),     'amdgpu Total VRAM (full video memory capacity)'],
+      ['vram_used',       fromMiB(vramUsedMiB),      'amdgpu Total VRAM Usage (allocated regardless of BAR visibility)'],
+      ['gtt_total',       fromMiB(gttTotalMiB),      'amdgpu Total GTT (maximum system RAM pinnable as GPU-addressable)'],
+      ['firmware_total',  fromMiB(fwTotalMiB),       'mem_reservation.firmware_reserved_mib (total firmware footprint including BIOS VRAM carveout)'],
+      ['dma_buf_total',   sysInfo.dma_buf_bytes ?? 0, 'Total bytes in active DMA-BUF objects from debugfs (cross-process shared GPU/CPU buffers)'],
+      ['top_mem_msr',     memRes.top_mem_bytes   ?? 0, 'MSR TOP_MEM: AMD DRAM top-of-memory boundary (upper limit of low DRAM visible to CPU)'],
+      ['top_mem2_msr',    memRes.top_mem2_bytes  ?? 0, 'MSR TOP_MEM2: AMD extended DRAM boundary above 4 GiB (upper limit of high DRAM)'],
+      ['tseg_base_msr',   memRes.tseg_base_bytes ?? 0, 'MSR SMM_ADDR: TSEG base address (System Management Mode memory base)'],
+      ['tseg_size_msr',   memRes.tseg_size_bytes ?? 0, 'MSR SMM_MASK: TSEG size (System Management Mode memory region size)'],
     ],
   ];
-  const lines = ['bucket,bytes'];
+  const lines = ['bucket,bytes,description'];
   sections.forEach((rows, idx) => {
     if (idx > 0) lines.push('');
-    for (const r of rows) lines.push(r.join(','));
+    for (const r of rows) lines.push(r[0] + ',' + r[1] + ',' + csvQ(r[2]));
   });
   return lines.join('\n');
 }
