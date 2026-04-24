@@ -1544,6 +1544,9 @@ function connect() {
     try { data = JSON.parse(evt.data); } catch { return; }
     if (!data) return;
 
+    // Server-pushed system info (fan, temp, power, RAM, uptime).
+    if (data.type === 'system') { renderSystemInfo(data); return; }
+
     // Server-side early process detection (KFD watcher / known-proc watcher).
     if (data.type === 'proc_event' && data.event === 'start') {
       const pidStr = String(data.pid);
@@ -2067,8 +2070,7 @@ setInterval(fetchPowerLimits, 300_000);
 fetchCoreRanks();
 setInterval(fetchCoreRanks, 600_000);
 setInterval(fetchConfig, 600_000);
-fetchSystem();
-setInterval(fetchSystem, 1000);
+fetchSystem(); // immediate data on load; server pushes updates via WebSocket thereafter
 setInterval(saveCache, CACHE_SAVE_MS);
 window.addEventListener('beforeunload', saveCache);
 connect();
