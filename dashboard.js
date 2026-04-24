@@ -218,6 +218,7 @@ const state = {
   systemInfo:      null,
   lastPPT:         { value: null, receivedAt: 0 },  // W; reused on each GPU tick
   lastFan:         { value: null, receivedAt: 0 },  // RPM; reused on each GPU tick
+  seenFanSensor:   false,  // latched true when any fan sensor has been observed
   coreRanks:       [],
   lastDev0:        null,
   lastDevices:     null,
@@ -231,6 +232,7 @@ const state = {
   chartLastData:   {},   // chartKey → ms timestamp of last tick with any finite data
   cardLastData:    {},   // cardId   → ms timestamp of last tick with any finite value
   serverVersion:   null, // atopweb version string as reported by /api/config on first load
+  lastConfig:      null, // last seen /api/config snapshot for change detection
 };
 
 // History size = time window / update interval, so the x-axis always shows a
@@ -609,7 +611,7 @@ function buildDom(devices) {
     // ── GRBM / GRBM2 performance counters ──
     const grbmSec = el('div', 'grbm-section');
     if (localStorage.getItem('atopweb.grbmCollapsed') !== 'false') grbmSec.classList.add('collapsed');
-    const grbmTitle = el('div', 'section-title grbm-section-title', 'Performance Counters');
+    const grbmTitle = el('div', 'section-title grbm-section-title', 'GPU Performance Counters');
     grbmTitle.addEventListener('click', () => {
       grbmSec.classList.toggle('collapsed');
       localStorage.setItem('atopweb.grbmCollapsed', grbmSec.classList.contains('collapsed'));
@@ -1450,13 +1452,17 @@ function updateDevice(i, dev) {
     currentProcNames.set(pid, proc?.name || `PID ${pid}`);
   }
   for (const [pid] of currentProcNames) {
-    if (!h.prevProcNames.has(pid) && !h.earlyStartedPids.has(pid))
-      h.events.push({ timeMs: nowMs, type: 'start', name: currentProcNames.get(pid), pid: Number(pid) });
+    if (!h.prevProcNames.has(pid) && !h.earlyStartedPids.has(pid)) {
+      const name = currentProcNames.get(pid);
+      h.events.push({ timeMs: nowMs, type: 'start', name, pid: Number(pid) });
+      appendLog(`Process start: ${name} (PID ${pid})`, 'ok');
+    }
   }
   for (const [pid, name] of h.prevProcNames) {
     if (!currentProcNames.has(pid)) {
       h.events.push({ timeMs: nowMs, type: 'stop', name, pid: Number(pid) });
       h.earlyStartedPids.delete(pid); // allow re-detection if PID is reused
+      appendLog(`Process stop: ${name} (PID ${pid})`, 'warn');
     }
   }
   h.prevProcNames = currentProcNames;
@@ -1556,7 +1562,7 @@ function connect() {
           h.events.push({ timeMs: data.time_ms, type: 'start', name: data.name, pid: data.pid });
         }
       }
-      appendLog(`Process start (early): ${data.name} (${data.pid})`);
+      appendLog(`Process start: ${data.name} (PID ${data.pid}) [early]`, 'ok');
       return;
     }
 
@@ -1619,13 +1625,13 @@ function updateDeviceInfoHeader(dev) {
   const specsParts = [];
   const cu = info['Compute Unit'] ?? info['Compute Units'] ?? null;
   if (cu != null) specsParts.push(`${cu} CUs`);
-  const vramType = info['VRAM Type'] ?? null;
-  if (vramType) specsParts.push(vramType);
   const vramTotalMiB = (dev.VRAM ? (dev.VRAM['Total VRAM']?.value ?? dev.VRAM['Total VRAM'] ?? null) : null);
   if (vramTotalMiB != null) {
     const gib = vramTotalMiB / 1024;
     specsParts.push(`${gib.toFixed(3)} GiB VRAM`);
   }
+  const vramType = info['VRAM Type'] ?? null;
+  if (vramType) specsParts.push(vramType);
   const bw = info['Memory Bandwidth'] ?? null;
   if (bw != null) specsParts.push(`${typeof bw === 'number' ? bw.toFixed(3) : bw} GB/s BW`);
   const fp32Raw = v(info, 'Peak FP32') ?? v(info, 'Peak GFLOPS') ?? null;
@@ -1718,11 +1724,19 @@ function renderSystemInfo(sys) {
   };
 
   const fan = (sys.fans || []).find(f => f.value != null);
-  // Stash for the Fan Speed chart
-  state.lastFan = fan
-    ? { value: fan.value, receivedAt: Date.now() }
-    : { value: null, receivedAt: 0 };
-  update('c-fan', fan ? String(Math.round(fan.value)) : '—');
+  // Stash for the Fan Speed chart.
+  // Some hwmon drivers omit the fan sensor entry entirely when RPM is 0 rather
+  // than reporting value 0 — once we've seen the sensor, treat its absence as
+  // "fan stopped" (0 RPM) instead of "no sensor / data unavailable".
+  if (fan) {
+    state.seenFanSensor = true;
+    state.lastFan = { value: fan.value, receivedAt: Date.now() };
+  } else if (state.seenFanSensor) {
+    state.lastFan = { value: 0, receivedAt: Date.now() };
+  } else {
+    state.lastFan = { value: null, receivedAt: 0 };
+  }
+  update('c-fan', fan ? String(Math.round(fan.value)) : state.seenFanSensor ? '0' : '—');
 
   const ppt = (sys.powers || []).find(p => /^ppt$/i.test(p.label) && p.value > 0);
   // Stash for the Package Power chart; µW → W.
@@ -1757,16 +1771,21 @@ function fetchPowerLimits() {
   fetch('/api/limits')
     .then(r => r.json())
     .then(d => {
-      state.powerLimits.stapm_w    = d.stapm_w    ?? null;
-      state.powerLimits.fast_w     = d.fast_w     ?? null;
-      state.powerLimits.slow_w     = d.slow_w     ?? null;
-      state.powerLimits.apu_slow_w = d.apu_slow_w ?? null;
-      state.powerLimits.thm_core_c = d.thm_core_c ?? null;
-      state.powerLimits.thm_gfx_c  = d.thm_gfx_c  ?? null;
-      state.powerLimits.thm_soc_c  = d.thm_soc_c  ?? null;
+      const pl  = state.powerLimits;
+      const nxt = {
+        stapm_w:    d.stapm_w    ?? null,
+        fast_w:     d.fast_w     ?? null,
+        slow_w:     d.slow_w     ?? null,
+        apu_slow_w: d.apu_slow_w ?? null,
+        thm_core_c: d.thm_core_c ?? null,
+        thm_gfx_c:  d.thm_gfx_c  ?? null,
+        thm_soc_c:  d.thm_soc_c  ?? null,
+      };
+      const changed = Object.keys(nxt).some(k => nxt[k] !== pl[k]);
+      Object.assign(pl, nxt);
       // Refresh header once limits are loaded (device may already be shown).
       if (state.hist.length > 0 && state.lastDev0) updateDeviceInfoHeader(state.lastDev0);
-      const pl = state.powerLimits;
+      if (!changed) return;
       const parts = [];
       if (pl.stapm_w    != null) parts.push(`STAPM ${pl.stapm_w.toFixed(3)}W`);
       if (pl.fast_w     != null) parts.push(`Fast ${pl.fast_w.toFixed(3)}W`);
@@ -1775,7 +1794,7 @@ function fetchPowerLimits() {
       if (pl.thm_core_c != null) parts.push(`THM Core ${pl.thm_core_c.toFixed(3)}°C`);
       if (pl.thm_gfx_c  != null) parts.push(`THM GFX ${pl.thm_gfx_c.toFixed(3)}°C`);
       if (pl.thm_soc_c  != null) parts.push(`THM SoC ${pl.thm_soc_c.toFixed(3)}°C`);
-      if (parts.length) appendLog(`Power limits: ${parts.join('  ')}`);
+      if (parts.length) appendLog(`Power limits: ${parts.join('  ')}`, 'warn');
     })
     .catch(() => {});
 }
@@ -1849,6 +1868,35 @@ function fetchConfig() {
       } else if (state.serverVersion && newVer && newVer !== state.serverVersion) {
         showVersionBanner(state.serverVersion, newVer); // server updated while page is open
       }
+
+      const snap = {
+        kernel_version:     cfg.kernel_version     || null,
+        nixos_version:      cfg.nixos_version      || null,
+        nixos_generation:   cfg.nixos_generation   ?? null,
+        cpu_gov:            cfg.cpu_gov            || null,
+        amdgpu_top_version: cfg.amdgpu_top_version || null,
+      };
+      const lc = state.lastConfig;
+      if (lc === null) {
+        // First load — log a one-time snapshot of all present values.
+        const parts = [];
+        if (snap.amdgpu_top_version) parts.push(snap.amdgpu_top_version);
+        if (snap.kernel_version)     parts.push(`Linux v${snap.kernel_version}`);
+        if (snap.nixos_version)      parts.push(`NixOS v${snap.nixos_version}`);
+        if (snap.nixos_generation != null) parts.push(`Nix Gen ${snap.nixos_generation}`);
+        if (snap.cpu_gov)            parts.push(`CPU Gov: ${snap.cpu_gov}`);
+        if (parts.length) appendLog(`System: ${parts.join('  ')}`);
+      } else {
+        const chk = (label, prev, next) => {
+          if (next !== prev) appendLog(`${label} changed: ${prev ?? '—'} → ${next ?? '—'}`, 'warn');
+        };
+        chk('Linux kernel',    lc.kernel_version,     snap.kernel_version);
+        chk('NixOS',           lc.nixos_version,      snap.nixos_version);
+        chk('Nix generation',  lc.nixos_generation,   snap.nixos_generation);
+        chk('CPU governor',    lc.cpu_gov,             snap.cpu_gov);
+        chk('amdgpu_top',      lc.amdgpu_top_version, snap.amdgpu_top_version);
+      }
+      state.lastConfig = snap;
     })
     .catch(() => {});
 }
