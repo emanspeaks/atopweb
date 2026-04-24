@@ -1,0 +1,9 @@
+# Files and directories exempt from the VERSION bump requirement.
+# One pattern per line. Glob syntax supported (fnmatch / bash extglob via `case`).
+# Lines starting with # are comments. Blank lines are ignored.
+# Patterns are matched against the path relative to the repo root.
+
+readme.md
+assets/*
+assets/**
+.github/workflows/exempt.txt
