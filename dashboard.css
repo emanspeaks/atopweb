@@ -324,6 +324,15 @@ main { padding: 12px; }
   margin-left: 1px;
 }
 
+.card-value-sep {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.subtitle-sep, .di-sep {
+  color: var(--muted);
+}
+
 .card-bar-wrap {
   height: 4px;
   background: var(--border);

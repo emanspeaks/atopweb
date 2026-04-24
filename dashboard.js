@@ -571,34 +571,35 @@ function buildDom(devices) {
     // ── Stat cards ──
     const cards = el('div', 'cards');
     const cardDefs = [
-      { id: `c-gfx-${i}`,    cls: 'c-gfx',    label: 'GFX',       unit: '%',   bar: true  },
-      { id: `c-media-${i}`,  cls: 'c-media',  label: 'Media',     unit: '%',   bar: true  },
-      { id: `c-vram-${i}`,   cls: 'c-vram',   label: 'BIOS Reserved VRAM',      unit: 'GiB', bar: true  },
-      { id: `c-gtt-${i}`,    cls: 'c-gtt',    label: 'GTT',  unit: 'GiB', bar: true  },
-      { id: `c-sclk-${i}`,   cls: 'c-sclk',   label: 'GFX Clock', unit: 'MHz', bar: false },
-      { id: `c-fclk-${i}`,   cls: 'c-fclk',   label: 'FCLK (Fabric Clock)',      unit: 'MHz', bar: false },
-      { id: `c-mclk-${i}`,   cls: 'c-mclk',   label: 'Mem Clock', unit: 'MHz', bar: false },
-      { id: `c-vddgfx-${i}`, cls: 'c-vddgfx', label: 'VDDGFX',   unit: 'mV',  bar: false },
-      { id: `c-vddnb-${i}`,  cls: 'c-vddnb',  label: 'VDDNB',    unit: 'mV',  bar: false },
-      { id: `c-etmp-${i}`,   cls: 'c-etmp',   label: 'Edge Temp', unit: '°C',  bar: false },
-      { id: `c-cputmp-${i}`, cls: 'c-cputmp', label: 'CPU Tctl',  unit: '°C',  bar: false },
-      { id: `c-pwr-${i}`,    cls: 'c-pwr',    label: 'GPU Power', unit: 'W', bar: false },
+      { id: `c-gfx-${i}`,    cls: 'c-gfx',    label: 'GFX',                unit: '%',   bar: true,  src: `devices[${i}].gpu_activity.GFX.value` },
+      { id: `c-media-${i}`,  cls: 'c-media',  label: 'Media',              unit: '%',   bar: true,  src: `devices[${i}].gpu_activity.MediaEngine.value` },
+      { id: `c-vmem-${i}`,   cls: 'c-vmem',   label: 'Total GPU Memory',   unit: '%',   bar: true,  src: `(devices[${i}].VRAM['Total VRAM Usage'] + devices[${i}].VRAM['Total GTT Usage']) / (devices[${i}].VRAM['Total VRAM'] + devices[${i}].VRAM['Total GTT']) × 100` },
+      { id: `c-vram-${i}`,   cls: 'c-vram',   label: 'BIOS Reserved VRAM', unit: 'GiB', bar: true,  split: true, srcU: `devices[${i}].VRAM['Total VRAM Usage'].value (MiB → GiB)`, srcT: `devices[${i}].VRAM['Total VRAM'].value (MiB → GiB)` },
+      { id: `c-gtt-${i}`,    cls: 'c-gtt',    label: 'GTT',                unit: 'GiB', bar: true,  split: true, srcU: `devices[${i}].VRAM['Total GTT Usage'].value (MiB → GiB)`,  srcT: `devices[${i}].VRAM['Total GTT'].value (MiB → GiB)` },
+      { id: `c-sclk-${i}`,   cls: 'c-sclk',   label: 'GFX Clock',          unit: 'MHz', bar: false, src: `devices[${i}].Sensors.GFX_SCLK.value` },
+      { id: `c-fclk-${i}`,   cls: 'c-fclk',   label: 'FCLK (Fabric Clock)', unit: 'MHz', bar: false, src: `devices[${i}].Sensors.FCLK.value` },
+      { id: `c-mclk-${i}`,   cls: 'c-mclk',   label: 'Mem Clock',          unit: 'MHz', bar: false, src: `devices[${i}].Sensors.GFX_MCLK.value` },
+      { id: `c-vddgfx-${i}`, cls: 'c-vddgfx', label: 'VDDGFX',             unit: 'mV',  bar: false, src: `devices[${i}].Sensors.VDDGFX.value` },
+      { id: `c-vddnb-${i}`,  cls: 'c-vddnb',  label: 'VDDNB',              unit: 'mV',  bar: false, src: `devices[${i}].Sensors.VDDNB.value` },
+      { id: `c-etmp-${i}`,   cls: 'c-etmp',   label: 'Edge Temp',          unit: '°C',  bar: false, src: `devices[${i}].Sensors['Edge Temperature'].value` },
+      { id: `c-cputmp-${i}`, cls: 'c-cputmp', label: 'CPU Tctl',           unit: '°C',  bar: false, src: `devices[${i}].Sensors['CPU Tctl'].value` },
+      { id: `c-pwr-${i}`,    cls: 'c-pwr',    label: 'GPU Power',          unit: 'W',   bar: false, src: `devices[${i}].Sensors['Average Power' || 'Socket Power' || 'Input Power'].value` },
       // Permanent system cards (fed by /api/system, never idle-hidden).
       // { id: `c-ppt-${i}`,    cls: 'c-ppt',    label: 'Package Power Tracking', unit: 'W',   bar: false, permanent: true },
-      { id: `c-fan-${i}`,    cls: 'c-fan',    label: 'Fan Speed',              unit: 'RPM', bar: false, permanent: true },
-      { id: `c-uptime-${i}`, cls: 'c-uptime', label: 'Uptime',                 unit: '',    bar: false, permanent: true },
+      { id: `c-fan-${i}`,    cls: 'c-fan',    label: 'Fan Speed',          unit: 'RPM', bar: false, permanent: true, src: `/api/system → fans[0].value` },
+      { id: `c-uptime-${i}`, cls: 'c-uptime', label: 'Uptime',             unit: '',    bar: false, permanent: true, src: `/api/system → uptime_sec` },
     ];
 
     cardDefs.forEach(def => {
       const card = el('div', `card ${def.cls}`);
       // Permanent cards are always visible; others hide until data arrives.
       card.style.display = def.permanent ? '' : 'none';
+      const valHtml = def.split
+        ? `<span class="card-value" id="${def.id}-u" data-src="${def.srcU}">—</span><span class="card-value-sep"> / </span><span class="card-value" id="${def.id}-t" data-src="${def.srcT}">—</span>`
+        : `<span class="card-value" id="${def.id}"${def.src ? ` data-src="${def.src}"` : ''}>—</span>`;
       card.innerHTML = `
         <div class="card-label">${def.label}</div>
-        <div>
-          <span class="card-value" id="${def.id}">—</span>
-          <span class="card-unit">${def.unit}</span>
-        </div>
+        <div>${valHtml}<span class="card-unit">${def.unit}</span></div>
         ${def.bar ? `<div class="card-bar-wrap"><div class="card-bar" id="${def.id}-bar"></div></div>` : ''}
       `;
       cards.appendChild(card);
@@ -961,6 +962,7 @@ function buildDom(devices) {
   });
 
   state.cur = 0;
+  restoreCache();
 }
 
 function switchTab(idx) {
@@ -1251,25 +1253,32 @@ function updateDevice(i, dev) {
   setCard(`c-vddgfx-${i}`, vddgfx);
   setCard(`c-vddnb-${i}`,  vddnb);
 
-  // VRAM card: "used / total GiB"
-  const vramEl = document.getElementById(`c-vram-${i}`);
-  if (vramEl) {
-    vramEl.textContent =
-      (vramU != null ? (vramU/1024).toFixed(3) : '—') + ' / ' + (vramT != null ? (vramT/1024).toFixed(3) : '—');
-    if (vramU != null || vramT != null) state.cardLastData[`c-vram-${i}`] = Date.now();
+  // Total GPU memory card: combined (VRAM+GTT) usage as a percentage
+  const vmemEl = document.getElementById(`c-vmem-${i}`);
+  if (vmemEl) {
+    const vmemPct = combinedT > 0 ? combinedU / combinedT * 100 : null;
+    vmemEl.textContent = vmemPct != null ? vmemPct.toFixed(3) : '—';
+    if (combinedU != null || combinedT != null) state.cardLastData[`c-vmem-${i}`] = Date.now();
   }
 
-  // GTT card: "used / total GiB"
-  const gttEl = document.getElementById(`c-gtt-${i}`);
-  if (gttEl) {
-    gttEl.textContent =
-      (gttU != null ? (gttU/1024).toFixed(3) : '—') + ' / ' + (gttT != null ? (gttT/1024).toFixed(3) : '—');
-    if (gttU != null || gttT != null) state.cardLastData[`c-gtt-${i}`] = Date.now();
-  }
+  // VRAM card: two spans — used (c-vram-${i}-u) and total (c-vram-${i}-t)
+  const vramUEl = document.getElementById(`c-vram-${i}-u`);
+  const vramTEl = document.getElementById(`c-vram-${i}-t`);
+  if (vramUEl) vramUEl.textContent = vramU != null ? (vramU/1024).toFixed(3) : '—';
+  if (vramTEl) vramTEl.textContent = vramT != null ? (vramT/1024).toFixed(3) : '—';
+  if (vramU != null || vramT != null) state.cardLastData[`c-vram-${i}`] = Date.now();
+
+  // GTT card: two spans — used (c-gtt-${i}-u) and total (c-gtt-${i}-t)
+  const gttUEl = document.getElementById(`c-gtt-${i}-u`);
+  const gttTEl = document.getElementById(`c-gtt-${i}-t`);
+  if (gttUEl) gttUEl.textContent = gttU != null ? (gttU/1024).toFixed(3) : '—';
+  if (gttTEl) gttTEl.textContent = gttT != null ? (gttT/1024).toFixed(3) : '—';
+  if (gttU != null || gttT != null) state.cardLastData[`c-gtt-${i}`] = Date.now();
 
   // Progress bars
   setBar(`c-gfx-${i}`,   gfx);
   setBar(`c-media-${i}`, media);
+  setBar(`c-vmem-${i}`,  combinedT > 0 ? combinedU / combinedT * 100 : null);
   setBar(`c-vram-${i}`,  vramT  > 0 ? vramU  / vramT  * 100 : null);
   setBar(`c-gtt-${i}`,   gttT   > 0 ? gttU   / gttT   * 100 : null);
 
@@ -1573,7 +1582,7 @@ function connect() {
       _t.toLocaleTimeString([], { hour12: false }) + '.' + String(_t.getMilliseconds()).padStart(3, '0');
 
     state.lastDevices = data.devices;
-    if (state.n !== data.devices.length) { buildDom(data.devices); restoreCache(); }
+    if (state.n !== data.devices.length) { buildDom(data.devices); }
     data.devices.forEach((dev, i) => updateDevice(i, dev));
   });
 
@@ -1616,41 +1625,41 @@ function updateDeviceInfoHeader(dev) {
   const rocm = info['ROCm Version'] || null;
 
   const nameParts = [];
-  if (name) nameParts.push(name);
-  if (asic && asic !== name) nameParts.push(asic);
-  if (rocm) nameParts.push(`ROCm ${rocm}`);
-  const nameStr = nameParts.join(' ◆ ');
+  if (name) nameParts.push(`<span data-src="devices[0].Info.DeviceName">${name}</span>`);
+  if (asic && asic !== name) nameParts.push(`<span data-src="devices[0].Info['ASIC Name']">${asic}</span>`);
+  if (rocm) nameParts.push(`<span data-src="devices[0].Info['ROCm Version']">ROCm ${rocm}</span>`);
+  const nameStr = nameParts.join('<span class="di-sep"> ◆ </span>');
   const metaHtml = '';
 
   const specsParts = [];
   const cu = info['Compute Unit'] ?? info['Compute Units'] ?? null;
-  if (cu != null) specsParts.push(`${cu} CUs`);
+  if (cu != null) specsParts.push(`<span data-src="devices[0].Info['Compute Unit']">${cu} CUs</span>`);
   const vramTotalMiB = (dev.VRAM ? (dev.VRAM['Total VRAM']?.value ?? dev.VRAM['Total VRAM'] ?? null) : null);
   if (vramTotalMiB != null) {
     const gib = vramTotalMiB / 1024;
-    specsParts.push(`${gib.toFixed(3)} GiB VRAM`);
+    specsParts.push(`<span data-src="devices[0].VRAM['Total VRAM'].value (MiB → GiB)">${gib.toFixed(3)} GiB VRAM</span>`);
   }
   const vramType = info['VRAM Type'] ?? null;
-  if (vramType) specsParts.push(vramType);
+  if (vramType) specsParts.push(`<span data-src="devices[0].Info['VRAM Type']">${vramType}</span>`);
   const bw = info['Memory Bandwidth'] ?? null;
-  if (bw != null) specsParts.push(`${typeof bw === 'number' ? bw.toFixed(3) : bw} GB/s BW`);
+  if (bw != null) specsParts.push(`<span data-src="devices[0].Info['Memory Bandwidth']">${typeof bw === 'number' ? bw.toFixed(3) : bw} GB/s BW</span>`);
   const fp32Raw = v(info, 'Peak FP32') ?? v(info, 'Peak GFLOPS') ?? null;
   const fp32Num = fp32Raw != null ? Number(fp32Raw) : null;
-  if (fp32Num != null && !isNaN(fp32Num)) specsParts.push(`${(fp32Num / 1000).toFixed(3)} TFLOPS`);
+  if (fp32Num != null && !isNaN(fp32Num)) specsParts.push(`<span data-src="devices[0].Info['Peak FP32' || 'Peak GFLOPS'] / 1000">${(fp32Num / 1000).toFixed(3)} TFLOPS</span>`);
   const npuName = info['IPU'] ?? info['NPU'] ?? null;
-  if (npuName) specsParts.push(`NPU: ${npuName}`);
-  const specsHtml = specsParts.length ? `<div class="di-specs">${specsParts.join(' ◆ ')}</div>` : '';
+  if (npuName) specsParts.push(`<span data-src="devices[0].Info['IPU' || 'NPU']">NPU: ${npuName}</span>`);
+  const specsHtml = specsParts.length ? `<div class="di-specs">${specsParts.join('<span class="di-sep"> ◆ </span>')}</div>` : '';
 
   const pl = state.powerLimits;
   let limitsHtml = '';
   const limitParts = [];
-  if (pl.stapm_w    != null) limitParts.push(`<span class="di-limit-stapm">STAPM ${pl.stapm_w.toFixed(3)}W</span>`);
-  if (pl.fast_w     != null) limitParts.push(`<span class="di-limit-fast">Fast ${pl.fast_w.toFixed(3)}W</span>`);
-  if (pl.slow_w     != null) limitParts.push(`<span class="di-limit-slow">Slow ${pl.slow_w.toFixed(3)}W</span>`);
-  if (pl.apu_slow_w != null) limitParts.push(`<span class="di-limit-apu-slow">APU Slow ${pl.apu_slow_w.toFixed(3)}W</span>`);
-  if (pl.thm_core_c != null) limitParts.push(`<span class="di-limit-thm-core">THM Core ${pl.thm_core_c.toFixed(3)}°C</span>`);
-  if (pl.thm_gfx_c  != null) limitParts.push(`<span class="di-limit-thm-gfx">THM GFX ${pl.thm_gfx_c.toFixed(3)}°C</span>`);
-  if (pl.thm_soc_c  != null) limitParts.push(`<span class="di-limit-thm-soc">THM SoC ${pl.thm_soc_c.toFixed(3)}°C</span>`);
+  if (pl.stapm_w    != null) limitParts.push(`<span class="di-limit-stapm"  data-src="/api/limits → stapm_w (ryzenadj STAPM LIMIT)">STAPM ${pl.stapm_w.toFixed(3)}W</span>`);
+  if (pl.fast_w     != null) limitParts.push(`<span class="di-limit-fast"   data-src="/api/limits → fast_w (ryzenadj FAST PPT LIMIT)">Fast ${pl.fast_w.toFixed(3)}W</span>`);
+  if (pl.slow_w     != null) limitParts.push(`<span class="di-limit-slow"   data-src="/api/limits → slow_w (ryzenadj SLOW PPT LIMIT)">Slow ${pl.slow_w.toFixed(3)}W</span>`);
+  if (pl.apu_slow_w != null) limitParts.push(`<span class="di-limit-apu-slow" data-src="/api/limits → apu_slow_w (ryzenadj APU SLOW LIMIT)">APU Slow ${pl.apu_slow_w.toFixed(3)}W</span>`);
+  if (pl.thm_core_c != null) limitParts.push(`<span class="di-limit-thm-core" data-src="/api/limits → thm_core_c (ryzenadj THM CORE LIMIT)">THM Core ${pl.thm_core_c.toFixed(3)}°C</span>`);
+  if (pl.thm_gfx_c  != null) limitParts.push(`<span class="di-limit-thm-gfx"  data-src="/api/limits → thm_gfx_c (ryzenadj THM GFX LIMIT)">THM GFX ${pl.thm_gfx_c.toFixed(3)}°C</span>`);
+  if (pl.thm_soc_c  != null) limitParts.push(`<span class="di-limit-thm-soc"  data-src="/api/limits → thm_soc_c (ryzenadj THM SOC LIMIT)">THM SoC ${pl.thm_soc_c.toFixed(3)}°C</span>`);
   if (limitParts.length) {
     limitsHtml = `<div class="di-limits"><span class="di-limit-label">ryzenadj limits:</span> ${limitParts.join(' ◆ ')}</div>`;
   }
@@ -1693,8 +1702,10 @@ function fetchCoreRanks() {
     .then(r => r.ok ? r.json() : null)
     .then(d => {
       if (d?.ranks?.length) {
+        const changed = d.ranks.length !== state.coreRanks.length ||
+          d.ranks.some((r, j) => r !== state.coreRanks[j]);
         state.coreRanks = d.ranks;
-        if (state.lastDevices) buildDom(state.lastDevices);
+        if (changed && state.lastDevices) buildDom(state.lastDevices);
       }
     })
     .catch(() => {});
@@ -1855,13 +1866,14 @@ function fetchConfig() {
       }
       const newVer = cfg.atopweb_version || '';
       document.getElementById('page-title').textContent = 'atopweb ' + (newVer ? `v${newVer}` : '');
-      const subParts = [];
-      if (cfg.amdgpu_top_version) subParts.push(cfg.amdgpu_top_version);
-      if (cfg.kernel_version)     subParts.push(`Linux v${cfg.kernel_version}`);
-      if (cfg.nixos_version)      subParts.push(`NixOS v${cfg.nixos_version}`);
-      if (cfg.nixos_generation)   subParts.push(`Nix Profile Gen ${cfg.nixos_generation}`);
-      if (cfg.cpu_gov)            subParts.push(`CPU Gov: ${cfg.cpu_gov}`);
-      document.getElementById('page-subtitle').textContent = subParts.join(' ◆ ');
+      const subSpans = [];
+      if (cfg.amdgpu_top_version) subSpans.push(`<span data-src="/api/config → amdgpu_top_version">${cfg.amdgpu_top_version}</span>`);
+      if (cfg.kernel_version)     subSpans.push(`<span data-src="/api/config → kernel_version (/proc/sys/kernel/osrelease)">Linux v${cfg.kernel_version}</span>`);
+      if (cfg.nixos_version)      subSpans.push(`<span data-src="/api/config → nixos_version (/etc/os-release VERSION_ID)">NixOS v${cfg.nixos_version}</span>`);
+      if (cfg.nixos_generation)   subSpans.push(`<span data-src="/api/config → nixos_generation (/nix/var/nix/profiles/system symlink)">Nix Profile Gen ${cfg.nixos_generation}</span>`);
+      if (cfg.cpu_gov)            subSpans.push(`<span data-src="/api/config → cpu_gov (/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor)">CPU Gov: ${cfg.cpu_gov}</span>`);
+      const subtitleEl = document.getElementById('page-subtitle');
+      subtitleEl.innerHTML = subSpans.join('<span class="subtitle-sep"> ◆ </span>');
       if (cfg.total_ram_mib) state.totalRAMMiB = cfg.total_ram_mib;
       if (state.serverVersion === null && newVer) {
         state.serverVersion = newVer;                   // record version this page was loaded with
@@ -2116,8 +2128,8 @@ updateStickyOffset();
 fetchPowerLimits();
 setInterval(fetchPowerLimits, 300_000);
 fetchCoreRanks();
-setInterval(fetchCoreRanks, 600_000);
-setInterval(fetchConfig, 600_000);
+setInterval(fetchCoreRanks, 300_000);
+setInterval(fetchConfig, 60_000);
 fetchSystem(); // immediate data on load; server pushes updates via WebSocket thereafter
 setInterval(saveCache, CACHE_SAVE_MS);
 window.addEventListener('beforeunload', saveCache);
