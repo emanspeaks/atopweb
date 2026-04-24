@@ -25,6 +25,31 @@ body {
   min-height: 100vh;
 }
 
+/* ── Version update banner ────────────────────────────────────────── */
+#version-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 6px 20px;
+  background: #4a3000;
+  border-bottom: 1px solid var(--yellow);
+  color: var(--text);
+  font-size: 0.85rem;
+}
+#version-banner[hidden] { display: none; }
+.version-banner-actions { display: flex; gap: 0.5rem; flex-shrink: 0; }
+.version-banner-actions button {
+  padding: 2px 10px;
+  border: 1px solid var(--yellow);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--yellow);
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+.version-banner-actions button:hover { background: var(--yellow); color: var(--bg); }
+
 /* ── Header ──────────────────────────────────────────────────────── */
 header {
   position: sticky;
@@ -510,6 +535,31 @@ main { padding: 12px; }
 
 .grbm-orange { background: var(--orange); }
 .grbm-blue   { background: var(--blue); }
+
+/* ── Collapsible section title ───────────────────────────────────── */
+.grbm-section-title {
+  cursor: pointer;
+  user-select: none;
+}
+.grbm-section-title::before {
+  content: '▼  ';
+  font-size: 9px;
+  vertical-align: middle;
+}
+.grbm-section.collapsed .grbm-section-title::before { content: '▶  '; }
+
+/* ── Collapsed state: bars only, tightly packed ──────────────────── */
+.grbm-section.collapsed .grbm-col-title  { display: none; }
+.grbm-section.collapsed .grbm-item-header { display: none; }
+.grbm-section.collapsed .grbm-item.expanded .grbm-chart-wrap { display: none; }
+.grbm-section.collapsed .grbm-item {
+  margin-bottom: 3px;
+  cursor: default;
+  border-radius: 2px;
+}
+.grbm-section.collapsed .grbm-item:hover { background: none; }
+.grbm-section.collapsed .grbm-bar-wrap   { height: 5px; }
+.grbm-section.collapsed .grbm-col        { padding: 8px 16px; }
 
 /* ── Process table ───────────────────────────────────────────────── */
 .proc-section {
