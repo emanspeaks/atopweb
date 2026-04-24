@@ -619,29 +619,52 @@ function buildDom(devices) {
     memSec.innerHTML = `
       <div class="mem-bar-outer">
         <div class="mem-bar-vram-part" id="mem-vram-part-${i}">
-          <div class="mem-seg mem-seg-vram-free" id="mem-vram-free-${i}" data-src="devices[${i}].VRAM['Total VRAM'] − Total VRAM Usage (BIOS carveout free, MiB)"></div>
-          <div class="mem-seg mem-seg-vram-used" id="mem-vram-used-${i}" data-src="devices[${i}].VRAM['Total VRAM Usage'] (BIOS carveout used, MiB)"></div>
+          <div class="mem-seg mem-seg-vram-free" id="mem-vram-free-${i}" data-src="mem_info_vram_total − mem_info_vram_used (BIOS carveout free)"></div>
+          <div class="mem-seg mem-seg-vram-inv"  id="mem-vram-inv-${i}"  data-src="mem_info_vram_used − mem_info_vis_vram_used (CPU-invisible VRAM, GPU-only)"></div>
+          <div class="mem-seg mem-seg-vram-vis"  id="mem-vram-vis-${i}"  data-src="mem_info_vis_vram_used (CPU-visible VRAM used, reachable via PCIe BAR)"></div>
         </div>
         <div class="mem-bar-sys-part">
-          <div class="mem-seg mem-seg-gtt-used"  id="mem-gtt-used-${i}"  data-src="devices[${i}].VRAM['Total GTT Usage'] (system RAM lent to GPU, MiB)"></div>
-          <div class="mem-seg mem-seg-sys-hard"  id="mem-sys-hard-${i}"  data-src="/proc/meminfo: MemTotal − MemFree − Buffers − Cached − SReclaimable − GTT (process + kernel non-reclaimable)"></div>
-          <div class="mem-seg mem-seg-buf"       id="mem-buf-${i}"       data-src="/proc/meminfo Buffers (kernel buffer cache, reclaimable)"></div>
-          <div class="mem-seg mem-seg-cached"    id="mem-cached-${i}"    data-src="/proc/meminfo Cached (page cache incl. shmem/tmpfs, reclaimable)"></div>
-          <div class="mem-seg mem-seg-sreclm"    id="mem-sreclm-${i}"    data-src="/proc/meminfo SReclaimable (dentry/inode slab caches, reclaimable)"></div>
-          <div class="mem-seg mem-seg-free"      id="mem-free-${i}"      data-src="/proc/meminfo MemFree"></div>
+          <div class="mem-seg mem-seg-gtt-used" id="mem-gtt-used-${i}" data-src="amdgpu 'Total GTT Usage' (system RAM pinned into GPU translation table)"></div>
+          <div class="mem-seg mem-seg-drmcpu"   id="mem-drmcpu-${i}"   data-src="Σ drm-memory-cpu across all /proc/*/fdinfo DRM FDs (CPU-domain GPU buffers)"></div>
+          <div class="mem-seg mem-seg-anon"     id="mem-anon-${i}"     data-src="/proc/meminfo AnonPages (user process heap/stack)"></div>
+          <div class="mem-seg mem-seg-shmem"    id="mem-shmem-${i}"    data-src="/proc/meminfo Shmem (tmpfs + SysV shared memory)"></div>
+          <div class="mem-seg mem-seg-cached"   id="mem-cached-${i}"   data-src="/proc/meminfo Cached − Shmem (file-backed page cache, reclaimable)"></div>
+          <div class="mem-seg mem-seg-buf"      id="mem-buf-${i}"      data-src="/proc/meminfo Buffers (block-device cache, reclaimable)"></div>
+          <div class="mem-seg mem-seg-sreclm"   id="mem-sreclm-${i}"   data-src="/proc/meminfo SReclaimable (dentry/inode slab, reclaimable)"></div>
+          <div class="mem-seg mem-seg-sunrec"   id="mem-sunrec-${i}"   data-src="/proc/meminfo SUnreclaim (non-reclaimable slab)"></div>
+          <div class="mem-seg mem-seg-vmalloc"  id="mem-vmalloc-${i}"  data-src="/proc/meminfo VmallocUsed (includes Percpu)"></div>
+          <div class="mem-seg mem-seg-kstack"   id="mem-kstack-${i}"   data-src="/proc/meminfo KernelStack"></div>
+          <div class="mem-seg mem-seg-ptables"  id="mem-ptables-${i}"  data-src="/proc/meminfo PageTables + SecPageTables"></div>
+          <div class="mem-seg mem-seg-netbuf"   id="mem-netbuf-${i}"   data-src="/proc/net/sockstat mem × page size (kernel socket buffers)"></div>
+          <div class="mem-seg mem-seg-drvpg"    id="mem-drvpg-${i}"    data-src="Used − Σ named buckets (kernel direct alloc_pages(): DMA-coherent, driver scratch, HugeTLB pool)"></div>
+          <div class="mem-seg mem-seg-free"     id="mem-free-${i}"     data-src="/proc/meminfo MemFree"></div>
         </div>
+        <div class="mem-seg mem-seg-kres" id="mem-kres-${i}" data-src="System RAM (e820) − MemTotal (kernel-reserved: crashkernel, initrd, kernel image)"></div>
+        <div class="mem-seg mem-seg-fw"   id="mem-fw-${i}"   data-src="mem_reservation.firmware_reserved_mib minus BIOS VRAM carveout (PSP/SMU/ACPI/TSEG + hidden gap)"></div>
       </div>
       <div class="mem-legend">
-        <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-vram-free"></span>BIOS VRAM free: <span class="mem-legend-val" id="mem-lbl-vram-free-${i}">—</span></span>
-        <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-vram"></span>BIOS VRAM used: <span class="mem-legend-val" id="mem-lbl-vram-${i}">—</span></span>
+        <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-vram-free"></span>VRAM free: <span class="mem-legend-val" id="mem-lbl-vram-free-${i}">—</span></span>
+        <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-vram-vis"></span>VRAM visible: <span class="mem-legend-val" id="mem-lbl-vram-vis-${i}">—</span></span>
+        <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-vram-inv"></span>VRAM invisible: <span class="mem-legend-val" id="mem-lbl-vram-inv-${i}">—</span></span>
         <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-gtt"></span>GTT: <span class="mem-legend-val" id="mem-lbl-gtt-${i}">—</span></span>
-        <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-hard"></span>Process+Kernel: <span class="mem-legend-val" id="mem-lbl-hard-${i}">—</span></span>
+        <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-drmcpu"></span>DRM-CPU: <span class="mem-legend-val" id="mem-lbl-drmcpu-${i}">—</span></span>
+        <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-anon"></span>Apps: <span class="mem-legend-val" id="mem-lbl-anon-${i}">—</span></span>
+        <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-shmem"></span>Shared: <span class="mem-legend-val" id="mem-lbl-shmem-${i}">—</span></span>
+        <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-cached"></span>File Cache: <span class="mem-legend-val" id="mem-lbl-cached-${i}">—</span></span>
         <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-buf"></span>Buffers: <span class="mem-legend-val" id="mem-lbl-buf-${i}">—</span></span>
-        <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-cached"></span>Page Cache: <span class="mem-legend-val" id="mem-lbl-cached-${i}">—</span></span>
-        <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-sreclm"></span>Slab: <span class="mem-legend-val" id="mem-lbl-sreclm-${i}">—</span></span>
+        <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-sreclm"></span>Slab Reclaim: <span class="mem-legend-val" id="mem-lbl-sreclm-${i}">—</span></span>
+        <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-sunrec"></span>Slab Unreclaim: <span class="mem-legend-val" id="mem-lbl-sunrec-${i}">—</span></span>
+        <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-vmalloc"></span>Vmalloc: <span class="mem-legend-val" id="mem-lbl-vmalloc-${i}">—</span></span>
+        <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-kstack"></span>Kernel Stack: <span class="mem-legend-val" id="mem-lbl-kstack-${i}">—</span></span>
+        <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-ptables"></span>Page Tables: <span class="mem-legend-val" id="mem-lbl-ptables-${i}">—</span></span>
+        <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-netbuf"></span>Net Buffers: <span class="mem-legend-val" id="mem-lbl-netbuf-${i}">—</span></span>
+        <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-drvpg"></span>Driver Pages: <span class="mem-legend-val" id="mem-lbl-drvpg-${i}">—</span></span>
         <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-free"></span>Free: <span class="mem-legend-val" id="mem-lbl-free-${i}">—</span></span>
+        <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-kres"></span>Kernel-Res: <span class="mem-legend-val" id="mem-lbl-kres-${i}">—</span></span>
+        <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-fw"></span>Firmware: <span class="mem-legend-val" id="mem-lbl-fw-${i}">—</span></span>
+        <span class="mem-legend-item">dma-buf: <span class="mem-legend-val" id="mem-lbl-dmabuf-${i}">—</span></span>
         <span class="mem-legend-total">
-          Physical: <span class="mem-legend-val" id="mem-lbl-total-${i}">—</span> GiB
+          Installed: <span class="mem-legend-val" id="mem-lbl-total-${i}">—</span> GiB
           <span class="mem-legend-sep">·</span>
           Non-GTT: <span class="mem-legend-val" id="mem-lbl-nongtt-${i}">—</span> GiB
           <span class="mem-legend-sep">·</span>
@@ -1328,53 +1351,119 @@ function updateDevice(i, dev) {
   // ── Memory overview bar ──
   const sysInfo = state.systemInfo;
   if (sysInfo && vramT > 0) {
-    const mk       = sysInfo.meminfo_kb ?? {};
+    const mk       = sysInfo.meminfo_kb    ?? {};
+    const memRes   = sysInfo.mem_reservation ?? {};
+    const drmMem   = sysInfo.drm_mem        ?? {};
     const totalKB  = mk.MemTotal ?? (sysInfo.total_ram_mib * 1024);
-    const vramUsed = vramU ?? 0;
-    const gttKB    = (gttU ?? 0) * 1024;           // MiB → kB
-    const bufKB    = mk.Buffers       ?? 0;
-    const cachedKB = mk.Cached        ?? 0;
-    const sreclmKB = mk.SReclaimable  ?? 0;
-    const freeKB   = mk.MemFree       ?? 0;
-    // hard = everything not accounted for by the named reclaimable buckets or GTT
-    const hardKB   = Math.max(0, totalKB - freeKB - bufKB - cachedKB - sreclmKB - gttKB);
-    const physTotalMiB = vramT + totalKB / 1024;
 
-    const vramPartEl = document.getElementById(`mem-vram-part-${i}`);
-    const vramUsedEl = document.getElementById(`mem-vram-used-${i}`);
-    const gttEl      = document.getElementById(`mem-gtt-used-${i}`);
-    const hardEl     = document.getElementById(`mem-sys-hard-${i}`);
-    const bufEl      = document.getElementById(`mem-buf-${i}`);
-    const cachedEl   = document.getElementById(`mem-cached-${i}`);
-    const sreclmEl   = document.getElementById(`mem-sreclm-${i}`);
+    // All /proc/meminfo values are in kB.  GTT/VRAM come from amdgpu in MiB.
+    const gttKB      = (gttU ?? 0) * 1024;
+    const drmCpuKB   = drmMem.total_cpu_kib ?? 0;       // DRM pinned in CPU/system domain
+    const anonKB     = mk.AnonPages    ?? 0;
+    const shmemKB    = mk.Shmem        ?? 0;
+    const bufKB      = mk.Buffers      ?? 0;
+    const cachedAllKB = mk.Cached      ?? 0;
+    const cachedKB   = Math.max(0, cachedAllKB - shmemKB); // file cache only
+    const sreclmKB   = mk.SReclaimable ?? 0;
+    const sunrecKB   = mk.SUnreclaim   ?? 0;
+    // Percpu is a subset of VmallocUsed on modern kernels — do NOT add it.
+    const vmallocKB  = mk.VmallocUsed  ?? 0;
+    const kstackKB   = mk.KernelStack  ?? 0;
+    const ptablesKB  = (mk.PageTables  ?? 0) + (mk.SecPageTables ?? 0);
+    const netbufKB   = sysInfo.sock_mem_kb ?? 0;
+    const freeKB     = mk.MemFree      ?? 0;
 
-    const pct = kb => `${kb / totalKB * 100}%`;
-    if (vramPartEl) vramPartEl.style.width = `${vramT / physTotalMiB * 100}%`;
-    if (vramUsedEl) vramUsedEl.style.width = `${vramUsed / vramT * 100}%`;
-    if (gttEl)      gttEl.style.width      = pct(gttKB);
-    if (hardEl)     hardEl.style.width     = pct(hardKB);
-    if (bufEl)      bufEl.style.width      = pct(bufKB);
-    if (cachedEl)   cachedEl.style.width   = pct(cachedKB);
-    if (sreclmEl)   sreclmEl.style.width   = pct(sreclmKB);
-    // mem-free is flex:1 and fills remaining space automatically
+    // Driver Pages: residual after every named bucket.  Represents direct
+    // alloc_pages() by kernel drivers that isn't covered by slab, vmalloc,
+    // stack, page tables, socket buffers, or DRM accounting — typically
+    // DMA-coherent allocations, NIC page_pool buffers, and small driver state.
+    const namedKB  = gttKB + drmCpuKB + anonKB + shmemKB + cachedKB + bufKB
+                   + sreclmKB + sunrecKB + vmallocKB + kstackKB + ptablesKB
+                   + netbufKB;
+    const drvpgKB  = Math.max(0, totalKB - freeKB - namedKB);
+
+    // Kernel-reserved DRAM: in e820 System RAM but not MemTotal
+    // (crashkernel, initrd, kernel image, early-boot reservations).
+    const sysRamMiB    = memRes.system_ram_mib ?? 0;
+    const kernelResMiB = Math.max(0, sysRamMiB - totalKB / 1024);
+
+    // Firmware-reserved DRAM (non-VRAM part).  VRAM is its own segment.
+    const fwReservedMiB = Math.max(0, (sysInfo.firmware_reserved_mib ?? 0) - vramT);
+
+    // Authoritative installed DRAM from MSRs; fall back otherwise.
+    const installedMiB = memRes.installed_mib
+                      ?? (vramT + fwReservedMiB + kernelResMiB + totalKB / 1024);
+
+    // VRAM visible/invisible split from /sys/class/drm/*/mem_info_*.
+    // amdgpu_top used/total are in MiB; sysfs fields in MiB via Go conversion.
+    const vramUsed      = vramU ?? 0;
+    const vramVisUsed   = drmMem.vis_vram_used_mib ?? vramUsed;
+    const vramInvUsed   = Math.max(0, vramUsed - vramVisUsed);
+
+    const byId = id => document.getElementById(id);
+
+    // Outer bar geometry — widths expressed as % of installed DRAM.
+    const pctInst = mib => `${mib / installedMiB * 100}%`;
+    const vramPartEl = byId(`mem-vram-part-${i}`);
+    if (vramPartEl) vramPartEl.style.width = pctInst(vramT);
+    const vramVisEl = byId(`mem-vram-vis-${i}`);
+    if (vramVisEl) vramVisEl.style.width = `${vramVisUsed / vramT * 100}%`;
+    const vramInvEl = byId(`mem-vram-inv-${i}`);
+    if (vramInvEl) vramInvEl.style.width = `${vramInvUsed / vramT * 100}%`;
+    const kresEl = byId(`mem-kres-${i}`);
+    if (kresEl) kresEl.style.width = pctInst(kernelResMiB);
+    const fwEl = byId(`mem-fw-${i}`);
+    if (fwEl) fwEl.style.width = pctInst(fwReservedMiB);
+
+    // Inside sys-part each sub-segment is a fraction of MemTotal (sys-part
+    // itself flexes to fill MemTotal's share).  The free segment is flex:1
+    // and swallows the remainder.
+    const pctSys = kb => `${kb / totalKB * 100}%`;
+    const setSeg = (id, kb) => { const e = byId(id); if (e) e.style.width = pctSys(kb); };
+    setSeg(`mem-gtt-used-${i}`, gttKB);
+    setSeg(`mem-drmcpu-${i}`,   drmCpuKB);
+    setSeg(`mem-anon-${i}`,     anonKB);
+    setSeg(`mem-shmem-${i}`,    shmemKB);
+    setSeg(`mem-cached-${i}`,   cachedKB);
+    setSeg(`mem-buf-${i}`,      bufKB);
+    setSeg(`mem-sreclm-${i}`,   sreclmKB);
+    setSeg(`mem-sunrec-${i}`,   sunrecKB);
+    setSeg(`mem-vmalloc-${i}`,  vmallocKB);
+    setSeg(`mem-kstack-${i}`,   kstackKB);
+    setSeg(`mem-ptables-${i}`,  ptablesKB);
+    setSeg(`mem-netbuf-${i}`,   netbufKB);
+    setSeg(`mem-drvpg-${i}`,    drvpgKB);
 
     const fmtGiB = kb => `${(kb / 1024 / 1024).toFixed(3)} GiB`;
-    const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+    const set = (id, v) => { const e = byId(id); if (e) e.textContent = v; };
     set(`mem-lbl-vram-free-${i}`, fmtGiB((vramT - vramUsed) * 1024));
-    set(`mem-lbl-vram-${i}`,      fmtGiB(vramUsed * 1024));
-    set(`mem-lbl-gtt-${i}`,    fmtGiB(gttKB));
-    set(`mem-lbl-hard-${i}`,   fmtGiB(hardKB));
-    set(`mem-lbl-buf-${i}`,    fmtGiB(bufKB));
-    set(`mem-lbl-cached-${i}`, fmtGiB(cachedKB));
-    set(`mem-lbl-sreclm-${i}`, fmtGiB(sreclmKB));
-    set(`mem-lbl-free-${i}`,   fmtGiB(freeKB));
-    set(`mem-lbl-total-${i}`,  (physTotalMiB / 1024).toFixed(3));
+    set(`mem-lbl-vram-vis-${i}`,  fmtGiB(vramVisUsed * 1024));
+    set(`mem-lbl-vram-inv-${i}`,  fmtGiB(vramInvUsed * 1024));
+    set(`mem-lbl-gtt-${i}`,       fmtGiB(gttKB));
+    set(`mem-lbl-drmcpu-${i}`,    fmtGiB(drmCpuKB));
+    set(`mem-lbl-anon-${i}`,      fmtGiB(anonKB));
+    set(`mem-lbl-shmem-${i}`,     fmtGiB(shmemKB));
+    set(`mem-lbl-cached-${i}`,    fmtGiB(cachedKB));
+    set(`mem-lbl-buf-${i}`,       fmtGiB(bufKB));
+    set(`mem-lbl-sreclm-${i}`,    fmtGiB(sreclmKB));
+    set(`mem-lbl-sunrec-${i}`,    fmtGiB(sunrecKB));
+    set(`mem-lbl-vmalloc-${i}`,   fmtGiB(vmallocKB));
+    set(`mem-lbl-kstack-${i}`,    fmtGiB(kstackKB));
+    set(`mem-lbl-ptables-${i}`,   fmtGiB(ptablesKB));
+    set(`mem-lbl-netbuf-${i}`,    fmtGiB(netbufKB));
+    set(`mem-lbl-drvpg-${i}`,     fmtGiB(drvpgKB));
+    set(`mem-lbl-free-${i}`,      fmtGiB(freeKB));
+    set(`mem-lbl-kres-${i}`,      fmtGiB(kernelResMiB * 1024));
+    set(`mem-lbl-fw-${i}`,        fmtGiB(fwReservedMiB * 1024));
+    set(`mem-lbl-dmabuf-${i}`,    fmtGiB((sysInfo.dma_buf_bytes ?? 0) / 1024));
+    set(`mem-lbl-total-${i}`,     (installedMiB / 1024).toFixed(3));
 
+    const usedKB = totalKB - freeKB;
     const nonGttTotalKB = totalKB - (gttT ?? 0) * 1024;
-    const marginKB      = nonGttTotalKB - hardKB;
+    const marginKB      = nonGttTotalKB - (usedKB - gttKB);
     set(`mem-lbl-nongtt-${i}`,  (nonGttTotalKB / 1024 / 1024).toFixed(3));
     set(`mem-lbl-margin-${i}`,  (marginKB / 1024 / 1024).toFixed(3));
-    const marginEl = document.getElementById(`mem-lbl-margin-${i}`);
+    const marginEl = byId(`mem-lbl-margin-${i}`);
     if (marginEl) marginEl.style.color = marginKB < 0 ? 'var(--red)' : '';
   }
 
@@ -1828,6 +1917,19 @@ function fetchSystem() {
 function renderSystemInfo(sys) {
   state.systemInfo = sys;
 
+  // Surface any new server-side diagnostics (MSR/ptrace/debugfs permissions,
+  // missing kernel modules, etc.) into the dashboard log pane.  The server
+  // ships the full sticky list on every tick; dedupe client-side so a given
+  // message only appears once no matter how many frames carry it.
+  if (Array.isArray(sys.errors) && sys.errors.length) {
+    state.seenErrors ??= new Set();
+    for (const msg of sys.errors) {
+      if (state.seenErrors.has(msg)) continue;
+      state.seenErrors.add(msg);
+      appendLog('server: ' + msg, 'warn');
+    }
+  }
+
   // Push the current value into every device's copy of a permanent card.
   // (On multi-GPU systems each tab gets its own card row, but system values
   // are global — same value goes into all copies.)
@@ -2082,6 +2184,137 @@ function initPauseBtn() {
   });
 }
 
+// Build a CSV snapshot of every value rendered in the memory bar (for device
+// index `i`) plus the summary totals (Installed/Non-GTT/Margin).  All values
+// are raw bytes — no units, no scaling — so they can be summed in Excel to
+// verify the accounting.
+function buildMemorySnapshotCSV(i = 0) {
+  const sysInfo = state.systemInfo;
+  if (!sysInfo) return null;
+  const dev = state.lastDevices?.[i];
+  if (!dev) return null;
+
+  const mk     = sysInfo.meminfo_kb      ?? {};
+  const memRes = sysInfo.mem_reservation ?? {};
+  const drmMem = sysInfo.drm_mem         ?? {};
+
+  const kib = 1024, mib = 1024 * 1024;
+  const fromKB  = k => (mk[k] ?? 0) * kib;
+  const fromMiB = m => m * mib;
+
+  const vramTotalMiB = dev.VRAM?.['Total VRAM']?.value        ?? 0;
+  const vramUsedMiB  = dev.VRAM?.['Total VRAM Usage']?.value  ?? 0;
+  const gttTotalMiB  = dev.VRAM?.['Total GTT']?.value         ?? 0;
+  const gttUsedMiB   = dev.VRAM?.['Total GTT Usage']?.value   ?? 0;
+  const visUsedMiB   = drmMem.vis_vram_used_mib ?? vramUsedMiB;
+  const invUsedMiB   = Math.max(0, vramUsedMiB - visUsedMiB);
+
+  const totalKB    = mk.MemTotal ?? (sysInfo.total_ram_mib * 1024);
+  const freeKB     = mk.MemFree ?? 0;
+  const cachedKB   = Math.max(0, (mk.Cached ?? 0) - (mk.Shmem ?? 0));
+  const ptablesKB  = (mk.PageTables ?? 0) + (mk.SecPageTables ?? 0);
+  const drmCpuKB   = drmMem.total_cpu_kib ?? 0;
+  const netbufKB   = sysInfo.sock_mem_kb ?? 0;
+
+  const namedKB = (gttUsedMiB * 1024) + drmCpuKB + (mk.AnonPages ?? 0)
+                + (mk.Shmem ?? 0) + cachedKB + (mk.Buffers ?? 0)
+                + (mk.SReclaimable ?? 0) + (mk.SUnreclaim ?? 0)
+                + (mk.VmallocUsed ?? 0) + (mk.KernelStack ?? 0)
+                + ptablesKB + netbufKB;
+  const drvpgKB = Math.max(0, totalKB - freeKB - namedKB);
+
+  const sysRamMiB    = memRes.system_ram_mib ?? 0;
+  const kernelResMiB = Math.max(0, sysRamMiB - totalKB / 1024);
+  const fwTotalMiB   = sysInfo.firmware_reserved_mib ?? 0;
+  const fwNonVramMiB = Math.max(0, fwTotalMiB - vramTotalMiB);
+  const installedMiB = memRes.installed_mib
+                    ?? (vramTotalMiB + fwTotalMiB + kernelResMiB + totalKB / 1024);
+
+  // Summary totals shown in the legend right-side group.
+  const usedKB         = totalKB - freeKB;
+  const nonGttTotalKB  = totalKB - gttTotalMiB * 1024;
+  const marginKB       = nonGttTotalKB - (usedKB - gttUsedMiB * 1024);
+
+  // Sections correspond to the physical zones of the bar.  Each section's
+  // leading rows are the exact byte values used to size the segments in that
+  // zone; the final freeform section carries supporting/context values that
+  // don't themselves drive a segment width.
+  const sections = [
+    // ── VRAM zone (left) ──
+    [
+      ['vram_free',           fromMiB(vramTotalMiB - vramUsedMiB)],
+      ['vram_invisible_used', fromMiB(invUsedMiB)],
+      ['vram_visible_used',   fromMiB(visUsedMiB)],
+    ],
+    // ── System RAM zone (middle sys-part, left-to-right) ──
+    [
+      ['gtt_used',         fromMiB(gttUsedMiB)],
+      ['drm_cpu',          drmCpuKB * kib],
+      ['apps_anonpages',   fromKB('AnonPages')],
+      ['shared_shmem',     fromKB('Shmem')],
+      ['file_cache',       cachedKB * kib],
+      ['buffers',          fromKB('Buffers')],
+      ['slab_reclaimable', fromKB('SReclaimable')],
+      ['slab_unreclaim',   fromKB('SUnreclaim')],
+      ['vmalloc_used',     fromKB('VmallocUsed')],
+      ['kernel_stack',     fromKB('KernelStack')],
+      ['page_tables',      ptablesKB * kib],
+      ['net_buffers',      netbufKB * kib],
+      ['driver_pages',     drvpgKB * kib],
+      ['mem_free',         freeKB * kib],
+    ],
+    // ── Reserved zone (right, unavailable at runtime) ──
+    [
+      ['kernel_reserved',   fromMiB(kernelResMiB)],
+      ['firmware_non_vram', fromMiB(fwNonVramMiB)],
+    ],
+    // ── Legend totals / margin readouts ──
+    [
+      ['installed',     fromMiB(installedMiB)],
+      ['non_gtt_total', nonGttTotalKB * kib],
+      ['system_margin', marginKB * kib],
+    ],
+    // ── Supporting detail (not rendered as bar segments) ──
+    [
+      ['mem_total',       totalKB * kib],
+      ['system_ram_e820', fromMiB(sysRamMiB)],
+      ['vram_total',      fromMiB(vramTotalMiB)],
+      ['vram_used',       fromMiB(vramUsedMiB)],
+      ['gtt_total',       fromMiB(gttTotalMiB)],
+      ['firmware_total',  fromMiB(fwTotalMiB)],
+      ['dma_buf_total',   sysInfo.dma_buf_bytes ?? 0],
+      ['top_mem_msr',     memRes.top_mem_bytes   ?? 0],
+      ['top_mem2_msr',    memRes.top_mem2_bytes  ?? 0],
+      ['tseg_base_msr',   memRes.tseg_base_bytes ?? 0],
+      ['tseg_size_msr',   memRes.tseg_size_bytes ?? 0],
+    ],
+  ];
+  const lines = ['bucket,bytes'];
+  sections.forEach((rows, idx) => {
+    if (idx > 0) lines.push('');
+    for (const r of rows) lines.push(r.join(','));
+  });
+  return lines.join('\n');
+}
+
+function initMemSnapBtn() {
+  const btn = document.getElementById('memsnap-btn');
+  if (!btn) return;
+  btn.addEventListener('click', async () => {
+    const csv = buildMemorySnapshotCSV(0);
+    if (!csv) {
+      appendLog('Memory snapshot: no data yet', 'warn');
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(csv);
+      appendLog('Memory snapshot copied to clipboard');
+    } catch (err) {
+      appendLog('Memory snapshot: clipboard write failed — ' + (err?.message || err), 'warn');
+    }
+  });
+}
+
 // ── Status bar ────────────────────────────────────────────────────────────────
 function appendLog(msg, cls) {
   const log = document.getElementById('status-log');
@@ -2231,6 +2464,7 @@ initDataSrcTooltip();
 initIntervalCtrl();
 initPlotWidthCtrl();
 initPauseBtn();
+initMemSnapBtn();
 initStatusBar();
 initOverlay();
 updateStickyOffset();

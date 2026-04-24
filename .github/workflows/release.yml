@@ -8,8 +8,56 @@ permissions:
   contents: write
 
 jobs:
+  check-exempt:
+    name: Check if all changes are exempt
+    runs-on: ubuntu-latest
+    outputs:
+      all_exempt: ${{ steps.check.outputs.all_exempt }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run exemption check
+        id: check
+        run: |
+          EXEMPTIONS_FILE=".github/workflows/exempt.txt"
+
+          # Compare against the most recent tag to find everything new since the last release.
+          prev_tag=$(git tag --sort=-version:refname | head -1)
+          if [ -n "$prev_tag" ]; then
+            changed_files=$(git diff --name-only "${prev_tag}..HEAD")
+          else
+            changed_files=$(git diff --name-only HEAD^..HEAD)
+          fi
+
+          if [ -z "$changed_files" ]; then
+            echo "all_exempt=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          mapfile -t patterns < <(grep -v '^\s*#' "$EXEMPTIONS_FILE" | grep -v '^\s*$')
+
+          all_exempt=true
+          for f in $changed_files; do
+            matched=false
+            for pat in "${patterns[@]}"; do
+              case "$f" in
+                $pat) matched=true; break ;;
+              esac
+            done
+            if [ "$matched" = false ]; then
+              all_exempt=false
+              break
+            fi
+          done
+
+          echo "all_exempt=${all_exempt}" >> "$GITHUB_OUTPUT"
+
   release:
     name: Build and release
+    needs: check-exempt
+    if: needs.check-exempt.outputs.all_exempt != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

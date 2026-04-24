@@ -148,6 +148,21 @@
           };
 
           config = lib.mkIf cfg.enable {
+            # The memory-reservation reconciliation in buildSystemInfo reads AMD
+            # MSRs (TOP_MEM, TOP_MEM2, SMM_ADDR, SMM_MASK) via /dev/cpu/*/msr to
+            # distinguish DRAM-backed firmware reservation from MMIO address
+            # space above TOP_MEM2.  The msr character device only exists when
+            # the msr kernel module is loaded.
+            boot.kernelModules = [ "msr" ];
+
+            # /dev/cpu/N/msr defaults to 0600 root:root; grant the atopweb
+            # group read access so the (non-root) service can open it.  The
+            # kernel's msr driver still enforces CAP_SYS_RAWIO on open, which
+            # the systemd unit grants below.
+            services.udev.extraRules = ''
+              KERNEL=="msr[0-9]*", GROUP="atopweb", MODE="0440"
+            '';
+
             systemd.services.atopweb = {
               description = "atopweb GPU web dashboard";
               wantedBy = [ "multi-user.target" ];
@@ -175,8 +190,14 @@
 
                 StateDirectory = lib.mkIf cfg.gpuProcCache "atopweb";
 
-                AmbientCapabilities    = lib.mkIf cfg.fanotify "CAP_SYS_ADMIN";
-                CapabilityBoundingSet  = lib.mkIf cfg.fanotify "CAP_SYS_ADMIN";
+                # Capabilities required at all times for full memory accounting:
+                #   CAP_SYS_RAWIO    — open /dev/cpu/*/msr (AMD TOP_MEM2 etc.)
+                #   CAP_SYS_PTRACE   — read /proc/<pid>/fdinfo/<fd> across users
+                #                      to sum DRM per-process memory
+                #   CAP_SYS_ADMIN    — read /sys/kernel/debug/dma_buf/bufinfo
+                #                      (also used by fanotify when enabled)
+                AmbientCapabilities = "CAP_SYS_RAWIO CAP_SYS_PTRACE CAP_SYS_ADMIN";
+                CapabilityBoundingSet = "CAP_SYS_RAWIO CAP_SYS_PTRACE CAP_SYS_ADMIN";
 
                 Restart = "on-failure";
                 RestartSec = "5s";
