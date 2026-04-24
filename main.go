@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"embed"
+	"encoding/binary"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -933,10 +934,15 @@ type sysSensor struct {
 }
 
 type systemInfo struct {
-	TotalRAMMiB uint64            `json:"total_ram_mib"`
-	AvailRAMMiB uint64            `json:"avail_ram_mib"`
-	MemInfoKB   map[string]uint64 `json:"meminfo_kb,omitempty"` // all /proc/meminfo fields in kB
-	UptimeSec   float64           `json:"uptime_sec"`
+	TotalRAMMiB         uint64            `json:"total_ram_mib"`
+	AvailRAMMiB         uint64            `json:"avail_ram_mib"`
+	MemInfoKB           map[string]uint64 `json:"meminfo_kb,omitempty"`            // all /proc/meminfo fields in kB
+	FirmwareReservedMiB uint64            `json:"firmware_reserved_mib,omitempty"` // DRAM reserved above top-of-System-RAM (includes BIOS VRAM carveout; JS subtracts it).  Byte-exact when MSRs available, else e820 estimate.
+	MemReservation      memReservation    `json:"mem_reservation,omitempty"`       // full authoritative memory-topology report (TOP_MEM, TOP_MEM2, TSEG, etc.)
+	DRMMem              *drmAccounting    `json:"drm_mem,omitempty"`               // per-process DRM memory breakdown from /proc/*/fdinfo
+	SockMemKB           uint64            `json:"sock_mem_kb,omitempty"`           // kernel network-stack page allocations (sum of /proc/net/sockstat "mem" lines × page size)
+	DmaBufBytes         uint64            `json:"dma_buf_bytes,omitempty"`         // total dma-buf bytes across all exporters (informational; overlaps with VRAM/GTT)
+	UptimeSec           float64           `json:"uptime_sec"`
 	LoadAvg     [3]float64        `json:"loadavg"`
 	Fans        []sysSensor       `json:"fans"`           // RPM
 	Voltages    []sysSensor       `json:"voltages"`       // mV
@@ -1061,6 +1067,424 @@ func readMemInfoAll() map[string]uint64 {
 	return m
 }
 
+// readMSR reads an 8-byte model-specific register via /dev/cpu/<cpu>/msr.
+// Requires the msr kernel module loaded and CAP_SYS_RAWIO (or root) on the
+// calling process.  Returns error if the module isn't loaded, the capability
+// isn't granted, or the MSR isn't implemented on this CPU.
+func readMSR(cpu int, msr uint32) (uint64, error) {
+	f, err := os.Open(fmt.Sprintf("/dev/cpu/%d/msr", cpu))
+	if err != nil {
+		return 0, err
+	}
+	defer f.Close()
+	buf := make([]byte, 8)
+	if _, err := f.ReadAt(buf, int64(msr)); err != nil {
+		return 0, err
+	}
+	return binary.LittleEndian.Uint64(buf), nil
+}
+
+// AMD architectural MSRs used below.  See AMD64 Architecture Programmer's
+// Manual vol.2 §15 and BKDG for Family 17h/19h/1Ah.
+const (
+	msrAMDTopMem   uint32 = 0xC001001A // Low DRAM boundary (end of 0–4 GiB DRAM range)
+	msrAMDTopMem2  uint32 = 0xC001001D // Upper DRAM boundary (top of all physical DRAM)
+	msrAMDSMMAddr  uint32 = 0xC0010112 // TSEG base (bits 51:17)
+	msrAMDSMMMask  uint32 = 0xC0010113 // TSEG mask (bits 51:17) + ASeg/TSeg enables
+)
+
+// memReservation is the authoritative memory layout report, derived from
+// /sys/firmware/memmap plus (when available) AMD MSRs.  All byte counts are
+// exact; *MiB fields are rounded-down MiB for JSON friendliness.
+//
+// FirmwareReservedMiB captures ALL DRAM reserved by firmware — above top of
+// System RAM (typically BIOS VRAM carveout + PSP/SMU/ACPI runtime), inside the
+// low-DRAM range (ACPI NVS/Tables, TSEG, small reserved blocks), plus any
+// "hidden" bytes below TOP_MEM the firmware didn't advertise in e820 at all.
+// VRAM is included in this number; JS subtracts the amdgpu-reported VRAM total
+// to derive the non-VRAM portion.
+type memReservation struct {
+	SystemRAMTopBytes   uint64 `json:"system_ram_top_bytes,omitempty"`  // end-exclusive top of last "System RAM" entry in e820
+	SystemRAMMiB        uint64 `json:"system_ram_mib,omitempty"`        // sum of all "System RAM" entries (kernel-addressable DRAM)
+	TopMemBytes         uint64 `json:"top_mem_bytes,omitempty"`         // MSR TOP_MEM (low DRAM boundary)
+	TopMem2Bytes        uint64 `json:"top_mem2_bytes,omitempty"`        // MSR TOP_MEM2 (upper DRAM boundary)
+	TsegBaseBytes       uint64 `json:"tseg_base_bytes,omitempty"`       // SMM_ADDR (TSEG base), 0 if TSEG not enabled
+	TsegSizeBytes       uint64 `json:"tseg_size_bytes,omitempty"`       // TSEG size decoded from SMM_MASK
+	InstalledMiB        uint64 `json:"installed_mib,omitempty"`         // MSR-derived: TOP_MEM + (TOP_MEM2 - 4 GiB)
+	FirmwareReservedMiB uint64 `json:"firmware_reserved_mib,omitempty"` // total DRAM reserved by firmware (above-ToM + low-memory + hidden gap; includes VRAM)
+	FirmwareHighMiB     uint64 `json:"firmware_high_mib,omitempty"`     // DRAM reserved above top of System RAM (VRAM carveout + PSP/SMU/runtime)
+	FirmwareLowMiB      uint64 `json:"firmware_low_mib,omitempty"`      // DRAM reserved below TOP_MEM (ACPI NVS/Tables, TSEG, small reserved) + any e820 gap
+	SourceMSR           bool   `json:"source_msr,omitempty"`            // true if the above numbers used AMD MSRs (byte-exact); false if e820-only fallback
+}
+
+// readMemReservation assembles the memReservation report.  Cached: all inputs
+// are static after boot.  If MSRs are unreadable (module not loaded, missing
+// capability) it falls back to an e820-only estimate which over-counts by any
+// MMIO space above TOP_MEM2.
+//
+// The total firmware reservation is split into three components:
+//   - High: DRAM above top of System RAM (VRAM carveout + PSP/SMU runtime).
+//     When MSRs are available this is byte-exact (TOP_MEM2 − top_of_System_RAM);
+//     otherwise it falls back to summing e820 Reserved entries, which may
+//     include MMIO address space beyond TOP_MEM2 and over-count.
+//   - Low: DRAM below TOP_MEM marked non-System-RAM in e820 (ACPI NVS/Tables,
+//     TSEG, small Reserved blocks).  Always available from e820.
+//   - Hidden: DRAM below TOP_MEM that firmware didn't advertise in e820 at all
+//     (seen as a "gap" in dmesg).  Computed as TOP_MEM − sum(all e820 entries
+//     below TOP_MEM).  Requires MSR TOP_MEM.
+func readMemReservation() memReservation {
+	memReservationOnce.Do(func() {
+		// 1) Scan /sys/firmware/memmap.
+		dirs, err := filepath.Glob("/sys/firmware/memmap/*")
+		if err != nil || len(dirs) == 0 {
+			return
+		}
+		type region struct {
+			start, end uint64
+			typ        string
+		}
+		regs := make([]region, 0, len(dirs))
+		var topRAM, sysRAMBytes uint64
+		parseHex := func(s string) (uint64, bool) {
+			v, err := strconv.ParseUint(strings.TrimPrefix(s, "0x"), 16, 64)
+			return v, err == nil
+		}
+		for _, d := range dirs {
+			s, ok := parseHex(readFileTrim(filepath.Join(d, "start")))
+			if !ok {
+				continue
+			}
+			e, ok := parseHex(readFileTrim(filepath.Join(d, "end")))
+			if !ok {
+				continue
+			}
+			t := readFileTrim(filepath.Join(d, "type"))
+			regs = append(regs, region{s, e, t})
+			if t == "System RAM" {
+				sysRAMBytes += e - s + 1
+				if e > topRAM {
+					topRAM = e
+				}
+			}
+		}
+		if topRAM == 0 {
+			return
+		}
+		memReservationVal.SystemRAMTopBytes = topRAM + 1
+		memReservationVal.SystemRAMMiB = sysRAMBytes / (1024 * 1024)
+
+		// 2) Try AMD MSRs for authoritative DRAM topology.
+		tom, errTom := readMSR(0, msrAMDTopMem)
+		tom2, errTom2 := readMSR(0, msrAMDTopMem2)
+		msrOK := errTom == nil && errTom2 == nil
+
+		if msrOK {
+			memReservationVal.TopMemBytes = tom
+			memReservationVal.TopMem2Bytes = tom2
+			memReservationVal.SourceMSR = true
+
+			// Installed DRAM = low DRAM (0..TOP_MEM) + high DRAM (4 GiB..TOP_MEM2).
+			const fourGiB uint64 = 4 << 30
+			if tom2 > fourGiB {
+				memReservationVal.InstalledMiB = (tom + (tom2 - fourGiB)) / (1024 * 1024)
+			}
+
+			// High firmware reservation: byte-exact from MSRs.
+			var highBytes uint64
+			if tom2 > topRAM+1 {
+				highBytes = tom2 - (topRAM + 1)
+			}
+
+			// Low firmware reservation: sum of non-SystemRAM e820 entries whose
+			// addresses lie below TOP_MEM.  Entries that straddle TOP_MEM are
+			// clipped.  Anything with start >= TOP_MEM is MMIO, not DRAM.
+			var lowBytes uint64
+			for _, r := range regs {
+				if r.typ == "System RAM" || r.start >= tom {
+					continue
+				}
+				end := r.end
+				if end >= tom {
+					end = tom - 1
+				}
+				lowBytes += end - r.start + 1
+			}
+
+			// Hidden gap: DRAM under TOP_MEM that e820 didn't report at all.
+			// = TOP_MEM - sum(all e820 entries below TOP_MEM).
+			var accountedLow uint64
+			for _, r := range regs {
+				if r.start >= tom {
+					continue
+				}
+				end := r.end
+				if end >= tom {
+					end = tom - 1
+				}
+				accountedLow += end - r.start + 1
+			}
+			var hiddenBytes uint64
+			if tom > accountedLow {
+				hiddenBytes = tom - accountedLow
+			}
+
+			memReservationVal.FirmwareHighMiB = highBytes / (1024 * 1024)
+			memReservationVal.FirmwareLowMiB = (lowBytes + hiddenBytes) / (1024 * 1024)
+			memReservationVal.FirmwareReservedMiB = (highBytes + lowBytes + hiddenBytes) / (1024 * 1024)
+
+			// TSEG: base in SMM_ADDR bits 51:17, size derived from SMM_MASK bits 51:17.
+			if addr, err := readMSR(0, msrAMDSMMAddr); err == nil {
+				if mask, err := readMSR(0, msrAMDSMMMask); err == nil && (mask&0x2) != 0 {
+					memReservationVal.TsegBaseBytes = addr &^ ((uint64(1) << 17) - 1)
+					tsegMaskField := (mask >> 17) & ((uint64(1) << 35) - 1)
+					size := uint64(1) << 17
+					for tsegMaskField&1 == 0 && tsegMaskField != 0 {
+						size <<= 1
+						tsegMaskField >>= 1
+					}
+					memReservationVal.TsegSizeBytes = size
+				}
+			}
+			return
+		}
+
+		// Fallback without MSRs: best-effort e820-only estimate.  Over-counts
+		// "high" firmware reservation by any MMIO region beyond TOP_MEM2 and
+		// can't identify the hidden gap at all.
+		var highSum, lowSum uint64
+		for _, r := range regs {
+			if r.typ == "System RAM" {
+				continue
+			}
+			sz := r.end - r.start + 1
+			if r.start > topRAM {
+				highSum += sz
+			} else {
+				lowSum += sz
+			}
+		}
+		memReservationVal.FirmwareHighMiB = highSum / (1024 * 1024)
+		memReservationVal.FirmwareLowMiB = lowSum / (1024 * 1024)
+		memReservationVal.FirmwareReservedMiB = (highSum + lowSum) / (1024 * 1024)
+	})
+	return memReservationVal
+}
+
+var (
+	memReservationOnce sync.Once
+	memReservationVal  memReservation
+)
+
+// drmProcessMem is one per-process DRM memory snapshot derived from
+// /proc/<pid>/fdinfo/<fd> for every DRM file descriptor a process holds.
+// Values are KiB (matching the fdinfo wire format) and per-process aggregates
+// across all of that process's DRM FDs.
+type drmProcessMem struct {
+	PID        int    `json:"pid"`
+	Comm       string `json:"comm,omitempty"`
+	Driver     string `json:"driver,omitempty"`      // e.g. "amdgpu"
+	VramKiB    uint64 `json:"vram_kib,omitempty"`    // drm-memory-vram
+	GttKiB     uint64 `json:"gtt_kib,omitempty"`     // drm-memory-gtt
+	CpuKiB     uint64 `json:"cpu_kib,omitempty"`     // drm-memory-cpu  (system-RAM pinned by the driver)
+	VisVramKiB uint64 `json:"vis_vram_kib,omitempty"` // amd-memory-visible-vram
+}
+
+// drmAccounting bundles everything we know about graphics-subsystem memory
+// from three sources:
+//   1. /proc/<pid>/fdinfo/<fd>                   — per-process DRM usage
+//   2. /sys/class/drm/card*/device/mem_info_*    — kernel-authoritative per-GPU
+//      totals (VRAM total/used, CPU-visible VRAM, GTT)
+//   3. /sys/kernel/debug/dma_buf/bufinfo         — dma-buf allocations
+//
+// Fields ending *MiB come from (2); Total*KiB come from (1).  DmaBufBytes is
+// separate because dma-bufs can be backed by VRAM, GTT, or system memory — we
+// report it informationally, not as an accounting line.
+type drmAccounting struct {
+	VramTotalMiB    uint64          `json:"vram_total_mib,omitempty"`
+	VramUsedMiB     uint64          `json:"vram_used_mib,omitempty"`
+	VisVramTotalMiB uint64          `json:"vis_vram_total_mib,omitempty"`
+	VisVramUsedMiB  uint64          `json:"vis_vram_used_mib,omitempty"`
+	GttTotalMiB     uint64          `json:"gtt_total_mib,omitempty"`
+	GttUsedMiB      uint64          `json:"gtt_used_mib,omitempty"`
+	TotalVramKiB    uint64          `json:"total_vram_kib,omitempty"`     // sum of per-fd drm-memory-vram
+	TotalGttKiB     uint64          `json:"total_gtt_kib,omitempty"`      // sum of per-fd drm-memory-gtt
+	TotalCpuKiB     uint64          `json:"total_cpu_kib,omitempty"`      // sum of per-fd drm-memory-cpu — system RAM pinned by DRM drivers
+	Processes       []drmProcessMem `json:"processes,omitempty"`
+}
+
+// readDRMSysfs pulls authoritative per-GPU memory totals from
+// /sys/class/drm/card*/device/mem_info_*.  These are populated by the amdgpu
+// kernel driver and are byte-exact.  Multiple cards are summed.  Files that
+// don't exist (non-amdgpu GPUs, older kernels) are silently skipped.
+func readDRMSysfs(a *drmAccounting) {
+	cards, _ := filepath.Glob("/sys/class/drm/card[0-9]*")
+	for _, c := range cards {
+		// Skip connectors (card1-DP-1 etc.) — only the card root has mem_info.
+		if strings.Contains(filepath.Base(c), "-") {
+			continue
+		}
+		readUint := func(name string) uint64 {
+			v, _ := strconv.ParseUint(readFileTrim(filepath.Join(c, "device", name)), 10, 64)
+			return v
+		}
+		const toMiB = 1024 * 1024
+		a.VramTotalMiB += readUint("mem_info_vram_total") / toMiB
+		a.VramUsedMiB += readUint("mem_info_vram_used") / toMiB
+		a.VisVramTotalMiB += readUint("mem_info_vis_vram_total") / toMiB
+		a.VisVramUsedMiB += readUint("mem_info_vis_vram_used") / toMiB
+		a.GttTotalMiB += readUint("mem_info_gtt_total") / toMiB
+		a.GttUsedMiB += readUint("mem_info_gtt_used") / toMiB
+	}
+}
+
+// readDRMFdinfo walks /proc/<pid>/fd and, for every symlink pointing at
+// /dev/dri/*, parses the matching /proc/<pid>/fdinfo/<fd> for drm-memory-*
+// lines.  Per-process totals are accumulated across all of that PID's DRM FDs.
+//
+// Requires CAP_SYS_PTRACE (or matching uid) to read fdinfo of processes not
+// owned by the current user; missing permission is swallowed silently so the
+// scanner just reports what it can see.
+func readDRMFdinfo(a *drmAccounting) {
+	procs, _ := filepath.Glob("/proc/[0-9]*")
+	byPID := make(map[int]*drmProcessMem, 16)
+	for _, procDir := range procs {
+		pidStr := filepath.Base(procDir)
+		pid, err := strconv.Atoi(pidStr)
+		if err != nil {
+			continue
+		}
+		fdDir := filepath.Join(procDir, "fd")
+		entries, err := os.ReadDir(fdDir)
+		if err != nil {
+			continue
+		}
+		for _, ent := range entries {
+			target, err := os.Readlink(filepath.Join(fdDir, ent.Name()))
+			if err != nil || !strings.HasPrefix(target, "/dev/dri/") {
+				continue
+			}
+			data, err := os.ReadFile(filepath.Join(procDir, "fdinfo", ent.Name()))
+			if err != nil {
+				continue
+			}
+			p := byPID[pid]
+			if p == nil {
+				p = &drmProcessMem{PID: pid, Comm: readFileTrim(filepath.Join(procDir, "comm"))}
+				byPID[pid] = p
+			}
+			// Each fdinfo line is "key:\tvalue [KiB]".  Parse the relevant
+			// subset; amdgpu emits the amd-memory-* variants alongside the
+			// standard drm-memory-* lines.
+			for _, line := range strings.Split(string(data), "\n") {
+				colon := strings.IndexByte(line, ':')
+				if colon < 0 {
+					continue
+				}
+				key := strings.TrimSpace(line[:colon])
+				valStr := strings.TrimSpace(line[colon+1:])
+				parseKiB := func() uint64 {
+					f := strings.Fields(valStr)
+					if len(f) == 0 {
+						return 0
+					}
+					v, _ := strconv.ParseUint(f[0], 10, 64)
+					return v
+				}
+				switch key {
+				case "drm-driver":
+					if p.Driver == "" {
+						p.Driver = valStr
+					}
+				case "drm-memory-vram":
+					p.VramKiB += parseKiB()
+				case "drm-memory-gtt":
+					p.GttKiB += parseKiB()
+				case "drm-memory-cpu":
+					p.CpuKiB += parseKiB()
+				case "amd-memory-visible-vram":
+					p.VisVramKiB += parseKiB()
+				}
+			}
+		}
+	}
+	for _, p := range byPID {
+		if p.VramKiB == 0 && p.GttKiB == 0 && p.CpuKiB == 0 {
+			continue // xorg/wayland holding a DRM fd with no BOs — skip
+		}
+		a.TotalVramKiB += p.VramKiB
+		a.TotalGttKiB += p.GttKiB
+		a.TotalCpuKiB += p.CpuKiB
+		a.Processes = append(a.Processes, *p)
+	}
+	// Sort biggest first for UI convenience.
+	sort.Slice(a.Processes, func(i, j int) bool {
+		ai := a.Processes[i].VramKiB + a.Processes[i].GttKiB + a.Processes[i].CpuKiB
+		aj := a.Processes[j].VramKiB + a.Processes[j].GttKiB + a.Processes[j].CpuKiB
+		return ai > aj
+	})
+}
+
+// readDRMAccounting assembles the full per-GPU + per-process report.
+func readDRMAccounting() *drmAccounting {
+	a := &drmAccounting{}
+	readDRMSysfs(a)
+	readDRMFdinfo(a)
+	if a.VramTotalMiB == 0 && len(a.Processes) == 0 {
+		return nil
+	}
+	return a
+}
+
+// readSockMemKB returns the sum of TCP/UDP/FRAG socket buffer memory from
+// /proc/net/sockstat (and sockstat6), converted to KiB.  The "mem" fields are
+// in pages; we multiply by the system page size (4 KiB on x86_64).
+func readSockMemKB() uint64 {
+	var pages uint64
+	for _, path := range []string{"/proc/net/sockstat", "/proc/net/sockstat6"} {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		for _, line := range strings.Split(string(data), "\n") {
+			fields := strings.Fields(line)
+			// Lines look like "TCP: inuse 10 orphan 0 tw 5 alloc 12 mem 3".
+			for i := 0; i+1 < len(fields); i++ {
+				if fields[i] == "mem" || fields[i] == "memory" {
+					if n, err := strconv.ParseUint(fields[i+1], 10, 64); err == nil {
+						pages += n
+					}
+				}
+			}
+		}
+	}
+	return pages * uint64(os.Getpagesize()) / 1024
+}
+
+// readDmaBufBytes sums the size column of /sys/kernel/debug/dma_buf/bufinfo.
+// Requires CAP_SYS_ADMIN for debugfs access; returns 0 silently if unreadable.
+// Reported for diagnostic display only: dma-bufs are usually backed by VRAM
+// or GTT (already accounted for) so summing this into the bar would double-
+// count.
+func readDmaBufBytes() uint64 {
+	data, err := os.ReadFile("/sys/kernel/debug/dma_buf/bufinfo")
+	if err != nil {
+		return 0
+	}
+	var total uint64
+	for _, line := range strings.Split(string(data), "\n") {
+		f := strings.Fields(line)
+		if len(f) == 0 {
+			continue
+		}
+		// First column is size in bytes for object rows; header/separator
+		// lines begin with non-digit characters and are skipped by ParseUint.
+		if v, err := strconv.ParseUint(f[0], 10, 64); err == nil {
+			total += v
+		}
+	}
+	return total
+}
+
 func readLoadAvg() [3]float64 {
 	var avg [3]float64
 	data, err := os.ReadFile("/proc/loadavg")
@@ -1090,11 +1514,17 @@ func readUptime() float64 {
 func buildSystemInfo() systemInfo {
 	fans, volts, currs, pows, temps := readHwmon()
 	memInfo := readMemInfoAll()
+	memRes := readMemReservation()
 	return systemInfo{
-		TotalRAMMiB: memInfo["MemTotal"] / 1024,
-		AvailRAMMiB: memInfo["MemAvailable"] / 1024,
-		MemInfoKB:   memInfo,
-		UptimeSec:   readUptime(),
+		TotalRAMMiB:         memInfo["MemTotal"] / 1024,
+		AvailRAMMiB:         memInfo["MemAvailable"] / 1024,
+		MemInfoKB:           memInfo,
+		FirmwareReservedMiB: memRes.FirmwareReservedMiB,
+		MemReservation:      memRes,
+		DRMMem:              readDRMAccounting(),
+		SockMemKB:           readSockMemKB(),
+		DmaBufBytes:         readDmaBufBytes(),
+		UptimeSec:           readUptime(),
 		LoadAvg:     readLoadAvg(),
 		Fans:        fans,
 		Voltages:    volts,
