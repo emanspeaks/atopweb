@@ -936,11 +936,44 @@ type systemInfo struct {
 	AvailRAMMiB uint64      `json:"avail_ram_mib"`
 	UptimeSec   float64     `json:"uptime_sec"`
 	LoadAvg     [3]float64  `json:"loadavg"`
-	Fans        []sysSensor `json:"fans"`     // RPM
-	Voltages    []sysSensor `json:"voltages"` // mV
-	Currents    []sysSensor `json:"currents"` // mA
-	Powers      []sysSensor `json:"powers"`   // µW
-	Temps       []sysSensor `json:"temps"`    // °C
+	Fans        []sysSensor `json:"fans"`           // RPM
+	Voltages    []sysSensor `json:"voltages"`       // mV
+	Currents    []sysSensor `json:"currents"`       // mA
+	Powers      []sysSensor `json:"powers"`         // µW
+	Temps       []sysSensor `json:"temps"`          // °C
+	CPUUsagePct *float64    `json:"cpu_usage_pct,omitempty"` // 0–100; absent on first tick
+}
+
+// cpuStat holds the raw tick counters from the aggregate "cpu" line in /proc/stat.
+type cpuStat struct {
+	user, nice, system, idle, iowait, irq, softirq, steal uint64
+}
+
+func (s cpuStat) total() uint64 {
+	return s.user + s.nice + s.system + s.idle + s.iowait + s.irq + s.softirq + s.steal
+}
+
+// readCPUStat reads the first "cpu" line from /proc/stat.
+func readCPUStat() (cpuStat, bool) {
+	data, err := os.ReadFile("/proc/stat")
+	if err != nil {
+		return cpuStat{}, false
+	}
+	for _, line := range strings.SplitN(string(data), "\n", 2) {
+		if !strings.HasPrefix(line, "cpu ") {
+			continue
+		}
+		f := strings.Fields(line)
+		if len(f) < 9 {
+			break
+		}
+		p := func(i int) uint64 { n, _ := strconv.ParseUint(f[i], 10, 64); return n }
+		return cpuStat{
+			user: p(1), nice: p(2), system: p(3), idle: p(4),
+			iowait: p(5), irq: p(6), softirq: p(7), steal: p(8),
+		}, true
+	}
+	return cpuStat{}, false
 }
 
 func readFileTrim(path string) string {
@@ -1091,8 +1124,24 @@ type wsSysFrame struct {
 func runSystemPusher(h *hub) {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
+	var prevCPU cpuStat
+	hasPrevCPU := false
 	for range ticker.C {
-		frame := wsSysFrame{Type: "system", systemInfo: buildSystemInfo()}
+		info := buildSystemInfo()
+		curr, ok := readCPUStat()
+		if ok {
+			if hasPrevCPU && curr.total() > prevCPU.total() {
+				dt := curr.total() - prevCPU.total()
+				idleDelta := (curr.idle + curr.iowait) - (prevCPU.idle + prevCPU.iowait)
+				if idleDelta <= dt {
+					pct := float64(dt-idleDelta) / float64(dt) * 100
+					info.CPUUsagePct = &pct
+				}
+			}
+			prevCPU = curr
+			hasPrevCPU = true
+		}
+		frame := wsSysFrame{Type: "system", systemInfo: info}
 		b, err := json.Marshal(frame)
 		if err != nil {
 			continue

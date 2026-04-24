@@ -10,10 +10,16 @@
   --blue:       #388bfd;
   --purple:     #bc8cff;
   --green:      #3fb950;
+  --cyan:       #4dd0e1;
   --yellow:     #e3b341;
   --red:        #f85149;
   --log-height: 180px;
   --sticky-top: 0px;
+  --data-color: var(--green);
+}
+
+body.data-stale {
+  --data-color: var(--cyan);
 }
 
 body {
@@ -220,7 +226,7 @@ header .period {
 /* ── System cards (fan / voltage / power, fed by /api/system) ─────── */
 .system-cards {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(105px, 1fr));
   gap: 8px;
   padding: 8px 20px 0;
 }
@@ -279,7 +285,7 @@ main { padding: 12px; }
 /* ── Stat cards ──────────────────────────────────────────────────── */
 .cards {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(105px, 1fr));
   gap: 8px;
   margin-bottom: 12px;
   position: sticky;
@@ -306,17 +312,18 @@ main { padding: 12px; }
 }
 
 .card-value {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
   line-height: 1.2;
   display: inline-block;
-  color: var(--blue);
+  color: var(--data-color);
 }
 
 /* compact value for cards showing "used / total" */
 .c-vram .card-value,
-.c-gtt  .card-value {
-  font-size: 12px;
+.c-gtt  .card-value,
+.c-ram  .card-value {
+  font-size: 11px;
 }
 
 .card-unit {
@@ -347,7 +354,7 @@ main { padding: 12px; }
   border-radius: 2px;
   width: 0%;
   transition: width 0.4s ease;
-  background: var(--blue);
+  background: var(--data-color);
 }
 
 /* per-card accent color overrides (currently unused — all cards use --blue default)
@@ -519,7 +526,7 @@ main { padding: 12px; }
 
 .grbm-item-val {
   font-size: 11px;
-  color: var(--text);
+  color: var(--data-color);
   font-variant-numeric: tabular-nums;
   min-width: 40px;
   text-align: right;
@@ -598,6 +605,7 @@ main { padding: 12px; }
   border-bottom: 1px solid var(--border);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+  color: var(--data-color);
 }
 
 .proc-table tr:last-child td { border-bottom: none; }
