@@ -578,7 +578,7 @@ function buildDom(devices) {
       // GPU cards
       { id: `c-gfx-${i}`,    cls: 'c-gfx',    label: 'GFX',                unit: '%',   bar: true,  src: `devices[${i}].gpu_activity.GFX.value` },
       { id: `c-media-${i}`,  cls: 'c-media',  label: 'Media',              unit: '%',   bar: true,  src: `devices[${i}].gpu_activity.MediaEngine.value` },
-      { id: `c-vmem-${i}`,   cls: 'c-vmem',   label: 'Total GPU Mem Capacity',   unit: '%',   bar: true,  src: `(devices[${i}].VRAM['Total VRAM Usage'] + devices[${i}].VRAM['Total GTT Usage']) / (devices[${i}].VRAM['Total VRAM'] + devices[${i}].VRAM['Total GTT']) × 100` },
+      { id: `c-vmem-${i}`,   cls: 'c-vmem',   label: 'GPU Mem Capacity',   unit: '%',   bar: true,  src: `(devices[${i}].VRAM['Total VRAM Usage'] + devices[${i}].VRAM['Total GTT Usage']) / (devices[${i}].VRAM['Total VRAM'] + devices[${i}].VRAM['Total GTT']) × 100` },
       { id: `c-vram-${i}`,   cls: 'c-vram',   label: 'BIOS Reserved VRAM', unit: 'GiB', bar: true,  split: true, srcU: `devices[${i}].VRAM['Total VRAM Usage'].value (MiB → GiB)`, srcT: `devices[${i}].VRAM['Total VRAM'].value (MiB → GiB)` },
       { id: `c-gtt-${i}`,    cls: 'c-gtt',    label: 'GTT',                unit: 'GiB', bar: true,  split: true, srcU: `devices[${i}].VRAM['Total GTT Usage'].value (MiB → GiB)`,  srcT: `devices[${i}].VRAM['Total GTT'].value (MiB → GiB)` },
       { id: `c-sclk-${i}`,   cls: 'c-sclk',   label: 'GFX Clock',          unit: 'MHz', bar: false, src: `devices[${i}].Sensors.GFX_SCLK.value` },
