@@ -578,7 +578,7 @@ function buildDom(devices) {
       // GPU cards
       { id: `c-gfx-${i}`,    cls: 'c-gfx',    label: 'GFX',                unit: '%',   bar: true,  src: `devices[${i}].gpu_activity.GFX.value` },
       { id: `c-media-${i}`,  cls: 'c-media',  label: 'Media',              unit: '%',   bar: true,  src: `devices[${i}].gpu_activity.MediaEngine.value` },
-      { id: `c-vmem-${i}`,   cls: 'c-vmem',   label: 'Total GPU Memory',   unit: '%',   bar: true,  src: `(devices[${i}].VRAM['Total VRAM Usage'] + devices[${i}].VRAM['Total GTT Usage']) / (devices[${i}].VRAM['Total VRAM'] + devices[${i}].VRAM['Total GTT']) × 100` },
+      { id: `c-vmem-${i}`,   cls: 'c-vmem',   label: 'Total GPU Mem Capacity',   unit: '%',   bar: true,  src: `(devices[${i}].VRAM['Total VRAM Usage'] + devices[${i}].VRAM['Total GTT Usage']) / (devices[${i}].VRAM['Total VRAM'] + devices[${i}].VRAM['Total GTT']) × 100` },
       { id: `c-vram-${i}`,   cls: 'c-vram',   label: 'BIOS Reserved VRAM', unit: 'GiB', bar: true,  split: true, srcU: `devices[${i}].VRAM['Total VRAM Usage'].value (MiB → GiB)`, srcT: `devices[${i}].VRAM['Total VRAM'].value (MiB → GiB)` },
       { id: `c-gtt-${i}`,    cls: 'c-gtt',    label: 'GTT',                unit: 'GiB', bar: true,  split: true, srcU: `devices[${i}].VRAM['Total GTT Usage'].value (MiB → GiB)`,  srcT: `devices[${i}].VRAM['Total GTT'].value (MiB → GiB)` },
       { id: `c-sclk-${i}`,   cls: 'c-sclk',   label: 'GFX Clock',          unit: 'MHz', bar: false, src: `devices[${i}].Sensors.GFX_SCLK.value` },
@@ -1353,7 +1353,7 @@ function updateDevice(i, dev) {
     if (sreclmEl)   sreclmEl.style.width   = pct(sreclmKB);
     // mem-free is flex:1 and fills remaining space automatically
 
-    const fmtGiB = kb => `${(kb / 1024 / 1024).toFixed(2)} GiB`;
+    const fmtGiB = kb => `${(kb / 1024 / 1024).toFixed(3)} GiB`;
     const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
     set(`mem-lbl-vram-free-${i}`, fmtGiB((vramT - vramUsed) * 1024));
     set(`mem-lbl-vram-${i}`,      fmtGiB(vramUsed * 1024));
@@ -1363,7 +1363,7 @@ function updateDevice(i, dev) {
     set(`mem-lbl-cached-${i}`, fmtGiB(cachedKB));
     set(`mem-lbl-sreclm-${i}`, fmtGiB(sreclmKB));
     set(`mem-lbl-free-${i}`,   fmtGiB(freeKB));
-    set(`mem-lbl-total-${i}`,  (physTotalMiB / 1024).toFixed(2));
+    set(`mem-lbl-total-${i}`,  (physTotalMiB / 1024).toFixed(3));
   }
 
   // Progress bars
