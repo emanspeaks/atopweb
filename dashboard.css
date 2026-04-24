@@ -382,7 +382,8 @@ main { padding: 6px 8px; }
 
 /* ── Memory overview bar ────────────────────────────────────────── */
 .mem-section {
-  margin-bottom: 8px;
+  grid-column: 1 / -1;
+  margin-bottom: 4px;
 }
 
 .mem-bar-outer {
