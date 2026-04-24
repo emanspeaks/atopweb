@@ -103,12 +103,12 @@ const CHART_DEFAULTS = {
   interaction: { mode: 'index', intersect: false },
   plugins: {
     legend: {
-      labels: { color: '#8b949e', boxWidth: 8, padding: 8, font: { size: 10 } }
+      labels: { color: '#8b949e', boxWidth: 8, padding: 5, font: { size: 10 } }
     },
     tooltip: { enabled: false },
     annotation: { drawTime: 'afterDraw', annotations: {} }
   },
-  layout: { padding: { top: 14, right: 6, bottom: 18, left: 6 } },
+  layout: { padding: { top: 4, right: 4, bottom: 4, left: 4 } },
   scales: {
     x: {
       type:   'linear',
@@ -614,8 +614,6 @@ function buildDom(devices) {
       cards.appendChild(card);
       state.cardLastData[def.id] = def.permanent ? Date.now() : 0;
     });
-    panel.appendChild(cards);
-
     // ── Memory overview bar ──
     const memSec = el('div', 'mem-section');
     memSec.innerHTML = `
@@ -645,7 +643,8 @@ function buildDom(devices) {
         <span class="mem-legend-total">Physical total: <span id="mem-lbl-total-${i}">—</span> GiB</span>
       </div>
     `;
-    panel.appendChild(memSec);
+    cards.appendChild(memSec);
+    panel.appendChild(cards);
 
     const h = state.hist[i];
 
@@ -735,7 +734,7 @@ function buildDom(devices) {
 
     const chartDefs = [
       {
-        key: 'temp', title: 'Temperature (°C)', height: 175, yMax: null,
+        key: 'temp', title: 'Temperature (°C)', height: 150, yMax: null,
         // wide: true,
         noYMin: true,
         datasets: () => [
@@ -748,14 +747,14 @@ function buildDom(devices) {
         ]
       },
       {
-        key: 'fan', title: 'Fan Speed (RPM)', height: 175, yMax: null,
+        key: 'fan', title: 'Fan Speed (RPM)', height: 150, yMax: null,
         noYMin: true,
         datasets: () => [
           makeDataset('Fan',            '#ffffff', h.fan,    `/api/system hwmon (first active fan)`),
         ]
       },
       {
-        key: 'gfx-clk', title: 'Clocks (MHz)', height: 175, yMax: null,
+        key: 'gfx-clk', title: 'Clocks (MHz)', height: 150, yMax: null,
         datasets: () => [
           makeDataset('SCLK',     '#e88504', h.sclk,    `devices[${i}].Sensors['GFX_SCLK']`),
           makeDataset('MCLK',     '#388bfd', h.mclk,    `devices[${i}].Sensors['GFX_MCLK']`),
@@ -766,7 +765,7 @@ function buildDom(devices) {
         ]
       },
       {
-        key: 'power', title: 'Package Power (W)', height: 175, yMax: null,
+        key: 'power', title: 'Package Power (W)', height: 150, yMax: null,
         datasets: () => [
           // makeDataset('PPT',           '#ffffff', h.ppt,    `/api/system hwmon powers[label=PPT] µW→W`),
           makeDataset('GPU', '#40e0d0', h.pwr,    `devices[${i}].Sensors['Average Power']`),
@@ -775,7 +774,7 @@ function buildDom(devices) {
         ]
       },
       {
-        key: 'vram', title: 'VRAM + GTT Usage (GiB)', height: 175, yMax: null,
+        key: 'vram', title: 'VRAM + GTT Usage (GiB)', height: 150, yMax: null,
         tickFmt: v => (typeof v === 'number' ? v.toFixed(3) : String(v)),
         datasets: () => [
           makeDataset('Total', '#3fb950', h.vram,    `devices[${i}].VRAM: Total VRAM Usage + Total GTT Usage`, 3),
@@ -784,7 +783,7 @@ function buildDom(devices) {
         ]
       },
       {
-        key: 'core-pwr', title: 'CPU Core Power (W)', height: 175, yMax: null,
+        key: 'core-pwr', title: 'CPU Core Power (W)', height: 150, yMax: null,
         coreData: () => h.corePwr, coreUnit: 'W',
         datasets: () => Array.from({length: 16}, (_, j) => ({
           label: `CPU ${coreLabel(j)}`,
@@ -799,7 +798,7 @@ function buildDom(devices) {
         }))
       },
       {
-        key: 'activity', title: 'GPU Activity (%)', height: 175, yMax: 100,
+        key: 'activity', title: 'GPU Activity (%)', height: 150, yMax: 100,
         datasets: () => [
           makeDataset('GFX',    '#e85d04', h.gfx,   `devices[${i}].gpu_activity['GFX']`),
           makeDataset('Memory', '#388bfd', h.mem,   `devices[${i}].gpu_activity['Memory']`),
@@ -807,14 +806,14 @@ function buildDom(devices) {
         ]
       },
       {
-        key: 'dram-bw', title: 'DRAM Bandwidth (MB/s)', height: 175, yMax: null,
+        key: 'dram-bw', title: 'DRAM Bandwidth (MB/s)', height: 150, yMax: null,
         datasets: () => [
           makeDataset('Reads',  '#3fb950', h.dramReads,  `devices[${i}].gpu_metrics.average_dram_reads`),
           makeDataset('Writes', '#f85149', h.dramWrites, `devices[${i}].gpu_metrics.average_dram_writes`),
         ]
       },
       {
-        key: 'npu-act', title: 'NPU Tile Activity (%)', height: 175, yMax: 100,
+        key: 'npu-act', title: 'NPU Tile Activity (%)', height: 150, yMax: 100,
         coreData: () => h.npuBusy, coreUnit: '%',
         datasets: () => Array.from({length: 8}, (_, j) => ({
           label: `NPU Tile ${j}`,
@@ -829,21 +828,21 @@ function buildDom(devices) {
         }))
       },
       {
-        key: 'npu-clk', title: 'NPU Clocks (MHz)', height: 175, yMax: null,
+        key: 'npu-clk', title: 'NPU Clocks (MHz)', height: 150, yMax: null,
         datasets: () => [
           makeDataset('NPU Clk',    '#bc8cff', h.npuClk,   `devices[${i}].npu_metrics.npuclk_freq`),
           makeDataset('MP-NPU Clk', '#8b949e', h.npuMpClk, `devices[${i}].npu_metrics.mpnpuclk_freq`),
         ]
       },
       {
-        key: 'npu-bw', title: 'NPU Bandwidth (MB/s)', height: 175, yMax: null,
+        key: 'npu-bw', title: 'NPU Bandwidth (MB/s)', height: 150, yMax: null,
         datasets: () => [
           makeDataset('Reads',  '#3fb950', h.npuReads,  `devices[${i}].npu_metrics.npu_reads`),
           makeDataset('Writes', '#f85149', h.npuWrites, `devices[${i}].npu_metrics.npu_writes`),
         ]
       },
       {
-        key: 'voltage', title: 'Voltage (mV)', height: 175, yMax: null,
+        key: 'voltage', title: 'Voltage (mV)', height: 150, yMax: null,
         datasets: () => [
           makeDataset('VDDGFX', '#e3b341', h.vddgfx, `devices[${i}].Sensors['VDDGFX']`),
           makeDataset('VDDNB',  '#8b949e', h.vddnb,  `devices[${i}].Sensors['VDDNB']`),
@@ -916,7 +915,7 @@ function buildDom(devices) {
       coreCfg.plugins.legend.align    = 'end';
       coreCfg.plugins.legend.labels   = {
         color: '#8b949e', font: { size: 9 },
-        boxWidth: 14, boxHeight: 2, padding: 6,
+        boxWidth: 14, boxHeight: 2, padding: 3,
         generateLabels: (chart) => chart.data.datasets.map((ds, k) => ({
           text:          ds._shortLabel || ds.label,
           fillStyle:     ds.borderColor,
