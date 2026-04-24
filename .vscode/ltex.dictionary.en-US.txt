@@ -44,8 +44,10 @@ GTT-only
 hidepid
 hwmon
 initrd
+inotify
 Inotify
 ints
+invis
 Jnct
 journalctl
 jtmp
@@ -80,6 +82,7 @@ pkgs
 ptables
 RAPL
 RAWIO
+Reclm
 Roboto
 rocm
 ROCm
@@ -100,6 +103,7 @@ Strix
 sudoers
 sysfs
 systemd
+Tbls
 Tctl
 TFLOPS
 THMGFX
@@ -109,6 +113,7 @@ toml
 TSEG
 udev
 Unreclaim
+Unreclm
 upgrader
 vclk
 VCN
@@ -120,4 +125,3 @@ vmem
 XDNA
 xorg
 µW
-inotify
