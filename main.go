@@ -587,7 +587,8 @@ func readNixosInfo() (version string, generation int) {
 }
 
 func (h *hub) serveConfig(w http.ResponseWriter, r *http.Request) {
-	total, _ := readMemInfo()
+	mem := readMemInfoAll()
+	total := mem["MemTotal"] / 1024
 	nixosVer, nixosGen := readNixosInfo()
 	h.mu.Lock()
 	info := configInfo{
@@ -932,16 +933,17 @@ type sysSensor struct {
 }
 
 type systemInfo struct {
-	TotalRAMMiB uint64      `json:"total_ram_mib"`
-	AvailRAMMiB uint64      `json:"avail_ram_mib"`
-	UptimeSec   float64     `json:"uptime_sec"`
-	LoadAvg     [3]float64  `json:"loadavg"`
-	Fans        []sysSensor `json:"fans"`           // RPM
-	Voltages    []sysSensor `json:"voltages"`       // mV
-	Currents    []sysSensor `json:"currents"`       // mA
-	Powers      []sysSensor `json:"powers"`         // µW
-	Temps       []sysSensor `json:"temps"`          // °C
-	CPUUsagePct *float64    `json:"cpu_usage_pct,omitempty"` // 0–100; absent on first tick
+	TotalRAMMiB uint64            `json:"total_ram_mib"`
+	AvailRAMMiB uint64            `json:"avail_ram_mib"`
+	MemInfoKB   map[string]uint64 `json:"meminfo_kb,omitempty"` // all /proc/meminfo fields in kB
+	UptimeSec   float64           `json:"uptime_sec"`
+	LoadAvg     [3]float64        `json:"loadavg"`
+	Fans        []sysSensor       `json:"fans"`           // RPM
+	Voltages    []sysSensor       `json:"voltages"`       // mV
+	Currents    []sysSensor       `json:"currents"`       // mA
+	Powers      []sysSensor       `json:"powers"`         // µW
+	Temps       []sysSensor       `json:"temps"`          // °C
+	CPUUsagePct *float64          `json:"cpu_usage_pct,omitempty"` // 0–100; absent on first tick
 }
 
 // cpuStat holds the raw tick counters from the aggregate "cpu" line in /proc/stat.
@@ -1036,30 +1038,27 @@ func readHwmon() (fans, volts, currs, pows, temps []sysSensor) {
 	return
 }
 
-func readMemInfo() (total, avail uint64) {
+func readMemInfoAll() map[string]uint64 {
 	data, err := os.ReadFile("/proc/meminfo")
 	if err != nil {
-		return
+		return nil
 	}
+	m := make(map[string]uint64)
 	for _, line := range strings.Split(string(data), "\n") {
-		var dst *uint64
-		switch {
-		case strings.HasPrefix(line, "MemTotal:"):
-			dst = &total
-		case strings.HasPrefix(line, "MemAvailable:"):
-			dst = &avail
-		default:
+		idx := strings.IndexByte(line, ':')
+		if idx < 0 {
 			continue
 		}
-		fields := strings.Fields(line)
-		if len(fields) < 2 {
+		key := strings.TrimSpace(line[:idx])
+		fields := strings.Fields(line[idx+1:])
+		if len(fields) == 0 {
 			continue
 		}
-		if kb, err := strconv.ParseUint(fields[1], 10, 64); err == nil {
-			*dst = kb / 1024 // KiB → MiB
+		if v, err := strconv.ParseUint(fields[0], 10, 64); err == nil {
+			m[key] = v // raw value (kB for most fields, plain count for HugePages_*)
 		}
 	}
-	return
+	return m
 }
 
 func readLoadAvg() [3]float64 {
@@ -1090,10 +1089,11 @@ func readUptime() float64 {
 
 func buildSystemInfo() systemInfo {
 	fans, volts, currs, pows, temps := readHwmon()
-	total, avail := readMemInfo()
+	memInfo := readMemInfoAll()
 	return systemInfo{
-		TotalRAMMiB: total,
-		AvailRAMMiB: avail,
+		TotalRAMMiB: memInfo["MemTotal"] / 1024,
+		AvailRAMMiB: memInfo["MemAvailable"] / 1024,
+		MemInfoKB:   memInfo,
 		UptimeSec:   readUptime(),
 		LoadAvg:     readLoadAvg(),
 		Fans:        fans,

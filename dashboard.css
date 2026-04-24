@@ -227,8 +227,8 @@ header .period {
 .system-cards {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(105px, 1fr));
-  gap: 8px;
-  padding: 8px 20px 0;
+  gap: 5px;
+  padding: 5px 8px 0;
 }
 .system-cards:empty { display: none; }
 
@@ -247,7 +247,7 @@ header .period {
 #tabs {
   display: none;
   gap: 4px;
-  padding: 12px 20px 0;
+  padding: 6px 20px 0;
   border-bottom: 1px solid var(--border);
   background: var(--surface);
 }
@@ -277,7 +277,7 @@ header .period {
 }
 
 /* ── Main content ────────────────────────────────────────────────── */
-main { padding: 12px; }
+main { padding: 6px 8px; }
 
 .gpu-panel { display: none; }
 .gpu-panel.active { display: block; }
@@ -285,9 +285,9 @@ main { padding: 12px; }
 /* ── Stat cards ──────────────────────────────────────────────────── */
 .cards {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(105px, 1fr));
-  gap: 8px;
-  margin-bottom: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 5px;
+  margin-bottom: 8px;
   position: sticky;
   top: var(--sticky-top);
   z-index: 50;
@@ -321,8 +321,7 @@ main { padding: 12px; }
 
 /* compact value for cards showing "used / total" */
 .c-vram .card-value,
-.c-gtt  .card-value,
-.c-ram  .card-value {
+.c-gtt  .card-value {
   font-size: 11px;
 }
 
@@ -345,7 +344,7 @@ main { padding: 12px; }
   height: 4px;
   background: var(--border);
   border-radius: 2px;
-  margin-top: 6px;
+  margin-top: 3px;
   overflow: hidden;
 }
 
@@ -381,12 +380,80 @@ main { padding: 12px; }
   font-variant-numeric: tabular-nums;
 }
 
+/* ── Memory overview bar ────────────────────────────────────────── */
+.mem-section {
+  margin-bottom: 8px;
+}
+
+.mem-bar-outer {
+  display: flex;
+  height: 18px;
+  gap: 2px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.mem-bar-vram-part,
+.mem-bar-sys-part {
+  display: flex;
+  height: 100%;
+  overflow: hidden;
+}
+
+.mem-bar-vram-part { flex-shrink: 0; }
+.mem-bar-sys-part  { flex: 1; }
+
+.mem-seg-vram-free { flex: 1;        background: rgba(255,255,255,0.06); }
+.mem-seg-vram-used { flex: 0 0 auto; background: var(--purple); min-width: 2px; }
+.mem-seg-gtt-used  { flex: 0 0 auto; background: rgba(188,140,255,0.6); }
+.mem-seg-sys-hard  { flex: 0 0 auto; background: var(--blue); }
+.mem-seg-buf       { flex: 0 0 auto; background: #0097a7; }
+.mem-seg-cached    { flex: 0 0 auto; background: rgba(0,151,167,0.55); }
+.mem-seg-sreclm    { flex: 0 0 auto; background: rgba(0,151,167,0.28); }
+.mem-seg-free      { flex: 1;        background: rgba(255,255,255,0.06); }
+
+.mem-legend {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
+  font-size: 10px;
+  color: var(--muted);
+  flex-wrap: wrap;
+}
+
+.mem-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.mem-lswatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  flex-shrink: 0;
+  display: inline-block;
+}
+
+.mem-lswatch-vram   { background: var(--purple); }
+.mem-lswatch-gtt    { background: rgba(188,140,255,0.6); border: 1px solid rgba(188,140,255,0.4); }
+.mem-lswatch-hard   { background: var(--blue); }
+.mem-lswatch-buf    { background: #0097a7; }
+.mem-lswatch-cached { background: rgba(0,151,167,0.55); border: 1px solid rgba(0,151,167,0.4); }
+.mem-lswatch-sreclm { background: rgba(0,151,167,0.28); border: 1px solid rgba(0,151,167,0.3); }
+.mem-lswatch-free   { background: rgba(255,255,255,0.12); border: 1px solid var(--border); }
+
+.mem-legend-val   { color: var(--text); }
+.mem-legend-total { margin-left: auto; color: var(--muted); }
+
 /* ── Charts ──────────────────────────────────────────────────────── */
 .charts {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 10px;
-  margin-bottom: 12px;
+  gap: 6px;
+  margin-bottom: 8px;
 }
 
 @media (max-width: 800px) {
@@ -397,8 +464,8 @@ main { padding: 12px; }
 .charts-cores {
   display: grid;
   grid-template-columns: repeat(8, 1fr);
-  gap: 6px;
-  margin-bottom: 12px;
+  gap: 4px;
+  margin-bottom: 8px;
 }
 
 @media (max-width: 900px) {
@@ -417,8 +484,8 @@ main { padding: 12px; }
 .chart-box {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 8px;
+  border-radius: 6px;
+  padding: 5px 7px;
   min-width: 0;
 }
 
@@ -455,7 +522,7 @@ main { padding: 12px; }
   font-weight: 600;
   letter-spacing: 0.03em;
   color: var(--muted);
-  padding: 12px 16px;
+  padding: 5px 10px;
   border-bottom: 1px solid var(--border);
 }
 
@@ -465,7 +532,7 @@ main { padding: 12px; }
   border: 1px solid var(--border);
   border-radius: 8px;
   overflow: hidden;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
 }
 
 .grbm-grid {
@@ -478,7 +545,7 @@ main { padding: 12px; }
   .grbm-col:first-child { border-right: none; border-bottom: 1px solid var(--border); }
 }
 
-.grbm-col { padding: 12px 16px; }
+.grbm-col { padding: 6px 10px; }
 
 .grbm-col:first-child { border-right: 1px solid var(--border); }
 
@@ -487,11 +554,11 @@ main { padding: 12px; }
   font-weight: 600;
   letter-spacing: 0.03em;
   color: var(--muted);
-  margin-bottom: 10px;
+  margin-bottom: 5px;
 }
 
 .grbm-item {
-  margin-bottom: 7px;
+  margin-bottom: 4px;
   cursor: pointer;
   border-radius: 4px;
   transition: background 0.15s;
@@ -573,7 +640,7 @@ main { padding: 12px; }
 }
 .grbm-section.collapsed .grbm-item:hover { background: none; }
 .grbm-section.collapsed .grbm-bar-wrap   { height: 5px; }
-.grbm-section.collapsed .grbm-col        { padding: 8px 16px; }
+.grbm-section.collapsed .grbm-col        { padding: 4px 10px; }
 
 /* ── Process table ───────────────────────────────────────────────── */
 .proc-section {
@@ -591,7 +658,7 @@ main { padding: 12px; }
 
 .proc-table th {
   text-align: left;
-  padding: 8px 16px;
+  padding: 4px 10px;
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.03em;
@@ -601,7 +668,7 @@ main { padding: 12px; }
 }
 
 .proc-table td {
-  padding: 7px 16px;
+  padding: 4px 10px;
   border-bottom: 1px solid var(--border);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;

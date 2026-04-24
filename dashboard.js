@@ -573,6 +573,9 @@ function buildDom(devices) {
     // ── Stat cards ──
     const cards = el('div', 'cards');
     const cardDefs = [
+      // Permanent system cards (fed by /api/system, never idle-hidden).
+      { id: `c-cpu-${i}`,    cls: 'c-cpu',    label: 'CPU Usage',          unit: '%',   bar: true,  permanent: true, src: `/api/system → cpu_usage_pct (/proc/stat delta)` },
+      // GPU cards
       { id: `c-gfx-${i}`,    cls: 'c-gfx',    label: 'GFX',                unit: '%',   bar: true,  src: `devices[${i}].gpu_activity.GFX.value` },
       { id: `c-media-${i}`,  cls: 'c-media',  label: 'Media',              unit: '%',   bar: true,  src: `devices[${i}].gpu_activity.MediaEngine.value` },
       { id: `c-vmem-${i}`,   cls: 'c-vmem',   label: 'Total GPU Memory',   unit: '%',   bar: true,  src: `(devices[${i}].VRAM['Total VRAM Usage'] + devices[${i}].VRAM['Total GTT Usage']) / (devices[${i}].VRAM['Total VRAM'] + devices[${i}].VRAM['Total GTT']) × 100` },
@@ -586,8 +589,6 @@ function buildDom(devices) {
       { id: `c-etmp-${i}`,   cls: 'c-etmp',   label: 'Edge Temp',          unit: '°C',  bar: false, src: `devices[${i}].Sensors['Edge Temperature'].value` },
       { id: `c-cputmp-${i}`, cls: 'c-cputmp', label: 'CPU Tctl',           unit: '°C',  bar: false, src: `devices[${i}].Sensors['CPU Tctl'].value` },
       { id: `c-pwr-${i}`,    cls: 'c-pwr',    label: 'GPU Power',          unit: 'W',   bar: false, src: `devices[${i}].Sensors['Average Power' || 'Socket Power' || 'Input Power'].value` },
-      { id: `c-cpu-${i}`,    cls: 'c-cpu',    label: 'CPU Usage',          unit: '%',   bar: true,  src: `/api/system → cpu_usage_pct (/proc/stat delta)` },
-      { id: `c-ram-${i}`,    cls: 'c-ram',    label: 'System RAM',         unit: 'GiB', bar: true,  split: true, srcU: `/api/system → total_ram_mib − avail_ram_mib + VRAM_used + GTT_used (MiB→GiB)`, srcT: `/api/system → total_ram_mib (MiB→GiB)` },
       // Permanent system cards (fed by /api/system, never idle-hidden).
       // { id: `c-ppt-${i}`,    cls: 'c-ppt',    label: 'Package Power Tracking', unit: 'W',   bar: false, permanent: true },
       { id: `c-fan-${i}`,    cls: 'c-fan',    label: 'Fan Speed',          unit: 'RPM', bar: false, permanent: true, src: `/api/system → fans[0].value` },
@@ -614,6 +615,36 @@ function buildDom(devices) {
       state.cardLastData[def.id] = def.permanent ? Date.now() : 0;
     });
     panel.appendChild(cards);
+
+    // ── Memory overview bar ──
+    const memSec = el('div', 'mem-section');
+    memSec.innerHTML = `
+      <div class="mem-bar-outer">
+        <div class="mem-bar-vram-part" id="mem-vram-part-${i}">
+          <div class="mem-seg mem-seg-vram-free" id="mem-vram-free-${i}" data-src="devices[${i}].VRAM['Total VRAM'] − Total VRAM Usage (BIOS carveout free, MiB)"></div>
+          <div class="mem-seg mem-seg-vram-used" id="mem-vram-used-${i}" data-src="devices[${i}].VRAM['Total VRAM Usage'] (BIOS carveout used, MiB)"></div>
+        </div>
+        <div class="mem-bar-sys-part">
+          <div class="mem-seg mem-seg-gtt-used"  id="mem-gtt-used-${i}"  data-src="devices[${i}].VRAM['Total GTT Usage'] (system RAM lent to GPU, MiB)"></div>
+          <div class="mem-seg mem-seg-sys-hard"  id="mem-sys-hard-${i}"  data-src="/proc/meminfo: MemTotal − MemFree − Buffers − Cached − SReclaimable − GTT (process + kernel non-reclaimable)"></div>
+          <div class="mem-seg mem-seg-buf"       id="mem-buf-${i}"       data-src="/proc/meminfo Buffers (kernel buffer cache, reclaimable)"></div>
+          <div class="mem-seg mem-seg-cached"    id="mem-cached-${i}"    data-src="/proc/meminfo Cached (page cache incl. shmem/tmpfs, reclaimable)"></div>
+          <div class="mem-seg mem-seg-sreclm"    id="mem-sreclm-${i}"    data-src="/proc/meminfo SReclaimable (dentry/inode slab caches, reclaimable)"></div>
+          <div class="mem-seg mem-seg-free"      id="mem-free-${i}"      data-src="/proc/meminfo MemFree"></div>
+        </div>
+      </div>
+      <div class="mem-legend">
+        <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-vram"></span>BIOS VRAM: <span class="mem-legend-val" id="mem-lbl-vram-${i}">—</span></span>
+        <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-gtt"></span>GTT: <span class="mem-legend-val" id="mem-lbl-gtt-${i}">—</span></span>
+        <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-hard"></span>Process+Kernel: <span class="mem-legend-val" id="mem-lbl-hard-${i}">—</span></span>
+        <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-buf"></span>Buffers: <span class="mem-legend-val" id="mem-lbl-buf-${i}">—</span></span>
+        <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-cached"></span>Page Cache: <span class="mem-legend-val" id="mem-lbl-cached-${i}">—</span></span>
+        <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-sreclm"></span>Slab: <span class="mem-legend-val" id="mem-lbl-sreclm-${i}">—</span></span>
+        <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-free"></span>Free: <span class="mem-legend-val" id="mem-lbl-free-${i}">—</span></span>
+        <span class="mem-legend-total">Physical total: <span id="mem-lbl-total-${i}">—</span> GiB</span>
+      </div>
+    `;
+    panel.appendChild(memSec);
 
     const h = state.hist[i];
 
@@ -1288,24 +1319,49 @@ function updateDevice(i, dev) {
   const cpuFresh = state.lastCPU.value != null && (cpuNow - state.lastCPU.receivedAt) < 3000;
   setCard(`c-cpu-${i}`, cpuFresh ? state.lastCPU.value : null, 1);
 
-  // System RAM card: used = total − (avail − GPU used); GPU memory subtracted because
-  // GTT is system RAM lent to the GPU, and VRAM on APUs is carved from system RAM.
+  // ── Memory overview bar ──
   const sysInfo = state.systemInfo;
-  const ramUEl  = document.getElementById(`c-ram-${i}-u`);
-  const ramTEl  = document.getElementById(`c-ram-${i}-t`);
-  let ramUsedGiB = null, ramTotGiB = null, ramPct = null;
-  if (sysInfo && sysInfo.total_ram_mib > 0) {
-    const gpuUsedMiB  = (vramU ?? 0) + (gttU ?? 0);
-    const availMiB    = Math.max(0, sysInfo.avail_ram_mib - gpuUsedMiB);
-    ramUsedGiB = (sysInfo.total_ram_mib - availMiB) / 1024;
-    ramTotGiB  = sysInfo.total_ram_mib / 1024;
-    ramPct     = ramUsedGiB / ramTotGiB * 100;
-    if (ramUEl) ramUEl.textContent = ramUsedGiB.toFixed(3);
-    if (ramTEl) ramTEl.textContent = ramTotGiB.toFixed(3);
-    state.cardLastData[`c-ram-${i}`] = cpuNow;
-  } else {
-    if (ramUEl) ramUEl.textContent = '—';
-    if (ramTEl) ramTEl.textContent = '—';
+  if (sysInfo && vramT > 0) {
+    const mk       = sysInfo.meminfo_kb ?? {};
+    const totalKB  = mk.MemTotal ?? (sysInfo.total_ram_mib * 1024);
+    const vramUsed = vramU ?? 0;
+    const gttKB    = (gttU ?? 0) * 1024;           // MiB → kB
+    const bufKB    = mk.Buffers       ?? 0;
+    const cachedKB = mk.Cached        ?? 0;
+    const sreclmKB = mk.SReclaimable  ?? 0;
+    const freeKB   = mk.MemFree       ?? 0;
+    // hard = everything not accounted for by the named reclaimable buckets or GTT
+    const hardKB   = Math.max(0, totalKB - freeKB - bufKB - cachedKB - sreclmKB - gttKB);
+    const physTotalMiB = vramT + totalKB / 1024;
+
+    const vramPartEl = document.getElementById(`mem-vram-part-${i}`);
+    const vramUsedEl = document.getElementById(`mem-vram-used-${i}`);
+    const gttEl      = document.getElementById(`mem-gtt-used-${i}`);
+    const hardEl     = document.getElementById(`mem-sys-hard-${i}`);
+    const bufEl      = document.getElementById(`mem-buf-${i}`);
+    const cachedEl   = document.getElementById(`mem-cached-${i}`);
+    const sreclmEl   = document.getElementById(`mem-sreclm-${i}`);
+
+    const pct = kb => `${kb / totalKB * 100}%`;
+    if (vramPartEl) vramPartEl.style.width = `${vramT / physTotalMiB * 100}%`;
+    if (vramUsedEl) vramUsedEl.style.width = `${vramUsed / vramT * 100}%`;
+    if (gttEl)      gttEl.style.width      = pct(gttKB);
+    if (hardEl)     hardEl.style.width     = pct(hardKB);
+    if (bufEl)      bufEl.style.width      = pct(bufKB);
+    if (cachedEl)   cachedEl.style.width   = pct(cachedKB);
+    if (sreclmEl)   sreclmEl.style.width   = pct(sreclmKB);
+    // mem-free is flex:1 and fills remaining space automatically
+
+    const fmtGiB = kb => `${(kb / 1024 / 1024).toFixed(2)} GiB`;
+    const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+    set(`mem-lbl-vram-${i}`,   fmtGiB(vramUsed * 1024));
+    set(`mem-lbl-gtt-${i}`,    fmtGiB(gttKB));
+    set(`mem-lbl-hard-${i}`,   fmtGiB(hardKB));
+    set(`mem-lbl-buf-${i}`,    fmtGiB(bufKB));
+    set(`mem-lbl-cached-${i}`, fmtGiB(cachedKB));
+    set(`mem-lbl-sreclm-${i}`, fmtGiB(sreclmKB));
+    set(`mem-lbl-free-${i}`,   fmtGiB(freeKB));
+    set(`mem-lbl-total-${i}`,  (physTotalMiB / 1024).toFixed(2));
   }
 
   // Progress bars
@@ -1315,7 +1371,6 @@ function updateDevice(i, dev) {
   setBar(`c-vram-${i}`,  vramT  > 0 ? vramU  / vramT  * 100 : null);
   setBar(`c-gtt-${i}`,   gttT   > 0 ? gttU   / gttT   * 100 : null);
   setBar(`c-cpu-${i}`,   cpuFresh ? state.lastCPU.value : null);
-  setBar(`c-ram-${i}`,   ramPct);
 
   // ── History ──
   const nowMs = Date.now();
