@@ -37,14 +37,15 @@ var upgrader = websocket.Upgrader{
 }
 
 type hub struct {
-	mu             sync.Mutex
-	clients        map[*websocket.Conn]struct{}
-	last           []byte
-	intervalMs     int
-	cancelFn       context.CancelFunc
-	atopVersion    string          // amdgpu_top version string
-	ryzenAdjArgs   []string        // nil if not configured; includes sudo prefix when needed
-	powerCache     powerLimitsInfo // last successful ryzenadj result
+	mu                 sync.Mutex
+	clients            map[*websocket.Conn]struct{}
+	last               []byte
+	intervalMs         int
+	cancelFn           context.CancelFunc
+	atopVersion        string          // amdgpu_top version string
+	ryzenAdjArgs       []string        // nil if not configured; includes sudo prefix when needed
+	powerCache         powerLimitsInfo // last successful ryzenadj result
+	limitsRefreshedAt  time.Time       // when powerCache was last written
 }
 
 func (h *hub) add(c *websocket.Conn) {
@@ -880,10 +881,19 @@ func (h *hub) refreshPowerLimits() {
 	}
 	h.mu.Lock()
 	h.powerCache = result
+	h.limitsRefreshedAt = time.Now()
 	h.mu.Unlock()
 }
 
 func (h *hub) serveLimits(w http.ResponseWriter, r *http.Request) {
+	// Refresh cache if stale (>30 s) so the client always gets current ryzenadj values.
+	h.mu.Lock()
+	stale := len(h.ryzenAdjArgs) > 0 && time.Since(h.limitsRefreshedAt) > 30*time.Second
+	h.mu.Unlock()
+	if stale {
+		h.refreshPowerLimits()
+	}
+
 	h.mu.Lock()
 	result := h.powerCache
 	h.mu.Unlock()

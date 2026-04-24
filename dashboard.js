@@ -230,6 +230,7 @@ const state = {
   overlayWidthMs:  0,
   chartLastData:   {},   // chartKey → ms timestamp of last tick with any finite data
   cardLastData:    {},   // cardId   → ms timestamp of last tick with any finite value
+  serverVersion:   null, // atopweb version string as reported by /api/config on first load
 };
 
 // History size = time window / update interval, so the x-axis always shows a
@@ -607,7 +608,13 @@ function buildDom(devices) {
 
     // ── GRBM / GRBM2 performance counters ──
     const grbmSec = el('div', 'grbm-section');
-    grbmSec.appendChild(el('div', 'section-title', 'Performance Counters'));
+    if (localStorage.getItem('atopweb.grbmCollapsed') !== 'false') grbmSec.classList.add('collapsed');
+    const grbmTitle = el('div', 'section-title grbm-section-title', 'Performance Counters');
+    grbmTitle.addEventListener('click', () => {
+      grbmSec.classList.toggle('collapsed');
+      localStorage.setItem('atopweb.grbmCollapsed', grbmSec.classList.contains('collapsed'));
+    });
+    grbmSec.appendChild(grbmTitle);
     const grbmGrid = el('div', 'grbm-grid');
 
     const buildPCCol = (colTitle, keys, prefix, histArr, color, barCls, srcObj) => {
@@ -630,6 +637,7 @@ function buildDom(devices) {
 
         const chartKey = `${i}-${prefix}-${ki}`;
         item.addEventListener('click', () => {
+          if (grbmSec.classList.contains('collapsed')) return;
           item.classList.toggle('expanded');
           if (item.classList.contains('expanded')) {
             // Lazy-create the chart on first expand.
@@ -1527,6 +1535,8 @@ function connect() {
     setConnStatus('connected', 'Connected');
     appendLog('WebSocket connected', 'ok');
     fetchPowerLimits();
+    fetchCoreRanks();
+    fetchConfig();
   });
 
   ws.addEventListener('message', evt => {
@@ -1812,8 +1822,8 @@ function loadSavedSettings() {
   }
 }
 
-// ── Interval control ─────────────────────────────────────────────────────────
-function initIntervalCtrl() {
+// ── Config fetch (version check + subtitle refresh) ───────────────────────────
+function fetchConfig() {
   fetch('/api/config')
     .then(r => r.json())
     .then(cfg => {
@@ -1821,18 +1831,38 @@ function initIntervalCtrl() {
         state.intervalMs = cfg.interval_ms;
         document.getElementById('interval-input').value = cfg.interval_ms;
       }
-      const atopwebver = cfg.atopweb_version ? `v${cfg.atopweb_version}` : '';
-      document.getElementById('page-title').textContent = 'atopweb ' + atopwebver;
+      const newVer = cfg.atopweb_version || '';
+      document.getElementById('page-title').textContent = 'atopweb ' + (newVer ? `v${newVer}` : '');
       const subParts = [];
       if (cfg.amdgpu_top_version) subParts.push(cfg.amdgpu_top_version);
       if (cfg.kernel_version)     subParts.push(`Linux v${cfg.kernel_version}`);
       if (cfg.nixos_version)      subParts.push(`NixOS v${cfg.nixos_version}`);
       if (cfg.nixos_generation)   subParts.push(`Nix Profile Gen ${cfg.nixos_generation}`);
-      if (cfg.cpu_gov)   subParts.push(`CPU Gov: ${cfg.cpu_gov}`);
+      if (cfg.cpu_gov)            subParts.push(`CPU Gov: ${cfg.cpu_gov}`);
       document.getElementById('page-subtitle').textContent = subParts.join(' ◆ ');
       if (cfg.total_ram_mib) state.totalRAMMiB = cfg.total_ram_mib;
+      if (state.serverVersion === null && newVer) {
+        state.serverVersion = newVer;                   // record version this page was loaded with
+      } else if (state.serverVersion && newVer && newVer !== state.serverVersion) {
+        showVersionBanner(state.serverVersion, newVer); // server updated while page is open
+      }
     })
     .catch(() => {});
+}
+
+function showVersionBanner(loadedVer, serverVer) {
+  const banner = document.getElementById('version-banner');
+  const msg    = document.getElementById('version-banner-msg');
+  if (!banner || !msg) return;
+  msg.textContent =
+    `atopweb updated on server: v${loadedVer} → v${serverVer}. Refresh the page to run the new version.`;
+  banner.hidden = false;
+  appendLog(`atopweb server updated: v${loadedVer} → v${serverVer} — refresh to update`, 'warn');
+}
+
+// ── Interval control ─────────────────────────────────────────────────────────
+function initIntervalCtrl() {
+  fetchConfig();
 
   const apply = () => {
     const ms = parseInt(document.getElementById('interval-input').value, 10);
@@ -2035,6 +2065,8 @@ updateStickyOffset();
 fetchPowerLimits();
 setInterval(fetchPowerLimits, 300_000);
 fetchCoreRanks();
+setInterval(fetchCoreRanks, 600_000);
+setInterval(fetchConfig, 600_000);
 fetchSystem();
 setInterval(fetchSystem, 1000);
 setInterval(saveCache, CACHE_SAVE_MS);
