@@ -120,5 +120,4 @@ vmem
 XDNA
 xorg
 µW
-
-Strix
+inotify
