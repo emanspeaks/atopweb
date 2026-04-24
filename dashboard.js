@@ -640,7 +640,13 @@ function buildDom(devices) {
         <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-cached"></span>Page Cache: <span class="mem-legend-val" id="mem-lbl-cached-${i}">—</span></span>
         <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-sreclm"></span>Slab: <span class="mem-legend-val" id="mem-lbl-sreclm-${i}">—</span></span>
         <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-free"></span>Free: <span class="mem-legend-val" id="mem-lbl-free-${i}">—</span></span>
-        <span class="mem-legend-total">Physical total: <span id="mem-lbl-total-${i}">—</span> GiB</span>
+        <span class="mem-legend-total">
+          Physical: <span class="mem-legend-val" id="mem-lbl-total-${i}">—</span> GiB
+          <span class="mem-legend-sep">·</span>
+          Non-GTT: <span class="mem-legend-val" id="mem-lbl-nongtt-${i}">—</span> GiB
+          <span class="mem-legend-sep">·</span>
+          Margin: <span class="mem-legend-val" id="mem-lbl-margin-${i}">—</span> GiB
+        </span>
       </div>
     `;
     cards.appendChild(memSec);
@@ -1363,6 +1369,13 @@ function updateDevice(i, dev) {
     set(`mem-lbl-sreclm-${i}`, fmtGiB(sreclmKB));
     set(`mem-lbl-free-${i}`,   fmtGiB(freeKB));
     set(`mem-lbl-total-${i}`,  (physTotalMiB / 1024).toFixed(3));
+
+    const nonGttTotalKB = totalKB - (gttT ?? 0) * 1024;
+    const marginKB      = nonGttTotalKB - hardKB;
+    set(`mem-lbl-nongtt-${i}`,  (nonGttTotalKB / 1024 / 1024).toFixed(3));
+    set(`mem-lbl-margin-${i}`,  (marginKB / 1024 / 1024).toFixed(3));
+    const marginEl = document.getElementById(`mem-lbl-margin-${i}`);
+    if (marginEl) marginEl.style.color = marginKB < 0 ? 'var(--red)' : '';
   }
 
   // Progress bars

@@ -446,7 +446,8 @@ main { padding: 6px 8px; }
 .mem-lswatch-sreclm { background: rgba(0,151,167,0.28); border: 1px solid rgba(0,151,167,0.3); }
 .mem-lswatch-free   { background: rgba(255,255,255,0.12); border: 1px solid var(--border); }
 
-.mem-legend-val   { color: var(--text); }
+.mem-legend-val   { color: var(--data-color); }
+.mem-legend-sep   { color: var(--border); margin: 0 4px; }
 .mem-legend-total { margin-left: auto; color: var(--muted); }
 
 /* ── Charts ──────────────────────────────────────────────────────── */
