@@ -634,7 +634,8 @@ function buildDom(devices) {
         </div>
       </div>
       <div class="mem-legend">
-        <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-vram"></span>BIOS VRAM: <span class="mem-legend-val" id="mem-lbl-vram-${i}">—</span></span>
+        <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-vram-free"></span>BIOS VRAM free: <span class="mem-legend-val" id="mem-lbl-vram-free-${i}">—</span></span>
+        <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-vram"></span>BIOS VRAM used: <span class="mem-legend-val" id="mem-lbl-vram-${i}">—</span></span>
         <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-gtt"></span>GTT: <span class="mem-legend-val" id="mem-lbl-gtt-${i}">—</span></span>
         <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-hard"></span>Process+Kernel: <span class="mem-legend-val" id="mem-lbl-hard-${i}">—</span></span>
         <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-buf"></span>Buffers: <span class="mem-legend-val" id="mem-lbl-buf-${i}">—</span></span>
@@ -1354,7 +1355,8 @@ function updateDevice(i, dev) {
 
     const fmtGiB = kb => `${(kb / 1024 / 1024).toFixed(2)} GiB`;
     const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
-    set(`mem-lbl-vram-${i}`,   fmtGiB(vramUsed * 1024));
+    set(`mem-lbl-vram-free-${i}`, fmtGiB((vramT - vramUsed) * 1024));
+    set(`mem-lbl-vram-${i}`,      fmtGiB(vramUsed * 1024));
     set(`mem-lbl-gtt-${i}`,    fmtGiB(gttKB));
     set(`mem-lbl-hard-${i}`,   fmtGiB(hardKB));
     set(`mem-lbl-buf-${i}`,    fmtGiB(bufKB));
