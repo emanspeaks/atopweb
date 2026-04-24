@@ -942,6 +942,7 @@ type systemInfo struct {
 	DRMMem              *drmAccounting    `json:"drm_mem,omitempty"`               // per-process DRM memory breakdown from /proc/*/fdinfo
 	SockMemKB           uint64            `json:"sock_mem_kb,omitempty"`           // kernel network-stack page allocations (sum of /proc/net/sockstat "mem" lines × page size)
 	DmaBufBytes         uint64            `json:"dma_buf_bytes,omitempty"`         // total dma-buf bytes across all exporters (informational; overlaps with VRAM/GTT)
+	Errors              []string          `json:"errors,omitempty"`                // sticky non-fatal diagnostics (permissions, missing modules, etc.); each unique message appears once
 	UptimeSec           float64           `json:"uptime_sec"`
 	LoadAvg     [3]float64        `json:"loadavg"`
 	Fans        []sysSensor       `json:"fans"`           // RPM
@@ -1067,6 +1068,47 @@ func readMemInfoAll() map[string]uint64 {
 	return m
 }
 
+// diagnostics collects non-fatal error messages from the privileged readers
+// (MSR, DRM fdinfo, debugfs) and deduplicates them by message text.  Each
+// unique message is emitted once to the process's stderr via log.Printf (so
+// systemd captures it to the journal / syslog) and surfaced in every
+// systemInfo response via the Errors field so the dashboard's log pane can
+// show it to the user.  The sticky list is never cleared — a given failure
+// mode is a configuration problem, not a transient event.
+type diagnostics struct {
+	mu    sync.Mutex
+	seen  map[string]struct{}
+	items []string
+}
+
+var diag diagnostics
+
+func (d *diagnostics) report(format string, args ...interface{}) {
+	msg := fmt.Sprintf(format, args...)
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if _, ok := d.seen[msg]; ok {
+		return
+	}
+	if d.seen == nil {
+		d.seen = make(map[string]struct{})
+	}
+	d.seen[msg] = struct{}{}
+	d.items = append(d.items, msg)
+	log.Printf("atopweb diagnostic: %s", msg)
+}
+
+func (d *diagnostics) snapshot() []string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if len(d.items) == 0 {
+		return nil
+	}
+	out := make([]string, len(d.items))
+	copy(out, d.items)
+	return out
+}
+
 // readMSR reads an 8-byte model-specific register via /dev/cpu/<cpu>/msr.
 // Requires the msr kernel module loaded and CAP_SYS_RAWIO (or root) on the
 // calling process.  Returns error if the module isn't loaded, the capability
@@ -1118,17 +1160,23 @@ type memReservation struct {
 }
 
 // readMemReservation assembles the memReservation report.  Cached: all inputs
-// are static after boot.  If MSRs are unreadable (module not loaded, missing
-// capability) it falls back to an e820-only estimate which over-counts by any
-// MMIO space above TOP_MEM2.
+// are static after boot.
+//
+// If MSRs are not readable (msr module not loaded, missing CAP_SYS_RAWIO, or
+// the DAC check on /dev/cpu/*/msr fails) we do NOT fall back to an e820-only
+// estimate — that approach over-counts by any PCI ECAM / MMIO region beyond
+// TOP_MEM2 (typically ~770 MiB on Strix Halo), which would silently produce
+// wrong numbers in the dashboard.  Instead the firmware-reservation fields
+// stay zero, SourceMSR stays false, and a diagnostic is surfaced via
+// diag.report() so the user sees in the dashboard log exactly why the bar is
+// incomplete.
 //
 // The total firmware reservation is split into three components:
 //   - High: DRAM above top of System RAM (VRAM carveout + PSP/SMU runtime).
-//     When MSRs are available this is byte-exact (TOP_MEM2 − top_of_System_RAM);
-//     otherwise it falls back to summing e820 Reserved entries, which may
-//     include MMIO address space beyond TOP_MEM2 and over-count.
+//     Computed byte-exact from MSRs: TOP_MEM2 − top_of_System_RAM.
 //   - Low: DRAM below TOP_MEM marked non-System-RAM in e820 (ACPI NVS/Tables,
-//     TSEG, small Reserved blocks).  Always available from e820.
+//     TSEG, small Reserved blocks).  Sourced from e820 but clipped at TOP_MEM
+//     so the result is DRAM-only (requires MSR TOP_MEM).
 //   - Hidden: DRAM below TOP_MEM that firmware didn't advertise in e820 at all
 //     (seen as a "gap" in dmesg).  Computed as TOP_MEM − sum(all e820 entries
 //     below TOP_MEM).  Requires MSR TOP_MEM.
@@ -1168,104 +1216,93 @@ func readMemReservation() memReservation {
 			}
 		}
 		if topRAM == 0 {
+			diag.report("readMemReservation: no 'System RAM' entries in /sys/firmware/memmap — memory-bar reconciliation will be incomplete")
 			return
 		}
 		memReservationVal.SystemRAMTopBytes = topRAM + 1
 		memReservationVal.SystemRAMMiB = sysRAMBytes / (1024 * 1024)
 
-		// 2) Try AMD MSRs for authoritative DRAM topology.
+		// 2) AMD MSRs for authoritative DRAM topology.  No e820-only fallback
+		// here: e820 "Reserved" entries mix DRAM reservations with MMIO
+		// address space above TOP_MEM2, which would silently produce
+		// inaccurate firmware-reservation numbers.  If the MSRs can't be
+		// read we leave the corresponding fields zero and surface the reason
+		// via diag.report() so the user sees it in the dashboard log.
 		tom, errTom := readMSR(0, msrAMDTopMem)
 		tom2, errTom2 := readMSR(0, msrAMDTopMem2)
-		msrOK := errTom == nil && errTom2 == nil
-
-		if msrOK {
-			memReservationVal.TopMemBytes = tom
-			memReservationVal.TopMem2Bytes = tom2
-			memReservationVal.SourceMSR = true
-
-			// Installed DRAM = low DRAM (0..TOP_MEM) + high DRAM (4 GiB..TOP_MEM2).
-			const fourGiB uint64 = 4 << 30
-			if tom2 > fourGiB {
-				memReservationVal.InstalledMiB = (tom + (tom2 - fourGiB)) / (1024 * 1024)
+		if errTom != nil || errTom2 != nil {
+			err := errTom
+			if err == nil {
+				err = errTom2
 			}
-
-			// High firmware reservation: byte-exact from MSRs.
-			var highBytes uint64
-			if tom2 > topRAM+1 {
-				highBytes = tom2 - (topRAM + 1)
-			}
-
-			// Low firmware reservation: sum of non-SystemRAM e820 entries whose
-			// addresses lie below TOP_MEM.  Entries that straddle TOP_MEM are
-			// clipped.  Anything with start >= TOP_MEM is MMIO, not DRAM.
-			var lowBytes uint64
-			for _, r := range regs {
-				if r.typ == "System RAM" || r.start >= tom {
-					continue
-				}
-				end := r.end
-				if end >= tom {
-					end = tom - 1
-				}
-				lowBytes += end - r.start + 1
-			}
-
-			// Hidden gap: DRAM under TOP_MEM that e820 didn't report at all.
-			// = TOP_MEM - sum(all e820 entries below TOP_MEM).
-			var accountedLow uint64
-			for _, r := range regs {
-				if r.start >= tom {
-					continue
-				}
-				end := r.end
-				if end >= tom {
-					end = tom - 1
-				}
-				accountedLow += end - r.start + 1
-			}
-			var hiddenBytes uint64
-			if tom > accountedLow {
-				hiddenBytes = tom - accountedLow
-			}
-
-			memReservationVal.FirmwareHighMiB = highBytes / (1024 * 1024)
-			memReservationVal.FirmwareLowMiB = (lowBytes + hiddenBytes) / (1024 * 1024)
-			memReservationVal.FirmwareReservedMiB = (highBytes + lowBytes + hiddenBytes) / (1024 * 1024)
-
-			// TSEG: base in SMM_ADDR bits 51:17, size derived from SMM_MASK bits 51:17.
-			if addr, err := readMSR(0, msrAMDSMMAddr); err == nil {
-				if mask, err := readMSR(0, msrAMDSMMMask); err == nil && (mask&0x2) != 0 {
-					memReservationVal.TsegBaseBytes = addr &^ ((uint64(1) << 17) - 1)
-					tsegMaskField := (mask >> 17) & ((uint64(1) << 35) - 1)
-					size := uint64(1) << 17
-					for tsegMaskField&1 == 0 && tsegMaskField != 0 {
-						size <<= 1
-						tsegMaskField >>= 1
-					}
-					memReservationVal.TsegSizeBytes = size
-				}
-			}
+			diag.report("MSR TOP_MEM / TOP_MEM2 unreadable (%v) — firmware reservation segment, installed-DRAM total, and kernel-reserved segment will be blank until the msr kernel module is loaded and the service has CAP_SYS_RAWIO with read access to /dev/cpu/0/msr", err)
 			return
 		}
 
-		// Fallback without MSRs: best-effort e820-only estimate.  Over-counts
-		// "high" firmware reservation by any MMIO region beyond TOP_MEM2 and
-		// can't identify the hidden gap at all.
-		var highSum, lowSum uint64
+		memReservationVal.TopMemBytes = tom
+		memReservationVal.TopMem2Bytes = tom2
+		memReservationVal.SourceMSR = true
+
+		// Installed DRAM = low DRAM (0..TOP_MEM) + high DRAM (4 GiB..TOP_MEM2).
+		const fourGiB uint64 = 4 << 30
+		if tom2 > fourGiB {
+			memReservationVal.InstalledMiB = (tom + (tom2 - fourGiB)) / (1024 * 1024)
+		}
+
+		// High firmware reservation: byte-exact from MSRs.
+		var highBytes uint64
+		if tom2 > topRAM+1 {
+			highBytes = tom2 - (topRAM + 1)
+		}
+
+		// Low firmware reservation: e820 non-SystemRAM entries clipped at
+		// TOP_MEM, plus the hidden-gap (TOP_MEM − sum of all e820 entries
+		// below TOP_MEM) that firmware never advertised.
+		var lowBytes, accountedLow uint64
 		for _, r := range regs {
-			if r.typ == "System RAM" {
+			if r.start >= tom {
 				continue
 			}
-			sz := r.end - r.start + 1
-			if r.start > topRAM {
-				highSum += sz
-			} else {
-				lowSum += sz
+			end := r.end
+			if end >= tom {
+				end = tom - 1
+			}
+			accountedLow += end - r.start + 1
+			if r.typ != "System RAM" {
+				lowBytes += end - r.start + 1
 			}
 		}
-		memReservationVal.FirmwareHighMiB = highSum / (1024 * 1024)
-		memReservationVal.FirmwareLowMiB = lowSum / (1024 * 1024)
-		memReservationVal.FirmwareReservedMiB = (highSum + lowSum) / (1024 * 1024)
+		var hiddenBytes uint64
+		if tom > accountedLow {
+			hiddenBytes = tom - accountedLow
+		}
+
+		memReservationVal.FirmwareHighMiB = highBytes / (1024 * 1024)
+		memReservationVal.FirmwareLowMiB = (lowBytes + hiddenBytes) / (1024 * 1024)
+		memReservationVal.FirmwareReservedMiB = (highBytes + lowBytes + hiddenBytes) / (1024 * 1024)
+
+		// TSEG: base in SMM_ADDR bits 51:17, size decoded from SMM_MASK.
+		addr, errAddr := readMSR(0, msrAMDSMMAddr)
+		mask, errMask := readMSR(0, msrAMDSMMMask)
+		if errAddr != nil || errMask != nil {
+			err := errAddr
+			if err == nil {
+				err = errMask
+			}
+			diag.report("MSR SMM_ADDR / SMM_MASK unreadable (%v) — TSEG base/size unknown; Low firmware reservation still reflects e820 TSEG block but size is not independently verified", err)
+			return
+		}
+		if (mask & 0x2) == 0 {
+			return // TSEG valid bit clear — disabled on this system.
+		}
+		memReservationVal.TsegBaseBytes = addr &^ ((uint64(1) << 17) - 1)
+		tsegMaskField := (mask >> 17) & ((uint64(1) << 35) - 1)
+		size := uint64(1) << 17
+		for tsegMaskField&1 == 0 && tsegMaskField != 0 {
+			size <<= 1
+			tsegMaskField >>= 1
+		}
+		memReservationVal.TsegSizeBytes = size
 	})
 	return memReservationVal
 }
@@ -1347,6 +1384,7 @@ func readDRMSysfs(a *drmAccounting) {
 func readDRMFdinfo(a *drmAccounting) {
 	procs, _ := filepath.Glob("/proc/[0-9]*")
 	byPID := make(map[int]*drmProcessMem, 16)
+	var permDenied int
 	for _, procDir := range procs {
 		pidStr := filepath.Base(procDir)
 		pid, err := strconv.Atoi(pidStr)
@@ -1356,6 +1394,9 @@ func readDRMFdinfo(a *drmAccounting) {
 		fdDir := filepath.Join(procDir, "fd")
 		entries, err := os.ReadDir(fdDir)
 		if err != nil {
+			if os.IsPermission(err) {
+				permDenied++
+			}
 			continue
 		}
 		for _, ent := range entries {
@@ -1422,6 +1463,9 @@ func readDRMFdinfo(a *drmAccounting) {
 		aj := a.Processes[j].VramKiB + a.Processes[j].GttKiB + a.Processes[j].CpuKiB
 		return ai > aj
 	})
+	if permDenied > 0 {
+		diag.report("DRM fdinfo scan: permission denied on /proc/*/fd for %d process(es) — per-process DRM memory totals are incomplete until the service gains CAP_SYS_PTRACE", permDenied)
+	}
 }
 
 // readDRMAccounting assembles the full per-GPU + per-process report.
@@ -1461,13 +1505,21 @@ func readSockMemKB() uint64 {
 }
 
 // readDmaBufBytes sums the size column of /sys/kernel/debug/dma_buf/bufinfo.
-// Requires CAP_SYS_ADMIN for debugfs access; returns 0 silently if unreadable.
-// Reported for diagnostic display only: dma-bufs are usually backed by VRAM
-// or GTT (already accounted for) so summing this into the bar would double-
-// count.
+// Requires CAP_SYS_ADMIN for debugfs access.  On permission failure the
+// reason is reported once via diag.report() so the dashboard log pane shows
+// the user why the dma-buf total is missing.
 func readDmaBufBytes() uint64 {
 	data, err := os.ReadFile("/sys/kernel/debug/dma_buf/bufinfo")
 	if err != nil {
+		readDmaBufErrOnce.Do(func() {
+			if os.IsPermission(err) {
+				diag.report("dma-buf total unavailable: /sys/kernel/debug/dma_buf/bufinfo permission denied — the service needs CAP_SYS_ADMIN to read debugfs")
+			} else if os.IsNotExist(err) {
+				diag.report("dma-buf total unavailable: /sys/kernel/debug/dma_buf/bufinfo does not exist — debugfs is probably not mounted or the dma-buf subsystem is absent")
+			} else {
+				diag.report("dma-buf total unavailable: %v", err)
+			}
+		})
 		return 0
 	}
 	var total uint64
@@ -1484,6 +1536,8 @@ func readDmaBufBytes() uint64 {
 	}
 	return total
 }
+
+var readDmaBufErrOnce sync.Once
 
 func readLoadAvg() [3]float64 {
 	var avg [3]float64
@@ -1524,6 +1578,7 @@ func buildSystemInfo() systemInfo {
 		DRMMem:              readDRMAccounting(),
 		SockMemKB:           readSockMemKB(),
 		DmaBufBytes:         readDmaBufBytes(),
+		Errors:              diag.snapshot(),
 		UptimeSec:           readUptime(),
 		LoadAvg:     readLoadAvg(),
 		Fans:        fans,

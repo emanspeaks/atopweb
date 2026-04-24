@@ -1917,6 +1917,19 @@ function fetchSystem() {
 function renderSystemInfo(sys) {
   state.systemInfo = sys;
 
+  // Surface any new server-side diagnostics (MSR/ptrace/debugfs permissions,
+  // missing kernel modules, etc.) into the dashboard log pane.  The server
+  // ships the full sticky list on every tick; dedupe client-side so a given
+  // message only appears once no matter how many frames carry it.
+  if (Array.isArray(sys.errors) && sys.errors.length) {
+    state.seenErrors ??= new Set();
+    for (const msg of sys.errors) {
+      if (state.seenErrors.has(msg)) continue;
+      state.seenErrors.add(msg);
+      appendLog('server: ' + msg, 'warn');
+    }
+  }
+
   // Push the current value into every device's copy of a permanent card.
   // (On multi-GPU systems each tab gets its own card row, but system values
   // are global — same value goes into all copies.)
