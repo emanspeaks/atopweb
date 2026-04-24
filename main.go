@@ -943,6 +943,7 @@ type systemInfo struct {
 	SockMemKB           uint64            `json:"sock_mem_kb,omitempty"`           // kernel network-stack page allocations (sum of /proc/net/sockstat "mem" lines × page size)
 	DmaBufBytes         uint64            `json:"dma_buf_bytes,omitempty"`         // total dma-buf bytes across all exporters (informational; overlaps with VRAM/GTT)
 	Errors              []string          `json:"errors,omitempty"`                // sticky non-fatal diagnostics (permissions, missing modules, etc.); each unique message appears once
+	ShutdownPending     string            `json:"shutdown_pending,omitempty"`      // non-empty when systemd has a shutdown/reboot scheduled; value is human-readable (e.g. "reboot in 30s")
 	UptimeSec           float64           `json:"uptime_sec"`
 	LoadAvg     [3]float64        `json:"loadavg"`
 	Fans        []sysSensor       `json:"fans"`           // RPM
@@ -1464,7 +1465,7 @@ func readDRMFdinfo(a *drmAccounting) {
 		return ai > aj
 	})
 	if permDenied > 0 {
-		diag.report("DRM fdinfo scan: permission denied on /proc/*/fd for %d process(es) — per-process DRM memory totals are incomplete until the service gains CAP_SYS_PTRACE", permDenied)
+		diag.report("DRM fdinfo scan: permission denied on /proc/*/fd — per-process DRM memory totals are incomplete until the service gains CAP_SYS_PTRACE")
 	}
 }
 
@@ -1565,6 +1566,44 @@ func readUptime() float64 {
 	return sec
 }
 
+// checkShutdownPending reads /run/systemd/shutdown/scheduled and returns a
+// human-readable message when systemd has a shutdown, reboot, halt, or power-
+// off queued.  The file is world-readable (no CAP required) and is written
+// immediately when any of the following are invoked:
+//   - sudo reboot / sudo shutdown / sudo halt / sudo poweroff
+//   - systemctl reboot / poweroff / halt / kexec (including via ACPI/power-btn)
+//
+// Returns "" when no shutdown is pending or the file does not exist.
+func checkShutdownPending() string {
+	data, err := os.ReadFile("/run/systemd/shutdown/scheduled")
+	if err != nil {
+		return ""
+	}
+	var mode string
+	var usec int64
+	for _, line := range strings.Split(string(data), "\n") {
+		k, v, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		switch strings.TrimSpace(k) {
+		case "MODE":
+			mode = strings.TrimSpace(v)
+		case "USEC":
+			usec, _ = strconv.ParseInt(strings.TrimSpace(v), 10, 64)
+		}
+	}
+	if mode == "" {
+		return ""
+	}
+	when := time.UnixMicro(usec)
+	remaining := time.Until(when).Truncate(time.Second)
+	if remaining > 0 {
+		return fmt.Sprintf("%s scheduled in %s (at %s)", mode, remaining, when.Format("15:04:05"))
+	}
+	return fmt.Sprintf("%s in progress (scheduled for %s)", mode, when.Format("15:04:05"))
+}
+
 func buildSystemInfo() systemInfo {
 	fans, volts, currs, pows, temps := readHwmon()
 	memInfo := readMemInfoAll()
@@ -1579,6 +1618,7 @@ func buildSystemInfo() systemInfo {
 		SockMemKB:           readSockMemKB(),
 		DmaBufBytes:         readDmaBufBytes(),
 		Errors:              diag.snapshot(),
+		ShutdownPending:     checkShutdownPending(),
 		UptimeSec:           readUptime(),
 		LoadAvg:     readLoadAvg(),
 		Fans:        fans,
@@ -1843,6 +1883,7 @@ func main() {
 	}
 	go runStreamer(binary, atopArgs, h)
 	go runSystemPusher(h)
+	go watchShutdownFile(h)
 
 	// GPU process early-detection pipeline.
 	gpuCache := loadGPUProcCache(*procCache)
