@@ -155,14 +155,6 @@
             # the msr kernel module is loaded.
             boot.kernelModules = [ "msr" ];
 
-            # /dev/cpu/N/msr defaults to 0600 root:root; grant the atopweb
-            # group read access so the (non-root) service can open it.  The
-            # kernel's msr driver still enforces CAP_SYS_RAWIO on open, which
-            # the systemd unit grants below.
-            services.udev.extraRules = ''
-              KERNEL=="msr[0-9]*", GROUP="atopweb", MODE="0440"
-            '';
-
             systemd.services.atopweb = {
               description = "atopweb GPU web dashboard";
               wantedBy = [ "multi-user.target" ];
@@ -184,49 +176,21 @@
                   ++ cfg.extraArgs
                 );
 
-                User = "atopweb";
-                Group = "atopweb";
-                SupplementaryGroups = [ "render" "video" ];
+                # Run as root so that /proc/*/fdinfo, /dev/cpu/*/msr, and
+                # /sys/kernel/debug/dma_buf/bufinfo are all accessible without
+                # wrestling with ambient capabilities or hidepid restrictions.
+                # amdgpu_top can therefore also be invoked directly (no sudo).
+                User = "root";
 
                 StateDirectory = lib.mkIf cfg.gpuProcCache "atopweb";
-
-                # Capabilities required at all times for full memory accounting:
-                #   CAP_SYS_RAWIO    — open /dev/cpu/*/msr (AMD TOP_MEM2 etc.)
-                #   CAP_SYS_PTRACE   — read /proc/<pid>/fdinfo/<fd> across users
-                #                      to sum DRM per-process memory
-                #   CAP_SYS_ADMIN    — read /sys/kernel/debug/dma_buf/bufinfo
-                #                      (also used by fanotify when enabled)
-                AmbientCapabilities = "CAP_SYS_RAWIO CAP_SYS_PTRACE CAP_SYS_ADMIN";
-                CapabilityBoundingSet = "CAP_SYS_RAWIO CAP_SYS_PTRACE CAP_SYS_ADMIN";
 
                 Restart = "on-failure";
                 RestartSec = "5s";
 
-                # NoNewPrivileges intentionally absent: the setuid wrapper on
-                # amdgpuTopBin requires privilege gain to be allowed across exec().
-                ProtectHome = true;
                 PrivateTmp = true;
               };
             };
 
-            security.sudo.extraRules = lib.mkIf cfg.sudo [{
-              users = [ "atopweb" ];
-              commands = [{
-                command = cfg.amdgpuTopBin;
-                options = [ "NOPASSWD" ];
-              }] ++ lib.optional (cfg.ryzenAdjBin != "") {
-                command = cfg.ryzenAdjBin;
-                options = [ "NOPASSWD" ];
-              };
-            }];
-
-            users.users.atopweb = {
-              isSystemUser = true;
-              group = "atopweb";
-              description = "atopweb web dashboard service user";
-            };
-
-            users.groups.atopweb = {};
           };
         };
     };

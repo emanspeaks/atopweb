@@ -1761,7 +1761,7 @@ function connect() {
         const mode = data.shutdown_pending.split(' ')[0];
         if (state.lastShutdownMode !== mode) {
           state.lastShutdownMode = mode;
-          appendLog('system: ' + data.shutdown_pending, 'error');
+          appendLog('system: ' + data.shutdown_pending, 'err');
         }
       }
       return;
@@ -1938,7 +1938,7 @@ function renderSystemInfo(sys) {
     for (const msg of sys.errors) {
       if (state.seenErrors.has(msg)) continue;
       state.seenErrors.add(msg);
-      appendLog('server: ' + msg, 'error');
+      appendLog('server: ' + msg, 'err');
     }
   }
 
@@ -1947,7 +1947,7 @@ function renderSystemInfo(sys) {
     const mode = sys.shutdown_pending.split(' ')[0];
     if (state.lastShutdownMode !== mode) {
       state.lastShutdownMode = mode;
-      appendLog('system: ' + sys.shutdown_pending, 'error');
+      appendLog('system: ' + sys.shutdown_pending, 'err');
     }
   } else {
     state.lastShutdownMode = undefined;
