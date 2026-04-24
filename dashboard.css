@@ -310,6 +310,7 @@ main { padding: 12px; }
   font-weight: 700;
   line-height: 1.2;
   display: inline-block;
+  color: var(--blue);
 }
 
 /* compact value for cards showing "used / total" */
@@ -346,35 +347,32 @@ main { padding: 12px; }
   border-radius: 2px;
   width: 0%;
   transition: width 0.4s ease;
+  background: var(--blue);
 }
 
-/* accent colors per card type */
+/* per-card accent color overrides (currently unused — all cards use --blue default)
 .c-gfx    .card-value { color: var(--orange); }
-.c-mem    .card-value { color: var(--blue); }
 .c-media  .card-value { color: var(--purple); }
 .c-vram   .card-value { color: var(--green); }
 .c-gtt    .card-value { color: var(--green); }
 .c-sclk   .card-value { color: var(--orange); }
-.c-mclk   .card-value { color: var(--blue); }
-.c-fclk   .card-value { color: var(--blue); }
 .c-pwr    .card-value { color: var(--yellow); }
 .c-etmp   .card-value { color: var(--red); }
 .c-cputmp .card-value { color: var(--yellow); }
 .c-fan    .card-value { color: var(--muted); }
-.c-ppt    .card-value { color: var(--orange); }
-.c-uptime .card-value {
-  color: var(--green);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-}
 .c-vddgfx .card-value { color: var(--yellow); }
 .c-vddnb  .card-value { color: var(--muted); }
+.c-uptime .card-value { color: var(--green); }
 
 .c-gfx   .card-bar { background: var(--orange); }
-.c-mem   .card-bar { background: var(--blue); }
 .c-media .card-bar { background: var(--purple); }
 .c-vram  .card-bar { background: var(--green); }
 .c-gtt   .card-bar { background: var(--green); }
+*/
+.c-uptime .card-value {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
 
 /* ── Charts ──────────────────────────────────────────────────────── */
 .charts {

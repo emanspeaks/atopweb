@@ -594,6 +594,10 @@ function buildDom(devices) {
       const card = el('div', `card ${def.cls}`);
       // Permanent cards are always visible; others hide until data arrives.
       card.style.display = def.permanent ? '' : 'none';
+      // Split cards: id lives on the card div (no single span owns def.id).
+      // scheduleRender finds the card via getElementById(def.id).closest('.card'),
+      // which works because the card div itself has the class and the id.
+      if (def.split) card.id = def.id;
       const valHtml = def.split
         ? `<span class="card-value" id="${def.id}-u" data-src="${def.srcU}">—</span><span class="card-value-sep"> / </span><span class="card-value" id="${def.id}-t" data-src="${def.srcT}">—</span>`
         : `<span class="card-value" id="${def.id}"${def.src ? ` data-src="${def.src}"` : ''}>—</span>`;
