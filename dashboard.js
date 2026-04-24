@@ -639,36 +639,37 @@ function buildDom(devices) {
           <div class="mem-seg mem-seg-drvpg"    id="mem-drvpg-${i}"    data-src="Used − Σ named buckets (kernel direct alloc_pages(): DMA-coherent, driver scratch, HugeTLB pool)"></div>
           <div class="mem-seg mem-seg-free"     id="mem-free-${i}"     data-src="/proc/meminfo MemFree"></div>
         </div>
-        <div class="mem-seg mem-seg-kres" id="mem-kres-${i}" data-src="System RAM (e820) − MemTotal (kernel-reserved: crashkernel, initrd, kernel image)"></div>
         <div class="mem-seg mem-seg-fw"   id="mem-fw-${i}"   data-src="mem_reservation.firmware_reserved_mib minus BIOS VRAM carveout (PSP/SMU/ACPI/TSEG + hidden gap)"></div>
+        <div class="mem-seg mem-seg-kres" id="mem-kres-${i}" data-src="System RAM (e820) − MemTotal (kernel-reserved: crashkernel, initrd, kernel image)"></div>
       </div>
       <div class="mem-legend">
         <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-vram-free"></span>VRAM free: <span class="mem-legend-val" id="mem-lbl-vram-free-${i}">—</span></span>
-        <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-vram-vis"></span>VRAM visible: <span class="mem-legend-val" id="mem-lbl-vram-vis-${i}">—</span></span>
-        <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-vram-inv"></span>VRAM invisible: <span class="mem-legend-val" id="mem-lbl-vram-inv-${i}">—</span></span>
+        <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-vram-vis"></span>VRAM vis: <span class="mem-legend-val" id="mem-lbl-vram-vis-${i}">—</span></span>
+        <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-vram-inv"></span>VRAM invis: <span class="mem-legend-val" id="mem-lbl-vram-inv-${i}">—</span></span>
         <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-gtt"></span>GTT: <span class="mem-legend-val" id="mem-lbl-gtt-${i}">—</span></span>
         <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-drmcpu"></span>DRM-CPU: <span class="mem-legend-val" id="mem-lbl-drmcpu-${i}">—</span></span>
         <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-anon"></span>Apps: <span class="mem-legend-val" id="mem-lbl-anon-${i}">—</span></span>
         <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-shmem"></span>Shared: <span class="mem-legend-val" id="mem-lbl-shmem-${i}">—</span></span>
-        <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-cached"></span>File Cache: <span class="mem-legend-val" id="mem-lbl-cached-${i}">—</span></span>
-        <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-buf"></span>Buffers: <span class="mem-legend-val" id="mem-lbl-buf-${i}">—</span></span>
-        <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-sreclm"></span>Slab Reclaim: <span class="mem-legend-val" id="mem-lbl-sreclm-${i}">—</span></span>
-        <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-sunrec"></span>Slab Unreclaim: <span class="mem-legend-val" id="mem-lbl-sunrec-${i}">—</span></span>
+        <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-cached"></span>FCache: <span class="mem-legend-val" id="mem-lbl-cached-${i}">—</span></span>
+        <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-buf"></span>Bufs: <span class="mem-legend-val" id="mem-lbl-buf-${i}">—</span></span>
+        <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-sreclm"></span>SlabReclm: <span class="mem-legend-val" id="mem-lbl-sreclm-${i}">—</span></span>
+        <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-sunrec"></span>SlabUnreclm: <span class="mem-legend-val" id="mem-lbl-sunrec-${i}">—</span></span>
         <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-vmalloc"></span>Vmalloc: <span class="mem-legend-val" id="mem-lbl-vmalloc-${i}">—</span></span>
-        <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-kstack"></span>Kernel Stack: <span class="mem-legend-val" id="mem-lbl-kstack-${i}">—</span></span>
-        <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-ptables"></span>Page Tables: <span class="mem-legend-val" id="mem-lbl-ptables-${i}">—</span></span>
-        <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-netbuf"></span>Net Buffers: <span class="mem-legend-val" id="mem-lbl-netbuf-${i}">—</span></span>
-        <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-drvpg"></span>Driver Pages: <span class="mem-legend-val" id="mem-lbl-drvpg-${i}">—</span></span>
+        <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-kstack"></span>KStack: <span class="mem-legend-val" id="mem-lbl-kstack-${i}">—</span></span>
+        <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-ptables"></span>PgTbls: <span class="mem-legend-val" id="mem-lbl-ptables-${i}">—</span></span>
+        <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-netbuf"></span>NetBufs: <span class="mem-legend-val" id="mem-lbl-netbuf-${i}">—</span></span>
+        <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-drvpg"></span>DrvPgs: <span class="mem-legend-val" id="mem-lbl-drvpg-${i}">—</span></span>
         <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-free"></span>Free: <span class="mem-legend-val" id="mem-lbl-free-${i}">—</span></span>
-        <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-kres"></span>Kernel-Res: <span class="mem-legend-val" id="mem-lbl-kres-${i}">—</span></span>
-        <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-fw"></span>Firmware: <span class="mem-legend-val" id="mem-lbl-fw-${i}">—</span></span>
-        <span class="mem-legend-item">dma-buf: <span class="mem-legend-val" id="mem-lbl-dmabuf-${i}">—</span></span>
+        <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-fw"></span>FW: <span class="mem-legend-val" id="mem-lbl-fw-${i}">—</span></span>
+        <span class="mem-legend-item"><span class="mem-lswatch mem-lswatch-kres"></span>KRes: <span class="mem-legend-val" id="mem-lbl-kres-${i}">—</span></span>
         <span class="mem-legend-total">
           Installed: <span class="mem-legend-val" id="mem-lbl-total-${i}">—</span> GiB
-          <span class="mem-legend-sep">·</span>
+          <span class="mem-legend-sep">◆</span>
           Non-GTT: <span class="mem-legend-val" id="mem-lbl-nongtt-${i}">—</span> GiB
-          <span class="mem-legend-sep">·</span>
+          <span class="mem-legend-sep">◆</span>
           Margin: <span class="mem-legend-val" id="mem-lbl-margin-${i}">—</span> GiB
+          <span class="mem-legend-sep">◆</span>
+          dma-buf (shared): <span class="mem-legend-val" id="mem-lbl-dmabuf-${i}">—</span> GiB
         </span>
       </div>
     `;
@@ -1406,20 +1407,19 @@ function updateDevice(i, dev) {
     const pctInst = mib => `${mib / installedMiB * 100}%`;
     const vramPartEl = byId(`mem-vram-part-${i}`);
     if (vramPartEl) vramPartEl.style.width = pctInst(vramT);
+    const setSegMiB = (el, mib) => { if (!el) return; el.style.width = pctInst(mib); el.style.minWidth = mib > 0 ? '1px' : ''; };
     const vramVisEl = byId(`mem-vram-vis-${i}`);
-    if (vramVisEl) vramVisEl.style.width = `${vramVisUsed / vramT * 100}%`;
+    if (vramVisEl) { vramVisEl.style.width = `${vramVisUsed / vramT * 100}%`; vramVisEl.style.minWidth = vramVisUsed > 0 ? '1px' : ''; }
     const vramInvEl = byId(`mem-vram-inv-${i}`);
-    if (vramInvEl) vramInvEl.style.width = `${vramInvUsed / vramT * 100}%`;
-    const kresEl = byId(`mem-kres-${i}`);
-    if (kresEl) kresEl.style.width = pctInst(kernelResMiB);
-    const fwEl = byId(`mem-fw-${i}`);
-    if (fwEl) fwEl.style.width = pctInst(fwReservedMiB);
+    if (vramInvEl) { vramInvEl.style.width = `${vramInvUsed / vramT * 100}%`; vramInvEl.style.minWidth = vramInvUsed > 0 ? '1px' : ''; }
+    setSegMiB(byId(`mem-kres-${i}`), kernelResMiB);
+    setSegMiB(byId(`mem-fw-${i}`),   fwReservedMiB);
 
     // Inside sys-part each sub-segment is a fraction of MemTotal (sys-part
     // itself flexes to fill MemTotal's share).  The free segment is flex:1
     // and swallows the remainder.
     const pctSys = kb => `${kb / totalKB * 100}%`;
-    const setSeg = (id, kb) => { const e = byId(id); if (e) e.style.width = pctSys(kb); };
+    const setSeg = (id, kb) => { const e = byId(id); if (e) { e.style.width = pctSys(kb); e.style.minWidth = kb > 0 ? "1px" : ""; } };
     setSeg(`mem-gtt-used-${i}`, gttKB);
     setSeg(`mem-drmcpu-${i}`,   drmCpuKB);
     setSeg(`mem-anon-${i}`,     anonKB);
@@ -2330,7 +2330,19 @@ function initMemSnapBtn() {
       return;
     }
     try {
-      await navigator.clipboard.writeText(csv);
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(csv);
+      } else {
+        // Fallback for HTTP on non-localhost (no secure context).
+        const ta = document.createElement('textarea');
+        ta.value = csv;
+        ta.style.cssText = 'position:fixed;opacity:0;pointer-events:none';
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+      }
       appendLog('Memory snapshot copied to clipboard');
     } catch (err) {
       appendLog('Memory snapshot: clipboard write failed — ' + (err?.message || err), 'warn');
