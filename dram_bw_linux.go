@@ -4,6 +4,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"sync"
@@ -84,14 +85,16 @@ var dramBW = &dramBWMonitor{}
 
 // loadDRAMBWModules best-effort modprobes the kernel modules we need so the
 // service can self-bootstrap even when boot.kernelModules wasn't set or the
-// user is running the binary manually before a reboot.  Errors are swallowed:
-// modprobe returns 0 when the module is already loaded, and if it fails for
-// any other reason (built-in driver, module not present in this kernel,
-// missing modprobe in PATH) the subsequent /sys check + perf_event_open
-// surface the real reason via diag.report.
+// user is running the binary manually before a reboot.  Failures are logged
+// to journald but not fatal: modprobe returns 0 when the module is already
+// loaded, and if it fails for any other reason (built-in driver, module not
+// present in this kernel, missing modprobe in PATH) the subsequent /sys check
+// + perf_event_open surface the real reason via diag.report.
 func loadDRAMBWModules() {
 	for _, mod := range []string{"amd_uncore", "amd_atl"} {
-		_ = exec.Command("modprobe", mod).Run()
+		if err := exec.Command("modprobe", mod).Run(); err != nil {
+			log.Printf("atopweb dram bw: modprobe %s: %v (best-effort; may already be built-in)", mod, err)
+		}
 	}
 }
 
@@ -159,6 +162,7 @@ func initDRAMBW() {
 	}
 	dramBW.lastTime = time.Now()
 	dramBW.available = true
+	log.Printf("atopweb dram bw: opened 24 perf event fds for AMD DF DRAM bandwidth monitoring")
 }
 
 // readDRAMBW returns the read/write bandwidth in bytes per second over the
@@ -184,6 +188,8 @@ func readDRAMBW() (readBps, writeBps uint64, ok bool) {
 	for i, fd := range dramBW.fds {
 		n, err := unix.Pread(fd, bb, 0)
 		if err != nil || n != 24 {
+			dramBW.available = false
+			diag.report("dram bw: perf counter read failed for fd index %d (err=%v, n=%d) — DRAM BW chart zeroed; restart the service to retry", i, err, n)
 			return 0, 0, false
 		}
 		value, enabled, running := buf[0], buf[1], buf[2]

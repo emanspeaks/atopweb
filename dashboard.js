@@ -2236,7 +2236,6 @@ function fetchConfig() {
         document.getElementById('interval-input').value = cfg.interval_ms;
       }
       const newVer = cfg.atopweb_version || '';
-      document.getElementById('page-title').textContent = 'atopweb ' + (newVer ? `v${newVer}` : '');
       const subSpans = [];
       if (cfg.amdgpu_top_version) subSpans.push(`<span data-src="/api/config → amdgpu_top_version">${cfg.amdgpu_top_version}</span>`);
       if (cfg.kernel_version)     subSpans.push(`<span data-src="/api/config → kernel_version (/proc/sys/kernel/osrelease)">Linux v${cfg.kernel_version}</span>`);
@@ -2248,6 +2247,7 @@ function fetchConfig() {
       if (cfg.total_ram_mib) state.totalRAMMiB = cfg.total_ram_mib;
       if (state.serverVersion === null && newVer) {
         state.serverVersion = newVer;                   // record version this page was loaded with
+        document.getElementById('page-title').textContent = `atopweb v${newVer}`;
       } else if (state.serverVersion && newVer && newVer !== state.serverVersion) {
         showVersionBanner(state.serverVersion, newVer); // server updated while page is open
       }
