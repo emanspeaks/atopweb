@@ -819,13 +819,6 @@ function buildDom(devices) {
         ]
       },
       {
-        key: 'fan', title: 'Fan Speed (RPM)', height: 150, yMax: null,
-        noYMin: true,
-        datasets: () => [
-          makeDataset('Fan',            '#ffffff', h.fan,    `/api/system hwmon (first active fan)`),
-        ]
-      },
-      {
         key: 'gfx-clk', title: 'Clocks (MHz)', height: 150, yMax: null,
         datasets: () => [
           makeDataset('SCLK',     '#e88504', h.sclk,    `devices[${i}].Sensors['GFX_SCLK']`),
@@ -837,21 +830,10 @@ function buildDom(devices) {
         ]
       },
       {
-        key: 'power', title: 'Package Power (W)', height: 150, yMax: null,
+        key: 'fan', title: 'Fan Speed (RPM)', height: 150, yMax: null,
+        noYMin: true,
         datasets: () => [
-          // makeDataset('PPT',           '#ffffff', h.ppt,    `/api/system hwmon powers[label=PPT] µW→W`),
-          makeDataset('GPU', '#40e0d0', h.pwr,    `devices[${i}].Sensors['Average Power']`),
-          makeDataset('CPU Cores Total',     '#388bfd', h.cpuPwr, `devices[${i}].gpu_metrics.average_all_core_power / 1000`),
-          makeDataset('NPU',           '#bc8cff', h.npuPwr, `devices[${i}].gpu_metrics.average_ipu_power / 1000`),
-        ]
-      },
-      {
-        key: 'vram', title: 'VRAM + GTT Usage (GiB)', height: 150, yMax: null,
-        tickFmt: v => (typeof v === 'number' ? v.toFixed(3) : String(v)),
-        datasets: () => [
-          makeDataset('Total', '#3fb950', h.vram,    `devices[${i}].VRAM: Total VRAM Usage + Total GTT Usage`, 3),
-          makeDataset('VRAM',  '#388bfd', h.vramOnly, `devices[${i}].VRAM['Total VRAM Usage']`,               3),
-          makeDataset('GTT',   '#bc8cff', h.gttOnly,  `devices[${i}].VRAM['Total GTT Usage']`,                3),
+          makeDataset('Fan',            '#ffffff', h.fan,    `/api/system hwmon (first active fan)`),
         ]
       },
       {
@@ -870,6 +852,25 @@ function buildDom(devices) {
         }))
       },
       {
+        key: 'power', title: 'Package Power (W)', height: 150, yMax: null,
+        datasets: () => [
+          // makeDataset('PPT',           '#ffffff', h.ppt,    `/api/system hwmon powers[label=PPT] µW→W`),
+          makeDataset('GPU', '#40e0d0', h.pwr,    `devices[${i}].Sensors['Average Power']`),
+          makeDataset('CPU Cores Total',     '#388bfd', h.cpuPwr, `devices[${i}].gpu_metrics.average_all_core_power / 1000`),
+          makeDataset('NPU',           '#bc8cff', h.npuPwr, `devices[${i}].gpu_metrics.average_ipu_power / 1000`),
+        ]
+      },
+      {
+        key: 'dram-bw', title: 'DRAM Bandwidth (KiB/s)', height: 150, yMax: null,
+        tickFmt: v => typeof v !== 'number' ? String(v) : Math.round(v).toLocaleString(),
+        minMaxFmt: v => Math.round(v).toLocaleString(),
+        datasets: () => [
+          Object.assign(makeDataset('Reads',  '#3fb950', h.dramReads,  `mem_snapshot.dram_read_bps ÷ 1024 (KiB/s, from amd_df Σ local_or_remote_socket_read_data_beats_dram_* × 32 / elapsed)`, 0), {commas: true}),
+          Object.assign(makeDataset('Writes', '#f85149', h.dramWrites, `mem_snapshot.dram_write_bps ÷ 1024 (KiB/s, from amd_df Σ local_or_remote_socket_write_data_beats_dram_* × 32 / elapsed)`, 0), {commas: true}),
+        ]
+      },
+
+      {
         key: 'activity', title: 'GPU Activity (%)', height: 150, yMax: 100,
         datasets: () => [
           makeDataset('GFX',    '#e85d04', h.gfx,   `devices[${i}].gpu_activity['GFX']`),
@@ -877,14 +878,17 @@ function buildDom(devices) {
           makeDataset('Media',  '#bc8cff', h.media, `devices[${i}].gpu_activity['MediaEngine']`),
         ]
       },
+
       {
-        key: 'dram-bw', title: 'DRAM Bandwidth (KiB/s)', height: 150, yMax: null,
-        tickFmt: v => typeof v !== 'number' ? String(v) : Math.round(v).toLocaleString(),
+        key: 'vram', title: 'VRAM + GTT Usage (GiB)', height: 150, yMax: null,
+        tickFmt: v => (typeof v === 'number' ? v.toFixed(3) : String(v)),
         datasets: () => [
-          Object.assign(makeDataset('Reads',  '#3fb950', h.dramReads,  `mem_snapshot.dram_read_bps ÷ 1024 (KiB/s, from amd_df Σ local_or_remote_socket_read_data_beats_dram_* × 32 / elapsed)`, 0), {commas: true}),
-          Object.assign(makeDataset('Writes', '#f85149', h.dramWrites, `mem_snapshot.dram_write_bps ÷ 1024 (KiB/s, from amd_df Σ local_or_remote_socket_write_data_beats_dram_* × 32 / elapsed)`, 0), {commas: true}),
+          makeDataset('Total', '#3fb950', h.vram,    `devices[${i}].VRAM: Total VRAM Usage + Total GTT Usage`, 3),
+          makeDataset('VRAM',  '#388bfd', h.vramOnly, `devices[${i}].VRAM['Total VRAM Usage']`,               3),
+          makeDataset('GTT',   '#bc8cff', h.gttOnly,  `devices[${i}].VRAM['Total GTT Usage']`,                3),
         ]
       },
+
       {
         key: 'npu-act', title: 'NPU Tile Activity (%)', height: 150, yMax: 100,
         coreData: () => h.npuBusy, coreUnit: '%',
@@ -928,13 +932,30 @@ function buildDom(devices) {
       const box    = el('div', 'chart-box' + (def.wide ? ' chart-wide' : ''));
       box.id = `chart-box-${chartKey}`;
       box.style.display = 'none'; // revealed once data arrives
-      const title  = el('div', 'chart-title', def.title);
-      title.addEventListener('click', () => openOverlay(chartKey, def.title));
+      const titleDiv  = el('div', 'chart-title');
+      const titleText = el('span', 'chart-title-text', def.title);
+      titleText.addEventListener('click', () => openOverlay(chartKey, def.title));
+      titleDiv.appendChild(titleText);
+      if (def.key === 'dram-bw') {
+        const ctrl = el('label', 'chart-title-ctrl');
+        const chk  = document.createElement('input');
+        chk.type    = 'checkbox';
+        chk.checked = true;
+        chk.addEventListener('change', () => {
+          const c = state.charts[chartKey];
+          if (c) c._showDramMax = chk.checked;
+          if (state.overlayChartKey === chartKey && state.overlayChart)
+            state.overlayChart._showDramMax = chk.checked;
+        });
+        ctrl.appendChild(chk);
+        ctrl.appendChild(document.createTextNode(' Max limit'));
+        titleDiv.appendChild(ctrl);
+      }
       const wrap   = el('div');
       wrap.style.height = (def.height || 160) + 'px';
       const canvas = el('canvas');
       wrap.appendChild(canvas);
-      box.appendChild(title);
+      box.appendChild(titleDiv);
       box.appendChild(wrap);
       chartGrid.appendChild(box);
 
@@ -958,6 +979,8 @@ function buildDom(devices) {
       });
       chart._yFloorHint   = def.noYMin ? null : 0;
       chart._yCeilingHint = def.yMax ?? null;
+      chart._minMaxFmt    = def.minMaxFmt ?? null;
+      if (def.key === 'dram-bw') chart._showDramMax = true;
       state.charts[chartKey] = chart;
     });
 
@@ -966,14 +989,16 @@ function buildDom(devices) {
     // ── Per-CPU-core frequency plots (2 rows × 8) ──
     const coreFreqGrid = el('div', 'charts-cores');
     for (let j = 0; j < 16; j++) {
-      const box    = el('div', 'chart-box');
-      const title  = el('div', 'chart-title', `${coreLabel(j)} Clocks (MHz)`);
-      title.addEventListener('click', () => openOverlay(`${i}-cpu-core-${j}`, `${coreLabel(j)} Clocks (MHz)`));
+      const box      = el('div', 'chart-box');
+      const titleDiv = el('div', 'chart-title');
+      const titleText = el('span', 'chart-title-text', `${coreLabel(j)} Clocks (MHz)`);
+      titleText.addEventListener('click', () => openOverlay(`${i}-cpu-core-${j}`, `${coreLabel(j)} Clocks (MHz)`));
+      titleDiv.appendChild(titleText);
       const wrap   = el('div');
       wrap.style.height = '156px';
       const canvas = el('canvas');
       wrap.appendChild(canvas);
-      box.appendChild(title);
+      box.appendChild(titleDiv);
       box.appendChild(wrap);
       coreFreqGrid.appendChild(box);
 
@@ -1191,7 +1216,7 @@ function syncEventAnnotations(chart, events, isCoreChart) {
 // Only considers values within the visible time window (times[k] >= windowStart).
 // Labels are positioned below min and above max.
 // Iterates directly to avoid intermediate array allocations on every tick.
-function minMaxAnnotations(times, windowStart, ...arrays) {
+function minMaxAnnotations(times, windowStart, fmt, ...arrays) {
   let minVal = Infinity, maxVal = -Infinity, count = 0;
   for (const arr of arrays) {
     for (let k = 0; k < arr.length; k++) {
@@ -1205,7 +1230,7 @@ function minMaxAnnotations(times, windowStart, ...arrays) {
   }
   if (count < 2) return {};
   const color    = 'rgba(139,148,158,0.6)';
-  const fmtA     = x => (x.toFixed(3));
+  const fmtA     = fmt ?? (x => x.toFixed(3));
   const labelBase = { color, font: { size: 9 }, backgroundColor: 'rgba(22,27,34,0.92)', borderColor: 'transparent', borderWidth: 0, padding: { x: 3, y: 1 } };
   const out = {};
   out.minLine = {
@@ -1251,16 +1276,16 @@ function staggerLimitPositions(specs) {
   return present.map((s, i) => ({ ...s, position: `${Math.round(step * (i + 1))}%` }));
 }
 
-function dramBWLimitAnnotation() {
+function dramBWLimitAnnotation(chart) {
   const max = state.dramMaxBWKiBs;
-  if (!max) return {};
+  if (!max || chart?._showDramMax === false) return {};
   return {
     dramMaxLine: {
       type: 'line', yMin: max, yMax: max, drawTime: 'afterDraw',
       borderColor: '#e3b341', borderWidth: 1, borderDash: [6, 4],
       label: {
         display: true,
-        content: `Max ${Math.round(max).toLocaleString()} KiB/s`,
+        content: `Max Possible ${Math.round(max).toLocaleString()} KiB/s`,
         position: 'end',
         color: '#e3b341',
         font: { size: 9 },
@@ -1317,7 +1342,7 @@ function memoryLimitAnnotations(h) {
 }
 
 function setAnnotations(chart, times, extra, ...arrays) {
-  const mm = minMaxAnnotations(times, chart.options.scales.x.min, ...arrays);
+  const mm = minMaxAnnotations(times, chart.options.scales.x.min, chart._minMaxFmt ?? null, ...arrays);
   chart.options.plugins.annotation.annotations = { ...mm, ...extra };
 
   // Always re-apply %-of-range grace. Range covers data min/max AND any
@@ -1527,7 +1552,7 @@ function updateDevice(i, dev) {
                    : thpPct <  20 ? ' — heap/stack dominant'
                    : '';
         const tip = `${p.comm || '?'} (PID ${p.pid}): ${gib} GiB Pss_Anon (${thpGib} GiB THP, ${thpPct}%${note})`;
-        html += `<div class="mem-anon-gpu-pid" style="width:${pct}%" data-src="${escAttr(tip)}">${p.pid}</div>`;
+        html += `<div class="mem-anon-gpu-pid" style="width:${pct}%" data-src="${escAttr(tip)}" data-dev="${i}">${p.pid}</div>`;
       }
       gpuAppsEl.innerHTML = html;
     }
@@ -1691,7 +1716,7 @@ function updateDevice(i, dev) {
   if (cGfxClk)  setAnnotations(cGfxClk, h.times, {},                         h.sclk, h.mclk, h.fclk, h.fclkAvg, h.socClk, h.vclk);
   if (cVoltage) setAnnotations(cVoltage, h.times, {},                         h.vddgfx, h.vddnb);
   if (cCorePwr) setAnnotations(cCorePwr, h.times, {},                         ...h.corePwr);
-  if (cDramBw)  setAnnotations(cDramBw,  h.times, dramBWLimitAnnotation(),    h.dramReads, h.dramWrites);
+  if (cDramBw)  setAnnotations(cDramBw,  h.times, dramBWLimitAnnotation(cDramBw), h.dramReads, h.dramWrites);
   if (cNpuAct)  setAnnotations(cNpuAct,  h.times, {},                         ...h.npuBusy);
   if (cNpuClk)  setAnnotations(cNpuClk,  h.times, {},                         h.npuClk, h.npuMpClk);
   if (cNpuBw)   setAnnotations(cNpuBw,   h.times, {},                         h.npuReads, h.npuWrites);
@@ -1708,7 +1733,7 @@ function updateDevice(i, dev) {
     else if (oc === `${i}-gfx-clk`) setAnnotations(ovl, h.times, {},                             h.sclk, h.mclk, h.fclk, h.fclkAvg, h.socClk, h.vclk);
     else if (oc === `${i}-voltage`) setAnnotations(ovl, h.times, {},                             h.vddgfx, h.vddnb);
     else if (oc === `${i}-core-pwr`) setAnnotations(ovl, h.times, {},                            ...h.corePwr);
-    else if (oc === `${i}-dram-bw`)  setAnnotations(ovl, h.times, dramBWLimitAnnotation(),       h.dramReads, h.dramWrites);
+    else if (oc === `${i}-dram-bw`)  setAnnotations(ovl, h.times, dramBWLimitAnnotation(ovl),    h.dramReads, h.dramWrites);
     else if (oc === `${i}-npu-act`)  setAnnotations(ovl, h.times, {},                            ...h.npuBusy);
     else if (oc === `${i}-npu-clk`)  setAnnotations(ovl, h.times, {},                            h.npuClk, h.npuMpClk);
     else if (oc === `${i}-npu-bw`)   setAnnotations(ovl, h.times, {},                            h.npuReads, h.npuWrites);
@@ -2652,6 +2677,8 @@ function openOverlay(chartKey, title) {
     options: srcOpts,
     plugins: src.config.plugins || [],
   });
+  state.overlayChart._minMaxFmt  = src._minMaxFmt ?? null;
+  state.overlayChart._showDramMax = src._showDramMax ?? true;
 
   const isCoreFreq = chartKey.includes('-cpu-core-');
   state.overlayWidthMs  = isCoreFreq ? state.coreTimeWidthMs : state.timeWidthMs;
@@ -2706,6 +2733,8 @@ const MEM_COLORS = {
   fw:         '#616161',
 };
 
+let _tmKeyMap = new Map(); // key → primary SVG rect element for hover cross-link
+
 function buildMemSegs(devIdx) {
   const sysInfo = state.systemInfo;
   if (!sysInfo) return [];
@@ -2746,21 +2775,26 @@ function buildMemSegs(devIdx) {
     if (kib > 0) segs.push({ key, label, kib, color, desc });
   };
 
-  // GPU process anon — one block per active PID instead of a single grouped segment.
+  // GPU process anon — grouped as a folder so all PID blocks stay contiguous.
   const gpuProcs = (drmMem.processes ?? [])
     .filter(p => (p.pss_anon_kib ?? 0) > 0)
     .sort((a, b) => (b.pss_anon_kib ?? 0) - (a.pss_anon_kib ?? 0));
-  gpuProcs.forEach((p, pi) => {
-    const kib    = p.pss_anon_kib ?? 0;
-    const thpKib = p.anon_huge_pages_kib ?? 0;
-    const thpPct = kib > 0 ? Math.round(thpKib / kib * 100) : 0;
-    const note   = thpPct >= 80 ? ' — likely UMA model' : thpPct < 20 ? ' — heap/stack dominant' : '';
-    const gib    = (kib / 1048576).toFixed(3);
-    const thpGib = (thpKib / 1048576).toFixed(3);
-    add(`pid-${p.pid}`, `${p.comm || '?'} (${p.pid})`, kib,
-      MEM_COLORS.anonGpu,
-      `${p.comm || '?'} (PID ${p.pid}): ${gib} GiB Pss_Anon (${thpGib} GiB THP, ${thpPct}%${note})`);
-  });
+  if (gpuProcs.length > 0) {
+    const children = gpuProcs.map(p => {
+      const kib    = p.pss_anon_kib ?? 0;
+      const thpKib = p.anon_huge_pages_kib ?? 0;
+      const thpPct = kib > 0 ? Math.round(thpKib / kib * 100) : 0;
+      const note   = thpPct >= 80 ? ' — likely UMA model' : thpPct < 20 ? ' — heap/stack dominant' : '';
+      return { key: `pid-${p.pid}`, label: `${p.comm || '?'} (${p.pid})`, kib,
+               color: MEM_COLORS.anonGpu,
+               desc: `${p.comm || '?'} (PID ${p.pid}): ${(kib/1048576).toFixed(3)} GiB Pss_Anon `
+                   + `(${(thpKib/1048576).toFixed(3)} GiB THP, ${thpPct}%${note})` };
+    });
+    const totalGpuKib = children.reduce((s, c) => s + c.kib, 0);
+    if (totalGpuKib > 0)
+      segs.push({ key: 'anonGpu', label: 'G-Apps', kib: totalGpuKib,
+                  color: MEM_COLORS.anonGpu, desc: MEM_TIPS.anonGpu, children });
+  }
 
   add('vramFree',  'VRAM Free',    vramFreeKiB,    MEM_COLORS.vramFree,  MEM_TIPS.vramFree);
   add('vramVis',   'VRAM Vis',     visVramUsedKiB, MEM_COLORS.vramVis,   MEM_TIPS.vramVis);
@@ -2840,6 +2874,43 @@ function squarifyLayout(items, x, y, w, h) {
   return results;
 }
 
+function _tmAddLeaf(svg, ns, item, x, y, w, h, GAP) {
+  const g = document.createElementNS(ns, 'g');
+  g.dataset.key = item.key;
+
+  const rect = document.createElementNS(ns, 'rect');
+  rect.setAttribute('x',            x + GAP);
+  rect.setAttribute('y',            y + GAP);
+  rect.setAttribute('width',        Math.max(0, w - GAP * 2));
+  rect.setAttribute('height',       Math.max(0, h - GAP * 2));
+  rect.setAttribute('fill',         item.color);
+  rect.setAttribute('stroke',       'rgba(255,255,255,0)');
+  rect.setAttribute('stroke-width', '2');
+  g.appendChild(rect);
+
+  if (w > 38 && h > 14) {
+    const maxChars = Math.floor(w / 7);
+    const label    = item.label.length > maxChars ? item.label.slice(0, maxChars - 1) + '…' : item.label;
+    const fontSize = Math.min(13, Math.max(9, Math.min(w * 0.18, h * 0.35)));
+    const text = document.createElementNS(ns, 'text');
+    text.setAttribute('x',                  x + w / 2);
+    text.setAttribute('y',                  y + h / 2);
+    text.setAttribute('text-anchor',        'middle');
+    text.setAttribute('dominant-baseline',  'middle');
+    text.setAttribute('fill',               '#e6edf3');
+    text.setAttribute('font-size',          fontSize);
+    text.setAttribute('font-family',        'system-ui, sans-serif');
+    text.setAttribute('pointer-events',     'none');
+    text.textContent = label;
+    g.appendChild(text);
+  }
+
+  g.addEventListener('mouseenter', () => rect.setAttribute('stroke', 'rgba(255,255,255,0.7)'));
+  g.addEventListener('mouseleave', () => rect.setAttribute('stroke', 'rgba(255,255,255,0)'));
+  svg.appendChild(g);
+  _tmKeyMap.set(item.key, rect);
+}
+
 function renderMemTreemap(devIdx) {
   const mapEl   = document.getElementById('mem-tm-map');
   const tbodyEl = document.getElementById('mem-tm-tbody');
@@ -2849,6 +2920,7 @@ function renderMemTreemap(devIdx) {
   const H = mapEl.offsetHeight;
   if (W < 4 || H < 4) return;
 
+  _tmKeyMap.clear();
   const segs  = buildMemSegs(devIdx);
   const rects = squarifyLayout(segs, 0, 0, W, H);
 
@@ -2858,41 +2930,65 @@ function renderMemTreemap(devIdx) {
   svg.setAttribute('width',  W);
   svg.setAttribute('height', H);
 
-  const GAP = 1;
+  const GAP      = 1;
+  const HDR_H    = 18; // px — group folder header strip height
+
   for (const { item, x, y, w, h } of rects) {
-    const g = document.createElementNS(ns, 'g');
-    g.dataset.src = `${item.label}: ${item.kib.toLocaleString()} KiB`;
+    if (item.children && item.children.length > 0) {
+      // Group folder: background rect + dark header strip + children inside
+      const bg = document.createElementNS(ns, 'rect');
+      bg.setAttribute('x',      x + GAP);
+      bg.setAttribute('y',      y + GAP);
+      bg.setAttribute('width',  Math.max(0, w - GAP * 2));
+      bg.setAttribute('height', Math.max(0, h - GAP * 2));
+      bg.setAttribute('fill',   item.color);
+      bg.setAttribute('stroke', 'rgba(255,255,255,0)');
+      bg.setAttribute('stroke-width', '2');
+      svg.appendChild(bg);
+      _tmKeyMap.set(item.key, bg);
 
-    const rect = document.createElementNS(ns, 'rect');
-    rect.setAttribute('x',            x + GAP);
-    rect.setAttribute('y',            y + GAP);
-    rect.setAttribute('width',        Math.max(0, w - GAP * 2));
-    rect.setAttribute('height',       Math.max(0, h - GAP * 2));
-    rect.setAttribute('fill',         item.color);
-    rect.setAttribute('stroke',       'rgba(255,255,255,0)');
-    rect.setAttribute('stroke-width', '2');
-    g.appendChild(rect);
+      // Header strip
+      const hdrH  = Math.min(HDR_H, h - GAP * 2);
+      const strip = document.createElementNS(ns, 'rect');
+      strip.setAttribute('x',      x + GAP);
+      strip.setAttribute('y',      y + GAP);
+      strip.setAttribute('width',  Math.max(0, w - GAP * 2));
+      strip.setAttribute('height', Math.max(0, hdrH));
+      strip.setAttribute('fill',   'rgba(0,0,0,0.45)');
+      strip.setAttribute('pointer-events', 'none');
+      svg.appendChild(strip);
 
-    if (w > 38 && h > 14) {
-      const maxChars = Math.floor(w / 7);
-      const label    = item.label.length > maxChars ? item.label.slice(0, maxChars - 1) + '…' : item.label;
-      const fontSize = Math.min(13, Math.max(9, Math.min(w * 0.18, h * 0.35)));
-      const text = document.createElementNS(ns, 'text');
-      text.setAttribute('x',                  x + w / 2);
-      text.setAttribute('y',                  y + h / 2);
-      text.setAttribute('text-anchor',        'middle');
-      text.setAttribute('dominant-baseline',  'middle');
-      text.setAttribute('fill',               '#e6edf3');
-      text.setAttribute('font-size',          fontSize);
-      text.setAttribute('font-family',        'system-ui, sans-serif');
-      text.setAttribute('pointer-events',     'none');
-      text.textContent = label;
-      g.appendChild(text);
+      if (w > 30 && hdrH > 8) {
+        const maxChars = Math.floor((w - 6) / 7);
+        const label    = item.label.length > maxChars ? item.label.slice(0, maxChars - 1) + '…' : item.label;
+        const txt = document.createElementNS(ns, 'text');
+        txt.setAttribute('x',                 x + GAP + 4);
+        txt.setAttribute('y',                 y + GAP + hdrH / 2);
+        txt.setAttribute('dominant-baseline', 'middle');
+        txt.setAttribute('fill',              '#e6edf3');
+        txt.setAttribute('font-size',         Math.min(12, hdrH - 2));
+        txt.setAttribute('font-family',       'system-ui, sans-serif');
+        txt.setAttribute('font-weight',       '600');
+        txt.setAttribute('pointer-events',    'none');
+        txt.textContent = label;
+        svg.appendChild(txt);
+      }
+
+      // Hover on the background rect (the whole group region)
+      bg.addEventListener('mouseenter', () => bg.setAttribute('stroke', 'rgba(255,255,255,0.7)'));
+      bg.addEventListener('mouseleave', () => bg.setAttribute('stroke', 'rgba(255,255,255,0)'));
+
+      // Lay children inside the area below the header strip
+      const innerY = y + GAP + hdrH;
+      const innerH = h - GAP * 2 - hdrH;
+      if (innerH > 2) {
+        const childRects = squarifyLayout(item.children, x + GAP, innerY, w - GAP * 2, innerH);
+        for (const cr of childRects)
+          _tmAddLeaf(svg, ns, cr.item, cr.x, cr.y, cr.w, cr.h, GAP);
+      }
+    } else {
+      _tmAddLeaf(svg, ns, item, x, y, w, h, GAP);
     }
-
-    g.addEventListener('mouseenter', () => rect.setAttribute('stroke', 'rgba(255,255,255,0.7)'));
-    g.addEventListener('mouseleave', () => rect.setAttribute('stroke', 'rgba(255,255,255,0)'));
-    svg.appendChild(g);
   }
 
   mapEl.innerHTML = '';
@@ -2900,14 +2996,54 @@ function renderMemTreemap(devIdx) {
 
   let html = '';
   for (const seg of segs) {
-    html += `<tr>
-      <td><span class="mem-tm-swatch" style="background:${seg.color}"></span></td>
-      <td>${seg.label}</td>
-      <td class="mem-tm-kib">${seg.kib.toLocaleString()}</td>
-      <td class="mem-tm-desc">${seg.desc}</td>
-    </tr>`;
+    if (seg.children && seg.children.length > 0) {
+      html += `<tr class="mem-tm-group-hdr" data-key="${seg.key}">
+        <td><span class="mem-tm-swatch" style="background:${seg.color}"></span></td>
+        <td>${seg.label}</td>
+        <td class="mem-tm-kib">${seg.kib.toLocaleString()}</td>
+        <td class="mem-tm-desc">${seg.desc}</td>
+      </tr>`;
+      for (const child of seg.children) {
+        html += `<tr class="mem-tm-child-hdr" data-key="${child.key}">
+          <td><span class="mem-tm-swatch mem-tm-indent" style="background:${child.color}"></span></td>
+          <td class="mem-tm-indent">${child.label}</td>
+          <td class="mem-tm-kib">${child.kib.toLocaleString()}</td>
+          <td class="mem-tm-desc">${child.desc}</td>
+        </tr>`;
+      }
+    } else {
+      html += `<tr data-key="${seg.key}">
+        <td><span class="mem-tm-swatch" style="background:${seg.color}"></span></td>
+        <td>${seg.label}</td>
+        <td class="mem-tm-kib">${seg.kib.toLocaleString()}</td>
+        <td class="mem-tm-desc">${seg.desc}</td>
+      </tr>`;
+    }
   }
   tbodyEl.innerHTML = html;
+
+  tbodyEl.querySelectorAll('tr[data-key]').forEach(tr => {
+    const key  = tr.dataset.key;
+    tr.addEventListener('mouseenter', () => {
+      const el = _tmKeyMap.get(key);
+      if (el) el.setAttribute('stroke', 'rgba(255,255,255,0.7)');
+    });
+    tr.addEventListener('mouseleave', () => {
+      const el = _tmKeyMap.get(key);
+      if (el) el.setAttribute('stroke', 'rgba(255,255,255,0)');
+    });
+  });
+}
+
+function updateMemTreemapPosition() {
+  const overlay = document.getElementById('mem-treemap-overlay');
+  if (!overlay || overlay.hidden) return;
+  const cardsEl  = document.querySelector('.gpu-panel.active .cards');
+  const anchorEl = cardsEl || document.querySelector('header');
+  const topPx    = anchorEl ? anchorEl.getBoundingClientRect().bottom : 0;
+  const statusH  = document.getElementById('status-bar')?.offsetHeight || 0;
+  overlay.style.top    = Math.round(topPx) + 'px';
+  overlay.style.bottom = statusH + 'px';
 }
 
 function openMemTreemap(devIdx) {
@@ -2916,6 +3052,7 @@ function openMemTreemap(devIdx) {
   document.getElementById('mem-tm-title').textContent =
     state.n > 1 ? `Memory Map — GPU ${devIdx}` : 'Memory Map';
   state.memTreemapDev = devIdx;
+  updateMemTreemapPosition();
   requestAnimationFrame(() => renderMemTreemap(devIdx));
 }
 
@@ -2931,14 +3068,19 @@ function initMemTreemap() {
       closeMemTreemap();
   });
   document.addEventListener('click', e => {
-    if (e.target.closest('#mem-treemap-overlay')) return; // don't re-open from inside
-    const bar = e.target.closest('.mem-bar-outer');
+    if (e.target.closest('#mem-treemap-overlay')) return;
+    const bar = e.target.closest('.mem-bar-outer') ?? e.target.closest('[data-dev].mem-anon-gpu-pid');
     if (!bar) return;
     openMemTreemap(parseInt(bar.dataset.dev ?? '0', 10));
   });
   new ResizeObserver(() => {
-    if (state.memTreemapDev != null) renderMemTreemap(state.memTreemapDev);
+    if (state.memTreemapDev != null) {
+      updateMemTreemapPosition();
+      renderMemTreemap(state.memTreemapDev);
+    }
   }).observe(document.getElementById('mem-tm-map'));
+  window.addEventListener('scroll', updateMemTreemapPosition, { passive: true });
+  window.addEventListener('resize', updateMemTreemapPosition);
 }
 
 loadSavedSettings();

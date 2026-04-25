@@ -557,10 +557,8 @@ main { padding: 6px 8px; }
   padding: 6px;
 }
 
-.charts-cores .chart-title {
-  font-size: 10px;
-  margin-bottom: 4px;
-}
+.charts-cores .chart-title { margin-bottom: 4px; }
+.charts-cores .chart-title-text { font-size: 10px; }
 
 .chart-box {
   background: var(--surface);
@@ -577,23 +575,42 @@ main { padding: 6px 8px; }
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.03em;
-  color: var(--muted);
   margin-bottom: 3px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.chart-title-text {
+  color: var(--muted);
   cursor: pointer;
   user-select: none;
   transition: color 0.15s;
 }
 
-.chart-title:hover { color: var(--text); }
+.chart-title-text:hover { color: var(--text); }
 
-.chart-title::after {
+.chart-title-text::after {
   content: ' ⤢';
   font-size: 9px;
   opacity: 0;
   transition: opacity 0.15s;
 }
 
-.chart-title:hover::after { opacity: 0.5; }
+.chart-title-text:hover::after { opacity: 0.5; }
+
+.chart-title-ctrl {
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--muted);
+  cursor: default;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.chart-title-ctrl input[type="checkbox"] { cursor: pointer; margin: 0; }
 
 .chart-box canvas { display: block; }
 
@@ -822,7 +839,8 @@ main { padding: 6px 8px; }
 /* ── Memory treemap overlay ──────────────────────────────────────── */
 #mem-treemap-overlay {
   position: fixed;
-  inset: 0;
+  left: 0;
+  right: 0;
   z-index: 200;
   background: var(--bg);
   display: flex;
@@ -895,8 +913,11 @@ main { padding: 6px 8px; }
   border-radius: 2px;
   vertical-align: middle;
 }
-.mem-tm-kib  { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--muted); }
-.mem-tm-desc { color: #6e7681; font-size: 10px; max-width: 260px; word-break: break-word; white-space: normal; }
+.mem-tm-kib    { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--muted); }
+.mem-tm-desc   { color: #6e7681; font-size: 10px; max-width: 260px; word-break: break-word; white-space: normal; }
+.mem-tm-indent { padding-left: 18px !important; }
+tr.mem-tm-group-hdr td { font-weight: 600; }
+tr.mem-tm-child-hdr td { font-size: 10px; color: var(--muted); }
 
 #mem-tm-close {
   background: none;
