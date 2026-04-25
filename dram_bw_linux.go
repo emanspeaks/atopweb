@@ -153,7 +153,7 @@ func initDRAMBW() {
 	var buf [3]uint64
 	bb := (*[24]byte)(unsafe.Pointer(&buf[0]))[:]
 	for i, fd := range fds {
-		if n, err := unix.Pread(fd, bb, 0); err == nil && n == 24 {
+		if n, err := unix.Read(fd, bb); err == nil && n == 24 {
 			value, enabled, running := buf[0], buf[1], buf[2]
 			if running > 0 {
 				dramBW.lastScaled[i] = uint64(float64(value) * float64(enabled) / float64(running))
@@ -186,7 +186,7 @@ func readDRAMBW() (readBps, writeBps uint64, ok bool) {
 	bb := (*[24]byte)(unsafe.Pointer(&buf[0]))[:]
 	var readBeats, writeBeats uint64
 	for i, fd := range dramBW.fds {
-		n, err := unix.Pread(fd, bb, 0)
+		n, err := unix.Read(fd, bb)
 		if err != nil || n != 24 {
 			dramBW.available = false
 			diag.report("dram bw: perf counter read failed for fd index %d (err=%v, n=%d) — DRAM BW chart zeroed; restart the service to retry", i, err, n)
