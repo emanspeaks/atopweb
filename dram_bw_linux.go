@@ -83,17 +83,47 @@ type dramBWMonitor struct {
 
 var dramBW = &dramBWMonitor{}
 
+// modprobeBins lists absolute paths to try when modprobe is not in PATH.
+// Services commonly run with a stripped PATH, so we search known locations
+// across major distros and NixOS before giving up.
+var modprobeBins = []string{
+	"/sbin/modprobe",                        // traditional FHS
+	"/usr/sbin/modprobe",                    // FHS 3.0+
+	"/usr/bin/modprobe",                     // merged-usr distros (Arch, Fedora 37+)
+	"/bin/modprobe",                         // some embedded / minimal systems
+	"/run/current-system/sw/bin/modprobe",   // NixOS (kmod in systemPackages)
+}
+
+// findModprobe returns an absolute path to modprobe, searching PATH first
+// and then well-known locations so the service works even with a stripped PATH.
+// Returns "" if not found anywhere.
+func findModprobe() string {
+	if p, err := exec.LookPath("modprobe"); err == nil {
+		return p
+	}
+	for _, p := range modprobeBins {
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+	return ""
+}
+
 // loadDRAMBWModules best-effort modprobes the kernel modules we need so the
 // service can self-bootstrap even when boot.kernelModules wasn't set or the
 // user is running the binary manually before a reboot.  Failures are logged
-// to journald but not fatal: modprobe returns 0 when the module is already
-// loaded, and if it fails for any other reason (built-in driver, module not
-// present in this kernel, missing modprobe in PATH) the subsequent /sys check
-// + perf_event_open surface the real reason via diag.report.
+// to journald but not fatal: if modules are already built-in or loaded the
+// subsequent /sys check will succeed; if they genuinely aren't present,
+// perf_event_open will surface the real reason via diag.report.
 func loadDRAMBWModules() {
+	modprobe := findModprobe()
+	if modprobe == "" {
+		log.Printf("atopweb dram bw: modprobe not found in PATH or well-known locations — assuming modules are already built-in or loaded")
+		return
+	}
 	for _, mod := range []string{"amd_uncore", "amd_atl"} {
-		if err := exec.Command("modprobe", mod).Run(); err != nil {
-			log.Printf("atopweb dram bw: modprobe %s: %v (best-effort; may already be built-in)", mod, err)
+		if err := exec.Command(modprobe, mod).Run(); err != nil {
+			log.Printf("atopweb dram bw: %s %s: %v (best-effort; may already be built-in)", modprobe, mod, err)
 		}
 	}
 }
