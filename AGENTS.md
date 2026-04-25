@@ -89,4 +89,4 @@ No automated tests. Manual verification:
 
 ## Tools
 
-This development work is running on a Windows machine.  Use Git Bash as the shell for executing any commands.  The target platform is Linux and only Linux; do not worry about cross-platform development except to stub out features for running tests locally on Windows or avoiding Go LSP warnings about cross-platform issues.
+This development work is running on a Windows machine, however, use Bash as the shell for executing any commands.  The target platform is Linux and only Linux; do not worry about cross-platform development except to stub out features for running tests locally on Windows or avoiding Go LSP warnings about cross-platform issues.

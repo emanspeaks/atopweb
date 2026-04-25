@@ -56,6 +56,15 @@ const MEM_TIPS = {
 // ── External DOM tooltip (can overflow chart canvas boundaries) ──────────────
 let _tooltipEl = null;
 
+function clampTooltipPosition(left, top, width, height, margin = 4) {
+  const maxLeft = Math.max(margin, window.innerWidth - width - margin);
+  const maxTop  = Math.max(margin, window.innerHeight - height - margin);
+  return {
+    left: Math.min(Math.max(left, margin), maxLeft),
+    top:  Math.min(Math.max(top, margin), maxTop),
+  };
+}
+
 function getTooltipEl() {
   if (!_tooltipEl) {
     _tooltipEl = document.createElement('div');
@@ -69,7 +78,11 @@ function getTooltipEl() {
       padding:       '6px 8px',
       fontSize:      '11px',
       color:         '#8b949e',
-      whiteSpace:    'nowrap',
+      maxWidth:      '33vw',
+      whiteSpace:    'normal',
+      overflowWrap:  'anywhere',
+      wordBreak:     'break-word',
+      textAlign:     'left',
       opacity:       '0',
       transition:    'opacity 0.08s',
     });
@@ -115,8 +128,7 @@ function externalTooltip({ chart, tooltip }) {
   let left = cx + 12;
   let top  = cy - Math.round(th / 2);
   if (left + tw > window.innerWidth  - 4) left = cx - tw - 12;
-  if (top < 4)                             top  = 4;
-  if (top + th > window.innerHeight  - 4) top  = window.innerHeight - th - 4;
+  ({ left, top } = clampTooltipPosition(left, top, tw, th));
 
   el.style.left    = left + 'px';
   el.style.top     = top  + 'px';
@@ -2273,8 +2285,7 @@ function initDataSrcTooltip() {
     let left = e.clientX + 12;
     let top  = e.clientY - Math.round(th / 2);
     if (left + tw > window.innerWidth  - 4) left = e.clientX - tw - 12;
-    if (top < 4)                             top  = 4;
-    if (top + th > window.innerHeight  - 4) top  = window.innerHeight - th - 4;
+    ({ left, top } = clampTooltipPosition(left, top, tw, th));
     el.style.left    = left + 'px';
     el.style.top     = top  + 'px';
     el.style.opacity = '1';
