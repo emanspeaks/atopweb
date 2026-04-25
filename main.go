@@ -936,13 +936,13 @@ type sysSensor struct {
 // memSnapshot holds the fast-changing memory fields pushed at the amdgpu_top
 // sample cadence rather than the fixed 1 Hz system cadence.
 type memSnapshot struct {
-	MemInfoKB    map[string]uint64 `json:"meminfo_kb,omitempty"`     // all /proc/meminfo fields in kB
-	DRMMem       *drmAccounting    `json:"drm_mem,omitempty"`         // per-process DRM memory breakdown from /proc/*/fdinfo
-	SockMemKB    uint64            `json:"sock_mem_kb,omitempty"`     // kernel network-stack page allocations (sum of /proc/net/sockstat "mem" lines × page size)
-	DmaBufBytes  uint64            `json:"dma_buf_bytes,omitempty"`   // total dma-buf bytes across all exporters (informational; overlaps with VRAM/GTT)
-	GpuAnonPssKB uint64            `json:"gpu_anon_pss_kb,omitempty"` // Σ Pss_Anon across PIDs in DRMMem.Processes (proportional anon RSS attributable to GPU processes; isolates ROCm UMA/HSA host allocations from generic AnonPages)
-	DRAMReadBps  uint64            `json:"dram_read_bps,omitempty"`   // DRAM read bandwidth in bytes/sec from amd_df Σ local_or_remote_socket_read_data_beats_dram_* × 32 (DF link width); replaces amdgpu_top average_dram_reads which has a known read/write swap bug
-	DRAMWriteBps uint64            `json:"dram_write_bps,omitempty"`  // DRAM write bandwidth in bytes/sec from amd_df Σ local_or_remote_socket_write_data_beats_dram_* × 32
+	MemInfoKB    map[string]uint64 `json:"meminfo_kb,omitempty"` // all /proc/meminfo fields in kB
+	DRMMem       *drmAccounting    `json:"drm_mem,omitempty"`    // per-process DRM memory breakdown from /proc/*/fdinfo
+	SockMemKB    uint64            `json:"sock_mem_kb"`          // kernel network-stack page allocations (sum of /proc/net/sockstat "mem" lines × page size)
+	DmaBufBytes  uint64            `json:"dma_buf_bytes"`        // total dma-buf bytes across all exporters (informational; overlaps with VRAM/GTT)
+	GpuAnonPssKB uint64            `json:"gpu_anon_pss_kb"`      // Σ Pss_Anon across PIDs in DRMMem.Processes (proportional anon RSS attributable to GPU processes; isolates ROCm UMA/HSA host allocations from generic AnonPages)
+	DRAMReadBps  uint64            `json:"dram_read_bps"`        // DRAM read bandwidth in bytes/sec from amd_df Σ local_or_remote_socket_read_data_beats_dram_* × 32 (DF link width); replaces amdgpu_top average_dram_reads which has a known read/write swap bug
+	DRAMWriteBps uint64            `json:"dram_write_bps"`       // DRAM write bandwidth in bytes/sec from amd_df Σ local_or_remote_socket_write_data_beats_dram_* × 32
 }
 
 type systemInfo struct {

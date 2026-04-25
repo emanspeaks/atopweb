@@ -482,6 +482,17 @@ function setConnStatus(status, label) {
   document.body.classList.toggle('data-stale', status !== 'connected');
 }
 
+function setShutdownBadge(msg) {
+  const badge = document.getElementById('shutdown-badge');
+  if (!badge) return;
+  if (msg) {
+    badge.textContent = '⚠ ' + msg;
+    badge.hidden = false;
+  } else {
+    badge.hidden = true;
+  }
+}
+
 // ── Chart tooltip / tick helpers ─────────────────────────────────────────────
 function makeChartCallbacks(h) {
   return {
@@ -1039,21 +1050,21 @@ function buildDom(devices) {
         <tr>
           <th>PID</th>
           <th>Name</th>
-          <th>CPU%</th>
-          <th>V-invis (KiB)</th>
-          <th>V-vis (KiB)</th>
-          <th>GTT (KiB)</th>
-          <th>DRM (KiB)</th>
-          <th>Apps-reg (KiB)</th>
-          <th>Apps-THP (KiB)</th>
-          <th>GFX%</th>
-          <th>Compute%</th>
-          <th>DMA%</th>
-          <th>Media%</th>
-          <th>VCN%</th>
-          <th>VPE%</th>
-          <th>NPU%</th>
-          <th>NPU Mem (KiB)</th>
+          <th data-src="CPU utilization: % of one CPU core (sum of all threads; can exceed 100% on multi-threaded processes)">CPU%</th>
+          <th data-src="GPU-private VRAM (KiB): drm-memory-vram minus amd-memory-visible-vram from /proc/pid/fdinfo — VRAM not mapped through the PCIe BAR aperture; exclusively GPU-accessible buffers">V-priv (KiB)</th>
+          <th data-src="CPU-accessible VRAM (KiB): amd-memory-visible-vram from /proc/pid/fdinfo — VRAM mapped through the PCIe BAR aperture, shared between CPU and GPU; staging area on discrete GPUs, UMA on APUs">V-shm (KiB)</th>
+          <th data-src="Graphics Translation Table memory (KiB): drm-memory-gtt from /proc/pid/fdinfo — system RAM pinned and mapped for GPU DMA access via the GTT pool">GTT (KiB)</th>
+          <th data-src="DRM CPU-domain memory (KiB): drm-memory-cpu from /proc/pid/fdinfo — system RAM buffers in amdgpu's CPU memory pool (rarely populated)">DRM (KiB)</th>
+          <th data-src="Regular-page application RSS (KiB): /proc/pid/smaps_rollup Pss_Anon minus AnonHugePages — anonymous RSS not backed by 2 MiB huge pages (heap, stack, small mmaps)">Apps-reg (KiB)</th>
+          <th data-src="Anonymous transparent huge pages (KiB): /proc/pid/smaps_rollup AnonHugePages — anon RSS backed by 2 MiB THP; in ROCm/UMA workloads typically holds model weights">Apps-THP (KiB)</th>
+          <th data-src="GFX engine utilization: % of GFX (3D/compute graphics) engine time consumed by this process">GFX%</th>
+          <th data-src="Compute engine utilization: % of async-compute / HSA dispatch queue time consumed by this process">Compute%</th>
+          <th data-src="SDMA engine utilization: % of system DMA engine time consumed by this process">DMA%</th>
+          <th data-src="Media engine utilization: % of legacy UVD/VCE engine time consumed by this process">Media%</th>
+          <th data-src="VCN (Video Core Next) utilization: % of unified H.264/HEVC/AV1 encode-decode engine time consumed by this process">VCN%</th>
+          <th data-src="VPE (Video Processing Engine) utilization: % of color-conversion / scaling / deinterlace engine time consumed by this process">VPE%</th>
+          <th data-src="NPU (XDNA) utilization: % of XDNA Neural Processing Unit engine time consumed by this process">NPU%</th>
+          <th data-src="NPU memory allocated (KiB): XDNA driver-allocated buffers for this process's NPU workloads (MiB → KiB)">NPU Mem (KiB)</th>
         </tr>
       </thead>
       <tbody id="proc-body-${i}"></tbody>`;
@@ -1447,9 +1458,9 @@ function updateDevice(i, dev) {
     if (vramPartEl) vramPartEl.style.width = pctInst(vramTotalKiB);
     const setSegKiB = (el, kib) => { if (!el) return; el.style.width = pctInst(kib); el.style.minWidth = kib > 0 ? '1px' : ''; };
     const vramVisEl = byId(`mem-vram-vis-${i}`);
-    if (vramVisEl) { vramVisEl.style.width = `${visVramUsedKiB / vramTotalKiB * 100}%`; vramVisEl.style.minWidth = visVramUsedKiB > 0 ? '1px' : ''; }
+    if (vramVisEl) { vramVisEl.style.width = vramTotalKiB > 0 ? `${visVramUsedKiB / vramTotalKiB * 100}%` : '0%'; vramVisEl.style.minWidth = visVramUsedKiB > 0 ? '1px' : ''; }
     const vramInvEl = byId(`mem-vram-inv-${i}`);
-    if (vramInvEl) { vramInvEl.style.width = `${vramInvUsedKiB / vramTotalKiB * 100}%`; vramInvEl.style.minWidth = vramInvUsedKiB > 0 ? '1px' : ''; }
+    if (vramInvEl) { vramInvEl.style.width = vramTotalKiB > 0 ? `${vramInvUsedKiB / vramTotalKiB * 100}%` : '0%'; vramInvEl.style.minWidth = vramInvUsedKiB > 0 ? '1px' : ''; }
     setSegKiB(byId(`mem-kres-${i}`), kernelResKiB);
     setSegKiB(byId(`mem-fw-${i}`),   fwReservedKiB);
 
@@ -1812,8 +1823,8 @@ function updateDevice(i, dev) {
       <td class="proc-pid">${pid}</td>
       <td class="proc-name">${name}</td>
       <td data-src="CPU usage: devices[${i}].fdinfo[${pid}].usage.CPU (% of one core)">${fmt(cpu, 0)}</td>
-      <td data-src="CPU-invisible VRAM used: drm_mem.processes[pid=${pid}].vram_kib − vis_vram_kib (GPU-private VRAM not reachable via PCIe BAR; computed as drm-memory-vram minus amd-memory-visible-vram)">${fmt(invVramKiB, 0)}</td>
-      <td data-src="CPU-visible VRAM used: drm_mem.processes[pid=${pid}].vis_vram_kib (KiB-exact via /proc/${pid}/fdinfo amd-memory-visible-vram — VRAM reachable through the PCIe BAR)">${fmt(visVramKiB, 0)}</td>
+      <td data-src="GPU-private VRAM: drm_mem.processes[pid=${pid}].vram_kib − vis_vram_kib — VRAM not mapped through the PCIe BAR; GPU-exclusive buffers (drm-memory-vram minus amd-memory-visible-vram from /proc/${pid}/fdinfo)">${fmt(invVramKiB, 0)}</td>
+      <td data-src="CPU-accessible VRAM: drm_mem.processes[pid=${pid}].vis_vram_kib — VRAM mapped through the PCIe BAR aperture, shared between CPU and GPU (amd-memory-visible-vram from /proc/${pid}/fdinfo)">${fmt(visVramKiB, 0)}</td>
       <td data-src="${memSrcGtt}">${fmt(gttKiB, 0)}</td>
       <td data-src="DRM CPU-domain buffers: drm_mem.processes[pid=${pid}].cpu_kib (KiB-exact via /proc/${pid}/fdinfo drm-memory-cpu — system RAM staged through amdgpu's CPU pool, rarely populated)">${fmt(drmCpuKiB, 0)}</td>
       <td data-src="Regular-page application memory (Apps-reg): /proc/${pid}/smaps_rollup Pss_Anon − AnonHugePages (anonymous RSS NOT backed by 2 MiB transparent huge pages — process heap, stack, and small mmap regions; in a ROCm UMA workload this is the non-model overhead while Apps-THP holds the model weights)">${fmt(appsRegKiB, 0)}</td>
@@ -1851,6 +1862,7 @@ function connect() {
     retryMs = 1000;
     setConnStatus('connected', 'Connected');
     appendLog('WebSocket connected', 'ok');
+    setShutdownBadge(null);
     fetchPowerLimits();
     fetchCoreRanks();
     fetchConfig();
@@ -1864,10 +1876,13 @@ function connect() {
     // Fast-refresh memory snapshot (pushed at amdgpu_top cadence).
     if (data.type === 'mem') {
       if (!state.systemInfo) state.systemInfo = {};
-      state.systemInfo.meminfo_kb    = data.meminfo_kb;
-      state.systemInfo.drm_mem       = data.drm_mem;
-      state.systemInfo.dma_buf_bytes = data.dma_buf_bytes;
-      state.systemInfo.sock_mem_kb   = data.sock_mem_kb;
+      state.systemInfo.meminfo_kb      = data.meminfo_kb;
+      state.systemInfo.drm_mem         = data.drm_mem;
+      state.systemInfo.dma_buf_bytes   = data.dma_buf_bytes;
+      state.systemInfo.sock_mem_kb     = data.sock_mem_kb;
+      state.systemInfo.gpu_anon_pss_kb = data.gpu_anon_pss_kb;
+      state.systemInfo.dram_read_bps   = data.dram_read_bps;
+      state.systemInfo.dram_write_bps  = data.dram_write_bps;
       return;
     }
 
@@ -1881,6 +1896,7 @@ function connect() {
         if (state.lastShutdownMode !== mode) {
           state.lastShutdownMode = mode;
           appendLog('system: ' + data.shutdown_pending, 'err');
+          setShutdownBadge(data.shutdown_pending);
         }
       }
       return;
@@ -2068,6 +2084,7 @@ function renderSystemInfo(sys) {
     if (state.lastShutdownMode !== mode) {
       state.lastShutdownMode = mode;
       appendLog('system: ' + sys.shutdown_pending, 'err');
+      setShutdownBadge(sys.shutdown_pending);
     }
   } else {
     state.lastShutdownMode = undefined;
@@ -2474,6 +2491,8 @@ function initMemSnapBtn() {
 }
 
 // ── Status bar ────────────────────────────────────────────────────────────────
+let barRestoreTimer = null;
+
 function appendLog(msg, cls) {
   const log = document.getElementById('status-log');
   if (!log) return;
@@ -2486,12 +2505,22 @@ function appendLog(msg, cls) {
   span.textContent = `[${ts}]  ${msg}`;
   log.appendChild(span);
   if (atBottom) log.scrollTop = log.scrollHeight;
-  const el = document.getElementById('status-bar-text');
-  if (el) el.textContent = msg;
+  const textEl = document.getElementById('status-bar-text');
+  if (textEl) {
+    textEl.textContent = msg;
+    textEl.className = (cls === 'ok' || cls === 'warn' || cls === 'err') ? 'text-' + cls : '';
+  }
   const bar = document.getElementById('status-bar');
   if (bar) {
+    if (barRestoreTimer) { clearTimeout(barRestoreTimer); barRestoreTimer = null; }
     bar.classList.remove('sev-ok', 'sev-warn', 'sev-err');
-    if (cls === 'ok' || cls === 'warn' || cls === 'err') bar.classList.add('sev-' + cls);
+    if (cls === 'ok' || cls === 'warn' || cls === 'err') {
+      bar.classList.add('sev-' + cls);
+      barRestoreTimer = setTimeout(() => {
+        bar.classList.remove('sev-ok', 'sev-warn', 'sev-err');
+        barRestoreTimer = null;
+      }, 5000);
+    }
   }
 }
 
