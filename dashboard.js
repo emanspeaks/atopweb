@@ -2216,7 +2216,7 @@ function initDataSrcTooltip() {
     const target = e.target.closest('[data-src]');
     if (!target) return;
     const el = getTooltipEl();
-    el.innerHTML = `<div style="color:#6e7681;font-size:10px">${target.dataset.src}</div>`;
+    el.innerHTML = `<div style="color:#cdd9e5;font-size:13px">${target.dataset.src}</div>`;
     const tw = el.offsetWidth;
     const th = el.offsetHeight;
     let left = e.clientX + 12;
@@ -2593,9 +2593,9 @@ function initStatusBar() {
 
 // ── Sticky card offset ────────────────────────────────────────────────────────
 function updateStickyOffset() {
-  const headerH = document.querySelector('header')?.offsetHeight || 0;
-  const tabsH   = document.getElementById('tabs')?.offsetHeight  || 0;
-  document.documentElement.style.setProperty('--sticky-top', (headerH + tabsH) + 'px');
+  const groupH = document.querySelector('.sticky-top-group')?.offsetHeight || 0;
+  const tabsH  = document.getElementById('tabs')?.offsetHeight  || 0;
+  document.documentElement.style.setProperty('--sticky-top', (groupH + tabsH) + 'px');
 }
 
 // ── Plot maximize overlay ─────────────────────────────────────────────────────
