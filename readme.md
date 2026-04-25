@@ -62,8 +62,10 @@ and surfaced in the dashboard log pane as a red error.
 
 The legend shows per-segment GiB values (DQI-colored) plus a summary group
 on the right: **Installed** (MSR-authoritative physical total, typically
-`TOP_MEM + (TOP_MEM2 − 4 GiB)`), **Non-GTT** (`MemTotal − GTT`), and
-**System-Margin** (`Non-GTT − Used-without-GTT`; turns red when negative).
+`TOP_MEM + (TOP_MEM2 − 4 GiB)`). When `--show-gtt-margin` is enabled (or
+`services.atopweb.showGttMargin = true;` on NixOS), the summary also shows
+**Non-GTT** (`MemTotal − GTT`) and **GTT Margin** (`Non-GTT − Used-without-GTT`;
+turns red when negative).
 Informational `dma-buf` total from `/sys/kernel/debug/dma_buf/bufinfo` is
 shown next to the reserved legends; it isn't rendered as a segment because
 dma-bufs are usually backed by VRAM/GTT/shmem and would double-count.
@@ -201,7 +203,7 @@ significantly — the full memory overview bar.
 | `/dashboard.css` | GET | Stylesheet |
 | `/dashboard.js` | GET | Dashboard application |
 | `/ws` | WS | WebSocket stream carrying five frame kinds: raw `amdgpu_top` JSON at the configured interval (untyped — GPU activity, sensors, fdinfo); `{"type":"mem",…}` at the same interval (fast-changing memory: `meminfo_kb`, `drm_mem` including per-process `pss_anon_kib` / `anon_huge_pages_kib`, `dma_buf_bytes`, `sock_mem_kb`, `gpu_anon_pss_kb`); `{"type":"system",…}` every 1 s (slow / static: hwmon sensors, CPU%, uptime, `mem_reservation`, `firmware_reserved_kib`, errors); `{"type":"proc_event",…}` for GPU/NPU process start/stop; `{"type":"system_alert",…}` for shutdown/reboot pending notifications |
-| `/api/config` | GET | Returns `{"interval_ms", "atopweb_version", "amdgpu_top_version", "total_ram_mib", "kernel_version"}`; on NixOS also `"nixos_version"` and `"nixos_generation"` |
+| `/api/config` | GET | Returns `{"interval_ms", "show_gtt_margin", "atopweb_version", "amdgpu_top_version", "total_ram_mib", "kernel_version"}`; on NixOS also `"nixos_version"` and `"nixos_generation"` |
 | `/api/interval?ms=N` | POST | Changes the amdgpu_top polling interval to N ms (50–60000); restarts the streamer |
 | `/api/vram` | GET | Returns per-device `[{"name", "used_mib", "total_mib", "used_pct"}]` from the last frame |
 | `/api/gpu-pct` | GET | Returns per-device `[{"name", "gpu_pct"}]` (GFX activity %) from the last frame |
@@ -280,6 +282,7 @@ Then open `http://localhost:5899` in a browser.
 | `--apu` | `false` | Select APU instance |
 | `--single` | `false` | Display only the selected GPU |
 | `--no-pc` | `false` | Skip GPU performance counter reads |
+| `--show-gtt-margin` | `false` | Show Non-GTT and GTT Margin calculations in the memory bar legend |
 | `--proc-cache <path>` | | Path to a JSON file used as a persistent cache of process names that have previously touched the GPU. When set, enables early-detection of known processes across service restarts. Empty = in-memory only |
 | `--fanotify` | `false` | Enable the fanotify-based GPU device watcher for zero-lag process-start detection (requires root or `CAP_SYS_ADMIN`; falls back silently when unavailable) |
 
@@ -325,6 +328,7 @@ whenever `go.mod` changes.
             fanotify     = true;         # zero-lag process start detection
             # gpuProcCache = true;       # persist learned process names (on by default)
             # nopc       = true;         # skip perf counters
+            # showGttMargin = true;      # show Non-GTT and GTT Margin in memory legend
             # interval   = 100;          # 100 ms updates
           };
         }
@@ -356,6 +360,7 @@ http://<server-ip>:5899
 | `services.atopweb.port` | `port` | `5899` | TCP port |
 | `services.atopweb.sudo` | `bool` | `false` | Run `amdgpu_top` (and `ryzenadj`) via `sudo -n`; automatically adds a NOPASSWD sudoers rule for the `atopweb` user |
 | `services.atopweb.nopc` | `bool` | `false` | Skip perf counter reads |
+| `services.atopweb.showGttMargin` | `bool` | `false` | Show Non-GTT and GTT Margin calculations in the memory bar legend |
 | `services.atopweb.interval` | `int` | `1000` | Refresh period in ms |
 | `services.atopweb.amdgpuTopBin` | `str` | nix store | `amdgpu_top` binary path |
 | `services.atopweb.ryzenAdjBin` | `str` | `""` | `ryzenadj` binary path; when set, polls for APU power and thermal limits and adds a NOPASSWD sudoers rule |

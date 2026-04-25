@@ -73,6 +73,15 @@
               description = "amdgpu_top refresh period in milliseconds.";
             };
 
+            showGttMargin = lib.mkOption {
+              type = lib.types.bool;
+              default = false;
+              description = ''
+                Show Non-GTT and GTT Margin calculations in the dashboard
+                memory bar legend (passes --show-gtt-margin to atopweb).
+              '';
+            };
+
             amdgpuTopBin = lib.mkOption {
               type = lib.types.str;
               default = "${pkgs.amdgpu_top}/bin/amdgpu_top";
@@ -169,6 +178,7 @@
                     "-s" (toString cfg.interval)
                   ]
                   ++ lib.optional cfg.nopc "--no-pc"
+                  ++ lib.optional cfg.showGttMargin "--show-gtt-margin"
                   ++ lib.optionals cfg.sudo [ "--sudo" "--sudo-bin" "/run/wrappers/bin/sudo" ]
                   ++ lib.optionals (cfg.ryzenAdjBin != "") [ "--ryzenadj" cfg.ryzenAdjBin ]
                   ++ lib.optionals cfg.gpuProcCache [ "--proc-cache" "/var/lib/atopweb/gpu-procs.json" ]

@@ -56,6 +56,15 @@ const MEM_TIPS = {
 // ── External DOM tooltip (can overflow chart canvas boundaries) ──────────────
 let _tooltipEl = null;
 
+function clampTooltipPosition(left, top, width, height, margin = 4) {
+  const maxLeft = Math.max(margin, window.innerWidth - width - margin);
+  const maxTop  = Math.max(margin, window.innerHeight - height - margin);
+  return {
+    left: Math.min(Math.max(left, margin), maxLeft),
+    top:  Math.min(Math.max(top, margin), maxTop),
+  };
+}
+
 function getTooltipEl() {
   if (!_tooltipEl) {
     _tooltipEl = document.createElement('div');
@@ -69,7 +78,11 @@ function getTooltipEl() {
       padding:       '6px 8px',
       fontSize:      '11px',
       color:         '#8b949e',
-      whiteSpace:    'nowrap',
+      maxWidth:      '33vw',
+      whiteSpace:    'normal',
+      overflowWrap:  'anywhere',
+      wordBreak:     'break-word',
+      textAlign:     'left',
       opacity:       '0',
       transition:    'opacity 0.08s',
     });
@@ -115,8 +128,7 @@ function externalTooltip({ chart, tooltip }) {
   let left = cx + 12;
   let top  = cy - Math.round(th / 2);
   if (left + tw > window.innerWidth  - 4) left = cx - tw - 12;
-  if (top < 4)                             top  = 4;
-  if (top + th > window.innerHeight  - 4) top  = window.innerHeight - th - 4;
+  ({ left, top } = clampTooltipPosition(left, top, tw, th));
 
   el.style.left    = left + 'px';
   el.style.top     = top  + 'px';
@@ -267,6 +279,7 @@ const state = {
   serverVersion:   null, // atopweb version string as reported by /api/config on first load
   lastConfig:      null, // last seen /api/config snapshot for change detection
   dramMaxBWKiBs:   0,    // theoretical DRAM bandwidth ceiling in KiB/s (from dmidecode via /api/config)
+  showGttMargin:   false,
   memTreemapDev:   null, // device index whose treemap is currently open, or null
 };
 
@@ -715,15 +728,18 @@ function buildDom(devices) {
         <span class="mem-legend-item" data-src="${MEM_TIPS.kres}"><span class="mem-lswatch mem-lswatch-kres"></span>KRes: <span class="mem-legend-val" id="mem-lbl-kres-${i}">—</span></span>
         <span class="mem-legend-total">
           <span class="mem-legend-item" data-src="${MEM_TIPS.total}">Installed: <span class="mem-legend-val" id="mem-lbl-total-${i}">—</span> GiB</span>
-          <span class="mem-legend-sep">◆</span>
-          <span class="mem-legend-item" data-src="${MEM_TIPS.nongtt}">Non-GTT: <span class="mem-legend-val" id="mem-lbl-nongtt-${i}">—</span> GiB</span>
-          <span class="mem-legend-sep">◆</span>
-          <span class="mem-legend-item" data-src="${MEM_TIPS.gttmargin}">GTT Margin: <span class="mem-legend-val" id="mem-lbl-gttmargin-${i}">—</span> GiB</span>
-          <span class="mem-legend-sep">◆</span>
-          <span class="mem-legend-item" data-src="${MEM_TIPS.dmabuf}">dma-buf (shared): <span class="mem-legend-val" id="mem-lbl-dmabuf-${i}">—</span> GiB</span>
+          <span class="mem-gttmargin-group" id="mem-gttmargin-group-${i}">
+            <span class="mem-legend-sep">◆</span>
+            <span class="mem-legend-item" data-src="${MEM_TIPS.nongtt}">Non-GTT: <span class="mem-legend-val" id="mem-lbl-nongtt-${i}">—</span> GiB</span>
+            <span class="mem-legend-sep">◆</span>
+            <span class="mem-legend-item" data-src="${MEM_TIPS.gttmargin}">GTT Margin: <span class="mem-legend-val" id="mem-lbl-gttmargin-${i}">—</span> GiB</span>
+          </span>
+
         </span>
       </div>
     `;
+    // <span class="mem-legend-sep">◆</span>
+    // <span class="mem-legend-item" data-src="${MEM_TIPS.dmabuf}">dma-buf (shared): <span class="mem-legend-val" id="mem-lbl-dmabuf-${i}">—</span> GiB</span>
     fixedStats.appendChild(cards);
     fixedStats.appendChild(memSec);
     panel.appendChild(fixedStats);
@@ -1113,7 +1129,15 @@ function buildDom(devices) {
   });
 
   state.cur = 0;
+  applyGttMarginVisibility();
   restoreCache();
+}
+
+function applyGttMarginVisibility() {
+  const display = state.showGttMargin ? '' : 'none';
+  document.querySelectorAll('.mem-gttmargin-group').forEach(el => {
+    el.style.display = display;
+  });
 }
 
 function switchTab(idx) {
@@ -2261,8 +2285,7 @@ function initDataSrcTooltip() {
     let left = e.clientX + 12;
     let top  = e.clientY - Math.round(th / 2);
     if (left + tw > window.innerWidth  - 4) left = e.clientX - tw - 12;
-    if (top < 4)                             top  = 4;
-    if (top + th > window.innerHeight  - 4) top  = window.innerHeight - th - 4;
+    ({ left, top } = clampTooltipPosition(left, top, tw, th));
     el.style.left    = left + 'px';
     el.style.top     = top  + 'px';
     el.style.opacity = '1';
@@ -2303,6 +2326,8 @@ function fetchConfig() {
         state.intervalMs = cfg.interval_ms;
         document.getElementById('interval-input').value = cfg.interval_ms;
       }
+      state.showGttMargin = !!cfg.show_gtt_margin;
+      applyGttMarginVisibility();
       const newVer = cfg.atopweb_version || '';
       const subSpans = [];
       if (cfg.amdgpu_top_version) subSpans.push(`<span data-src="/api/config → amdgpu_top_version">${cfg.amdgpu_top_version}</span>`);
@@ -2327,6 +2352,7 @@ function fetchConfig() {
         nixos_generation:   cfg.nixos_generation   ?? null,
         cpu_gov:            cfg.cpu_gov            || null,
         amdgpu_top_version: cfg.amdgpu_top_version || null,
+        show_gtt_margin:    !!cfg.show_gtt_margin,
       };
       const lc = state.lastConfig;
       if (lc === null) {
@@ -2347,6 +2373,7 @@ function fetchConfig() {
         chk('Nix generation',  lc.nixos_generation,   snap.nixos_generation);
         chk('CPU governor',    lc.cpu_gov,             snap.cpu_gov);
         chk('amdgpu_top',      lc.amdgpu_top_version, snap.amdgpu_top_version);
+        chk('Show GTT margin', lc.show_gtt_margin,    snap.show_gtt_margin);
       }
       state.lastConfig = snap;
     })
