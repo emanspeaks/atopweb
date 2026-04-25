@@ -39,7 +39,7 @@ Open `http://localhost:5899` in a browser.
 ## Key Files
 
 | File | Purpose |
-|------|---------|
+| ------ | --------- |
 | `main.go` | All logic: WebSocket hub, HTTP handlers, process watchers, memory readers |
 | `dashboard.html/css/js` | Browser UI (embedded via `//go:embed`) |
 | `flake.nix` | NixOS module + Go build definition |

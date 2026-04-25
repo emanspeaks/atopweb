@@ -146,3 +146,6 @@ vmem
 XDNA
 xorg
 µW
+
+subpackages
+known-proc
