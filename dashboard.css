@@ -924,6 +924,7 @@ main { padding: 6px 8px; }
 tr.mem-tm-group-hdr td { font-weight: 600; }
 tr.mem-tm-child-hdr td { font-size: 10px; color: var(--muted); }
 tr.mem-tm-child-hdr td.mem-tm-kib { color: var(--data-color); }
+.mem-tm-cmdline { display: block; font-family: monospace; font-size: 9px; color: var(--muted); opacity: 0.7; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 260px; }
 
 #mem-tm-close {
   background: none;
