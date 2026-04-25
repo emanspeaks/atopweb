@@ -29,13 +29,20 @@ size comes from an authoritative source; no segment is an unexplained
   `/sys/class/drm/card*/device/mem_info_vis_vram_*`.
 - **System RAM** (everything that lives in `MemTotal`) — in left-to-right
   bar order: GTT, DRM-CPU (Σ `drm-memory-cpu` across all `/proc/*/fdinfo`
-  DRM FDs), Apps (`AnonPages`), Shared (`Shmem`), File Cache
-  (`Cached − Shmem`), Buffers, Slab Reclaim (`SReclaimable`), Slab Unreclaim
-  (`SUnreclaim`), Vmalloc (`VmallocUsed`), Kernel Stack, Page Tables
-  (`PageTables + SecPageTables`), Net Buffers (sum of `mem`/`memory` fields
-  in `/proc/net/sockstat` × page size), Driver Pages (residual — the
-  kernel's direct `alloc_pages()` pool used by DMA-coherent allocations
-  and NIC page_pool), and Free.
+  DRM FDs — typically near zero in practice; UMA/HMM allocations bypass the
+  CPU TTM domain), G-Apps (Σ `Pss_Anon` from `/proc/*/smaps_rollup` for
+  every PID holding a DRM fd — captures ROCm UMA / HSA host allocations and
+  LLM model weights mapped into GPU process address space; subdivided
+  per-PID with white dotted dividers and PID labels rendered inside each
+  box, hover for `comm (PID xxx): N.NNN GiB Pss_Anon (M.MMM GiB THP, P% —
+  likely UMA model)`), Apps (`AnonPages − G-Apps Pss_Anon`, anonymous memory
+  from non-GPU processes), Shared (`Shmem`), File Cache (`Cached − Shmem`),
+  Buffers, Slab Reclaim (`SReclaimable`), Slab Unreclaim (`SUnreclaim`),
+  Vmalloc (`VmallocUsed`), Kernel Stack, Page Tables (`PageTables +
+  SecPageTables`), Net Buffers (sum of `mem`/`memory` fields in
+  `/proc/net/sockstat` × page size), Driver Pages (residual — the kernel's
+  direct `alloc_pages()` pool used by DMA-coherent allocations and NIC
+  page_pool), and Free.
 - **Reserved zone** (right side, never dynamically allocatable) — Kernel-Reserved
   (e820 `System RAM − MemTotal`: crashkernel / initrd / kernel
   image / early-boot reservations) and Firmware (PSP/SMU/ACPI/TSEG + any
@@ -111,9 +118,20 @@ backing JSON field path in the tooltip.
 **GRBM / GRBM2 performance counters** — full counter list with mini bar
 indicators; click any counter to expand an inline history chart.
 
-**Process table** — merged GPU + NPU processes with PID, name, VRAM (MiB),
-GTT (MiB), GFX %, Compute %, DMA %, Media %, VCN %, VPE %, CPU %, NPU %,
-NPU Mem (MiB).
+**Process table** — merged GPU + NPU processes with one row per PID and
+17 columns: `PID`, `Name`, `CPU %`, **memory** (`Inv-VRAM` =
+`drm-memory-vram − amd-memory-visible-vram` = CPU-invisible / GPU-private
+VRAM, `Vis-VRAM` = `amd-memory-visible-vram` = the BAR-mapped portion,
+`GTT`, `DRM-CPU`, `Apps-reg` = `Pss_Anon − AnonHugePages` = 4 KiB-page
+anonymous RSS = process heap/stack/small mmap, `Apps-THP` =
+`AnonHugePages` = 2 MiB-huge-page anonymous RSS — for ROCm UMA inference
+processes the model weights show up here), all in KiB and sourced
+byte-exact from `/proc/<pid>/fdinfo` and `/proc/<pid>/smaps_rollup` via
+the fast `mem` WebSocket frame, then **engine activity** (`GFX %`,
+`Compute %`, `DMA %`, `Media %`, `VCN %`, `VPE %`, `NPU %`,
+`NPU Mem`) sourced from `amdgpu_top` fdinfo since per-engine busy time is
+not exposed elsewhere. Sorted by total allocated memory descending. Hover
+any cell for the full source path.
 
 **Header** — page title and connection status on the top line, a subtitle
 beneath listing `amdgpu_top` version, Linux kernel release, and (on NixOS)
@@ -121,9 +139,10 @@ distribution version and generation number; device info (ASIC name, CU
 count, VRAM type / size / bandwidth, peak FP32 TFLOPS, NPU name); ryzenadj
 limits summary; and a control cluster with pause button, wall-clock
 timestamp, inputs for update interval, plot width, and core-clock plot
-width, and a **Memory snapshot** button that copies a CSV of every memory
-bar segment value — in raw bytes, organized in sections matching the bar's
-zones — to the clipboard for spreadsheet verification.
+width, and a **Memory snapshot** button that copies a tab-delimited table
+(`bucket, bytes, description`) of every memory bar segment value — in raw
+bytes, organized in sections matching the bar's zones — to the clipboard
+for direct paste into Excel.
 
 **Status bar** — a collapsible log strip at the bottom of the page. The
 current line shows inline; click to expand an auto-scrolling history of
@@ -150,20 +169,27 @@ CPU core performance rankings are read from
 `/sys/devices/system/cpu/cpu*/acpi_cppc/highest_perf` at first request and
 served from `/api/cpu-ranks`.
 
-Host stats outside the GPU stream are collected in `buildSystemInfo()` and
-pushed at 1 Hz as a typed frame (`{"type":"system",…}`) over the same `/ws`
-WebSocket that carries the GPU stream, with `/api/system` as a REST fallback
-for initial page load.  The payload carries fan/voltage/
-current/power/temp readings from every `/sys/class/hwmon` sensor, aggregate
-CPU usage from `/proc/stat`, uptime, load average, the full
-`/proc/meminfo` map, AMD memory-topology MSR read-outs (TOP_MEM, TOP_MEM2,
-SMM_ADDR, SMM_MASK) via `/dev/cpu/*/msr`, a `/sys/firmware/memmap` summary,
-per-process DRM memory accounting scanned from `/proc/*/fdinfo`, kernel
-socket buffer bytes from `/proc/net/sockstat`, and dma-buf total bytes from
-`/sys/kernel/debug/dma_buf/bufinfo`.  The dashboard feeds this into the
-system stat cards, the VRAM chart's physical-memory ceiling, the PPT trace
-on the Package Power chart, and — most significantly — the full memory
-overview bar.
+Host stats outside the GPU stream are split across two server-side
+pushers.  `runSystemPusher()` ticks at 1 Hz and emits a slow
+`{"type":"system",…}` frame carrying things that change rarely or not at
+all (hwmon fan/voltage/current/power/temp readings, aggregate CPU usage
+from `/proc/stat`, uptime, load average, AMD memory-topology MSR read-outs
+`TOP_MEM` / `TOP_MEM2` / `SMM_ADDR` / `SMM_MASK` via `/dev/cpu/*/msr`, a
+`/sys/firmware/memmap` summary, firmware-reserved DRAM, sticky
+diagnostics, shutdown-pending state).  `runMemPusher()` ticks at the same
+cadence as `amdgpu_top` (= the configured update interval, can run faster
+than 1 Hz) and emits a fast `{"type":"mem",…}` frame carrying everything
+that moves with workload: the full `/proc/meminfo` map, per-process DRM
+memory accounting from `/proc/*/fdinfo`, per-process `Pss_Anon` and
+`AnonHugePages` from `/proc/*/smaps_rollup`, kernel socket buffer bytes
+from `/proc/net/sockstat`, and dma-buf total bytes from
+`/sys/kernel/debug/dma_buf/bufinfo`.  The split keeps the memory bar and
+process table responsive at sub-second cadence without paying for hwmon /
+MSR work that does not move.  `/api/system` returns the union of both as a
+REST fallback for tooling.  The dashboard feeds these streams into the
+system stat cards, the VRAM chart's physical-memory ceiling, the PPT
+trace on the Package Power chart, the per-PID process table, and — most
+significantly — the full memory overview bar.
 
 ---
 
@@ -174,14 +200,14 @@ overview bar.
 | `/` | GET | Serves the dashboard HTML |
 | `/dashboard.css` | GET | Stylesheet |
 | `/dashboard.js` | GET | Dashboard application |
-| `/ws` | WS | WebSocket stream — carries two kinds of typed frames: the raw `amdgpu_top` JSON at the configured interval, and a `{"type":"system",…}` frame every 1 s with the full `/api/system` payload |
+| `/ws` | WS | WebSocket stream carrying five frame kinds: raw `amdgpu_top` JSON at the configured interval (untyped — GPU activity, sensors, fdinfo); `{"type":"mem",…}` at the same interval (fast-changing memory: `meminfo_kb`, `drm_mem` including per-process `pss_anon_kib` / `anon_huge_pages_kib`, `dma_buf_bytes`, `sock_mem_kb`, `gpu_anon_pss_kb`); `{"type":"system",…}` every 1 s (slow / static: hwmon sensors, CPU%, uptime, `mem_reservation`, `firmware_reserved_kib`, errors); `{"type":"proc_event",…}` for GPU/NPU process start/stop; `{"type":"system_alert",…}` for shutdown/reboot pending notifications |
 | `/api/config` | GET | Returns `{"interval_ms", "atopweb_version", "amdgpu_top_version", "total_ram_mib", "kernel_version"}`; on NixOS also `"nixos_version"` and `"nixos_generation"` |
 | `/api/interval?ms=N` | POST | Changes the amdgpu_top polling interval to N ms (50–60000); restarts the streamer |
 | `/api/vram` | GET | Returns per-device `[{"name", "used_mib", "total_mib", "used_pct"}]` from the last frame |
 | `/api/gpu-pct` | GET | Returns per-device `[{"name", "gpu_pct"}]` (GFX activity %) from the last frame |
 | `/api/limits` | GET | Returns cached ryzenadj limits: `stapm_w`, `fast_w`, `slow_w`, `apu_slow_w`, `thm_core_c`, `thm_gfx_c`, `thm_soc_c`. Fields are omitted when ryzenadj is not configured or the value is absent |
 | `/api/cpu-ranks` | GET | Returns `{"ranks": [...]}` — array indexed by CPU core number, value is performance rank (1 = best) derived from ACPI CPPC `highest_perf`; empty array when CPPC data is unavailable |
-| `/api/system` | GET | REST fallback for the initial system snapshot (same payload the WebSocket pushes every second). See **`/api/system` payload** below for the full field list |
+| `/api/system` | GET | REST snapshot returning the union of the slow `system` and fast `mem` WebSocket frames merged into one JSON object — useful for tooling that wants a single point-in-time read; the dashboard itself receives them as separate streams.  See **`/api/system` payload** below for the full field list |
 
 ### `/api/system` payload
 
@@ -192,9 +218,9 @@ overview bar.
 | `fans`, `voltages`, `currents`, `powers`, `temps` | Arrays of `{"chip","label","value"}` collected from every `/sys/class/hwmon/hwmon*`; values in RPM / mV / mA / µW / °C respectively |
 | `cpu_usage_pct` | Aggregate CPU utilization `0–100` computed from `/proc/stat` deltas between successive 1 Hz ticks (absent on the very first tick) |
 | `meminfo_kb` | Map of every `/proc/meminfo` key to its numeric value (kB for most fields, plain counts for `HugePages_*`) |
-| `firmware_reserved_mib` | Total DRAM reserved above top-of-System-RAM including the BIOS VRAM carveout; the dashboard subtracts `VRAM total` to derive the non-VRAM firmware segment |
-| `mem_reservation` | Full memory-topology report: `system_ram_mib`, `system_ram_top_bytes`, MSR-derived `top_mem_bytes` / `top_mem2_bytes` / `tseg_base_bytes` / `tseg_size_bytes`, `installed_mib` (= `TOP_MEM + (TOP_MEM2 − 4 GiB)`), and the split `firmware_high_mib` (above top of System RAM) + `firmware_low_mib` (below TOP_MEM + any hidden e820 gap).  `source_msr = true` when the numbers came from AMD MSRs (byte-exact); `false` when the msr module is not loaded and MSRs could not be read |
-| `drm_mem` | Per-GPU authoritative totals from `/sys/class/drm/card*/device/mem_info_*` (`vram_total_mib`, `vram_used_mib`, `vis_vram_total_mib`, `vis_vram_used_mib`, `gtt_total_mib`, `gtt_used_mib`) plus aggregated per-process breakdown from `/proc/*/fdinfo/*` (`total_vram_kib`, `total_gtt_kib`, `total_cpu_kib`, and a `processes[]` array with `{pid, comm, driver, vram_kib, gtt_kib, cpu_kib, vis_vram_kib}` per DRM-holding process, the largest first) |
+| `firmware_reserved_kib` | Total DRAM reserved above top-of-System-RAM including the BIOS VRAM carveout (in KiB); the dashboard subtracts `VRAM total` to derive the non-VRAM firmware segment |
+| `mem_reservation` | Full memory-topology report: `system_ram_kib`, `system_ram_top_bytes`, MSR-derived `top_mem_bytes` / `top_mem2_bytes` / `tseg_base_bytes` / `tseg_size_bytes`, `installed_kib` (= `TOP_MEM + (TOP_MEM2 − 4 GiB)`), and the split `firmware_high_kib` (above top of System RAM) + `firmware_low_kib` (below TOP_MEM + any hidden e820 gap).  All `*_kib` fields are KiB derived from byte-exact byte counts so that the bar zones reconcile without sub-MiB rounding error.  `source_msr = true` when the numbers came from AMD MSRs (byte-exact); `false` when the msr module is not loaded and MSRs could not be read |
+| `drm_mem` | Per-GPU authoritative totals from `/sys/class/drm/card*/device/mem_info_*` (`vram_total_kib`, `vram_used_kib`, `vis_vram_total_kib`, `vis_vram_used_kib`, `gtt_total_kib`, `gtt_used_kib` — KiB derived from byte-exact sysfs reads, **not** the MiB-quantized values amdgpu_top reports) plus aggregated per-process breakdown from `/proc/*/fdinfo/*` (`total_vram_kib`, `total_gtt_kib`, `total_cpu_kib`, and a `processes[]` array with `{pid, comm, driver, pss_anon_kib, anon_huge_pages_kib, vram_kib, gtt_kib, cpu_kib, vis_vram_kib}` per DRM-holding process, the largest first.  `pss_anon_kib` is `/proc/<pid>/smaps_rollup Pss_Anon` and captures ROCm UMA / HSA host allocations including LLM model weights; `anon_huge_pages_kib` is the THP-backed subset of `Pss_Anon` and is a strong heuristic for distinguishing model bytes from process heap, since large contiguous mmaps get THP-promoted while ordinary heap/stack rarely produces THP at any meaningful scale) |
 | `sock_mem_kb` | Kernel network-buffer memory: sum of the `mem` / `memory` fields in `/proc/net/sockstat` and `/proc/net/sockstat6`, multiplied by the system page size |
 | `dma_buf_bytes` | Total size column from `/sys/kernel/debug/dma_buf/bufinfo` (diagnostic only — dma-bufs are usually backed by VRAM/GTT/shmem so adding this to the bar would double-count) |
 | `errors` | Array of sticky server-side diagnostics (missing kernel modules, unexpected permission errors, etc.).  Each unique message appears once per process lifetime; the same list is emitted to the systemd journal via `log.Printf` and surfaced in the dashboard log pane as a red error entry |

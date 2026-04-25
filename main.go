@@ -933,25 +933,31 @@ type sysSensor struct {
 	Value float64 `json:"value"`
 }
 
+// memSnapshot holds the fast-changing memory fields pushed at the amdgpu_top
+// sample cadence rather than the fixed 1 Hz system cadence.
+type memSnapshot struct {
+	MemInfoKB    map[string]uint64 `json:"meminfo_kb,omitempty"`     // all /proc/meminfo fields in kB
+	DRMMem       *drmAccounting    `json:"drm_mem,omitempty"`         // per-process DRM memory breakdown from /proc/*/fdinfo
+	SockMemKB    uint64            `json:"sock_mem_kb,omitempty"`     // kernel network-stack page allocations (sum of /proc/net/sockstat "mem" lines × page size)
+	DmaBufBytes  uint64            `json:"dma_buf_bytes,omitempty"`   // total dma-buf bytes across all exporters (informational; overlaps with VRAM/GTT)
+	GpuAnonPssKB uint64            `json:"gpu_anon_pss_kb,omitempty"` // Σ Pss_Anon across PIDs in DRMMem.Processes (proportional anon RSS attributable to GPU processes; isolates ROCm UMA/HSA host allocations from generic AnonPages)
+}
+
 type systemInfo struct {
-	TotalRAMMiB         uint64            `json:"total_ram_mib"`
-	AvailRAMMiB         uint64            `json:"avail_ram_mib"`
-	MemInfoKB           map[string]uint64 `json:"meminfo_kb,omitempty"`            // all /proc/meminfo fields in kB
-	FirmwareReservedMiB uint64            `json:"firmware_reserved_mib,omitempty"` // DRAM reserved above top-of-System-RAM (includes BIOS VRAM carveout; JS subtracts it).  Byte-exact when MSRs available, else e820 estimate.
-	MemReservation      memReservation    `json:"mem_reservation,omitempty"`       // full authoritative memory-topology report (TOP_MEM, TOP_MEM2, TSEG, etc.)
-	DRMMem              *drmAccounting    `json:"drm_mem,omitempty"`               // per-process DRM memory breakdown from /proc/*/fdinfo
-	SockMemKB           uint64            `json:"sock_mem_kb,omitempty"`           // kernel network-stack page allocations (sum of /proc/net/sockstat "mem" lines × page size)
-	DmaBufBytes         uint64            `json:"dma_buf_bytes,omitempty"`         // total dma-buf bytes across all exporters (informational; overlaps with VRAM/GTT)
-	Errors              []string          `json:"errors,omitempty"`                // sticky non-fatal diagnostics (permissions, missing modules, etc.); each unique message appears once
-	ShutdownPending     string            `json:"shutdown_pending,omitempty"`      // non-empty when systemd has a shutdown/reboot scheduled; value is human-readable (e.g. "reboot in 30s")
-	UptimeSec           float64           `json:"uptime_sec"`
-	LoadAvg     [3]float64        `json:"loadavg"`
-	Fans        []sysSensor       `json:"fans"`           // RPM
-	Voltages    []sysSensor       `json:"voltages"`       // mV
-	Currents    []sysSensor       `json:"currents"`       // mA
-	Powers      []sysSensor       `json:"powers"`         // µW
-	Temps       []sysSensor       `json:"temps"`          // °C
-	CPUUsagePct *float64          `json:"cpu_usage_pct,omitempty"` // 0–100; absent on first tick
+	TotalRAMMiB         uint64         `json:"total_ram_mib"`
+	AvailRAMMiB         uint64         `json:"avail_ram_mib"`
+	FirmwareReservedKiB uint64         `json:"firmware_reserved_kib,omitempty"` // DRAM reserved above top-of-System-RAM (includes BIOS VRAM carveout; JS subtracts it).  Byte-exact when MSRs available, else e820 estimate.
+	MemReservation      memReservation `json:"mem_reservation,omitempty"`       // full authoritative memory-topology report (TOP_MEM, TOP_MEM2, TSEG, etc.)
+	Errors              []string       `json:"errors,omitempty"`                // sticky non-fatal diagnostics (permissions, missing modules, etc.); each unique message appears once
+	ShutdownPending     string         `json:"shutdown_pending,omitempty"`      // non-empty when systemd has a shutdown/reboot scheduled; value is human-readable (e.g. "reboot in 30s")
+	UptimeSec           float64        `json:"uptime_sec"`
+	LoadAvg     [3]float64     `json:"loadavg"`
+	Fans        []sysSensor    `json:"fans"`           // RPM
+	Voltages    []sysSensor    `json:"voltages"`       // mV
+	Currents    []sysSensor    `json:"currents"`       // mA
+	Powers      []sysSensor    `json:"powers"`         // µW
+	Temps       []sysSensor    `json:"temps"`          // °C
+	CPUUsagePct *float64       `json:"cpu_usage_pct,omitempty"` // 0–100; absent on first tick
 }
 
 // cpuStat holds the raw tick counters from the aggregate "cpu" line in /proc/stat.
@@ -1069,6 +1075,62 @@ func readMemInfoAll() map[string]uint64 {
 	return m
 }
 
+// anonStats bundles the smaps_rollup anonymous-RSS fields we surface per-PID.
+// PssAnon is the proportional anonymous resident set; AnonHugePages is the
+// portion of that backed by transparent huge pages (a strong heuristic for
+// ROCm UMA model weights, which get THP-promoted thanks to large contiguous
+// mmaps; ordinary heap/stack rarely produces THP at any meaningful scale).
+type anonStats struct {
+	PssAnonKiB       uint64
+	AnonHugePagesKiB uint64
+}
+
+// readAnonStatsByPid reads /proc/<pid>/smaps_rollup for each PID and returns
+// a map of pid → anonStats.  Pss_Anon is the proportional set size of
+// anonymous pages — when multiple processes share a page (fork+COW, etc.)
+// each gets only its proportional share, so the sum across all processes
+// equals the system-wide anonymous page count.  AnonHugePages is the THP
+// portion (whole-RSS, not Pss; smaps_rollup does not split THP into private
+// vs shared) — close enough for a "ROCm-likely" signal since GPU processes
+// rarely fork heavy anon state.  Requires kernel 4.14+ for smaps_rollup with
+// Pss_Anon.  PIDs that disappear or lack permissions are omitted.
+func readAnonStatsByPid(pids []int) map[int]anonStats {
+	result := make(map[int]anonStats, len(pids))
+	var permDenied bool
+	for _, pid := range pids {
+		data, err := os.ReadFile(fmt.Sprintf("/proc/%d/smaps_rollup", pid))
+		if err != nil {
+			if os.IsPermission(err) {
+				permDenied = true
+			}
+			continue
+		}
+		var s anonStats
+		for _, line := range strings.Split(string(data), "\n") {
+			var dst *uint64
+			switch {
+			case strings.HasPrefix(line, "Pss_Anon:"):
+				dst = &s.PssAnonKiB
+			case strings.HasPrefix(line, "AnonHugePages:"):
+				dst = &s.AnonHugePagesKiB
+			default:
+				continue
+			}
+			f := strings.Fields(line)
+			if len(f) >= 2 {
+				if v, err := strconv.ParseUint(f[1], 10, 64); err == nil {
+					*dst = v
+				}
+			}
+		}
+		result[pid] = s
+	}
+	if permDenied {
+		diag.report("smaps_rollup scan: permission denied for some GPU PIDs — GPU app memory totals will be incomplete until the service gains CAP_SYS_PTRACE")
+	}
+	return result
+}
+
 // diagnostics collects non-fatal error messages from the privileged readers
 // (MSR, DRM fdinfo, debugfs) and deduplicates them by message text.  Each
 // unique message is emitted once to the process's stderr via log.Printf (so
@@ -1140,7 +1202,7 @@ const (
 // /sys/firmware/memmap plus (when available) AMD MSRs.  All byte counts are
 // exact; *MiB fields are rounded-down MiB for JSON friendliness.
 //
-// FirmwareReservedMiB captures ALL DRAM reserved by firmware — above top of
+// FirmwareReservedKiB captures ALL DRAM reserved by firmware — above top of
 // System RAM (typically BIOS VRAM carveout + PSP/SMU/ACPI runtime), inside the
 // low-DRAM range (ACPI NVS/Tables, TSEG, small reserved blocks), plus any
 // "hidden" bytes below TOP_MEM the firmware didn't advertise in e820 at all.
@@ -1148,15 +1210,15 @@ const (
 // to derive the non-VRAM portion.
 type memReservation struct {
 	SystemRAMTopBytes   uint64 `json:"system_ram_top_bytes,omitempty"`  // end-exclusive top of last "System RAM" entry in e820
-	SystemRAMMiB        uint64 `json:"system_ram_mib,omitempty"`        // sum of all "System RAM" entries (kernel-addressable DRAM)
+	SystemRAMKiB        uint64 `json:"system_ram_kib,omitempty"`        // sum of all "System RAM" entries (kernel-addressable DRAM)
 	TopMemBytes         uint64 `json:"top_mem_bytes,omitempty"`         // MSR TOP_MEM (low DRAM boundary)
 	TopMem2Bytes        uint64 `json:"top_mem2_bytes,omitempty"`        // MSR TOP_MEM2 (upper DRAM boundary)
 	TsegBaseBytes       uint64 `json:"tseg_base_bytes,omitempty"`       // SMM_ADDR (TSEG base), 0 if TSEG not enabled
 	TsegSizeBytes       uint64 `json:"tseg_size_bytes,omitempty"`       // TSEG size decoded from SMM_MASK
-	InstalledMiB        uint64 `json:"installed_mib,omitempty"`         // MSR-derived: TOP_MEM + (TOP_MEM2 - 4 GiB)
-	FirmwareReservedMiB uint64 `json:"firmware_reserved_mib,omitempty"` // total DRAM reserved by firmware (above-ToM + low-memory + hidden gap; includes VRAM)
-	FirmwareHighMiB     uint64 `json:"firmware_high_mib,omitempty"`     // DRAM reserved above top of System RAM (VRAM carveout + PSP/SMU/runtime)
-	FirmwareLowMiB      uint64 `json:"firmware_low_mib,omitempty"`      // DRAM reserved below TOP_MEM (ACPI NVS/Tables, TSEG, small reserved) + any e820 gap
+	InstalledKiB        uint64 `json:"installed_kib,omitempty"`         // MSR-derived: TOP_MEM + (TOP_MEM2 - 4 GiB)
+	FirmwareReservedKiB uint64 `json:"firmware_reserved_kib,omitempty"` // total DRAM reserved by firmware (above-ToM + low-memory + hidden gap; includes VRAM)
+	FirmwareHighKiB     uint64 `json:"firmware_high_kib,omitempty"`     // DRAM reserved above top of System RAM (VRAM carveout + PSP/SMU/runtime)
+	FirmwareLowKiB      uint64 `json:"firmware_low_kib,omitempty"`      // DRAM reserved below TOP_MEM (ACPI NVS/Tables, TSEG, small reserved) + any e820 gap
 	SourceMSR           bool   `json:"source_msr,omitempty"`            // true if the above numbers used AMD MSRs (byte-exact); false if e820-only fallback
 }
 
@@ -1221,7 +1283,7 @@ func readMemReservation() memReservation {
 			return
 		}
 		memReservationVal.SystemRAMTopBytes = topRAM + 1
-		memReservationVal.SystemRAMMiB = sysRAMBytes / (1024 * 1024)
+		memReservationVal.SystemRAMKiB = sysRAMBytes / 1024
 
 		// 2) AMD MSRs for authoritative DRAM topology.  No e820-only fallback
 		// here: e820 "Reserved" entries mix DRAM reservations with MMIO
@@ -1247,7 +1309,7 @@ func readMemReservation() memReservation {
 		// Installed DRAM = low DRAM (0..TOP_MEM) + high DRAM (4 GiB..TOP_MEM2).
 		const fourGiB uint64 = 4 << 30
 		if tom2 > fourGiB {
-			memReservationVal.InstalledMiB = (tom + (tom2 - fourGiB)) / (1024 * 1024)
+			memReservationVal.InstalledKiB = (tom + (tom2 - fourGiB)) / 1024
 		}
 
 		// High firmware reservation: byte-exact from MSRs.
@@ -1278,9 +1340,9 @@ func readMemReservation() memReservation {
 			hiddenBytes = tom - accountedLow
 		}
 
-		memReservationVal.FirmwareHighMiB = highBytes / (1024 * 1024)
-		memReservationVal.FirmwareLowMiB = (lowBytes + hiddenBytes) / (1024 * 1024)
-		memReservationVal.FirmwareReservedMiB = (highBytes + lowBytes + hiddenBytes) / (1024 * 1024)
+		memReservationVal.FirmwareHighKiB = highBytes / 1024
+		memReservationVal.FirmwareLowKiB = (lowBytes + hiddenBytes) / 1024
+		memReservationVal.FirmwareReservedKiB = (highBytes + lowBytes + hiddenBytes) / 1024
 
 		// TSEG: base in SMM_ADDR bits 51:17, size decoded from SMM_MASK.
 		addr, errAddr := readMSR(0, msrAMDSMMAddr)
@@ -1321,6 +1383,8 @@ type drmProcessMem struct {
 	PID        int    `json:"pid"`
 	Comm       string `json:"comm,omitempty"`
 	Driver     string `json:"driver,omitempty"`      // e.g. "amdgpu"
+	PssAnonKiB       uint64 `json:"pss_anon_kib,omitempty"`        // /proc/<pid>/smaps_rollup Pss_Anon — proportional anonymous RSS, captures ROCm UMA/HSA host allocations and LLM model weights mmap'd into the process address space
+	AnonHugePagesKiB uint64 `json:"anon_huge_pages_kib,omitempty"` // /proc/<pid>/smaps_rollup AnonHugePages — anonymous transparent-huge-page-backed RSS; under ROCm UMA, large model weight mmaps get THP-promoted, so this approximates the ROCm-attributable share of Pss_Anon (vs heap/stack which use 4 KiB pages)
 	VramKiB    uint64 `json:"vram_kib,omitempty"`    // drm-memory-vram
 	GttKiB     uint64 `json:"gtt_kib,omitempty"`     // drm-memory-gtt
 	CpuKiB     uint64 `json:"cpu_kib,omitempty"`     // drm-memory-cpu  (system-RAM pinned by the driver)
@@ -1334,16 +1398,17 @@ type drmProcessMem struct {
 //      totals (VRAM total/used, CPU-visible VRAM, GTT)
 //   3. /sys/kernel/debug/dma_buf/bufinfo         — dma-buf allocations
 //
-// Fields ending *MiB come from (2); Total*KiB come from (1).  DmaBufBytes is
-// separate because dma-bufs can be backed by VRAM, GTT, or system memory — we
-// report it informationally, not as an accounting line.
+// Fields ending *KiB come from (2) (byte-exact from sysfs, expressed as KiB).
+// Total*KiB come from (1).  DmaBufBytes is separate because dma-bufs can be
+// backed by VRAM, GTT, or system memory — we report it informationally, not as
+// an accounting line.
 type drmAccounting struct {
-	VramTotalMiB    uint64          `json:"vram_total_mib,omitempty"`
-	VramUsedMiB     uint64          `json:"vram_used_mib,omitempty"`
-	VisVramTotalMiB uint64          `json:"vis_vram_total_mib,omitempty"`
-	VisVramUsedMiB  uint64          `json:"vis_vram_used_mib,omitempty"`
-	GttTotalMiB     uint64          `json:"gtt_total_mib,omitempty"`
-	GttUsedMiB      uint64          `json:"gtt_used_mib,omitempty"`
+	VramTotalKiB    uint64          `json:"vram_total_kib,omitempty"`
+	VramUsedKiB     uint64          `json:"vram_used_kib,omitempty"`
+	VisVramTotalKiB uint64          `json:"vis_vram_total_kib,omitempty"`
+	VisVramUsedKiB  uint64          `json:"vis_vram_used_kib,omitempty"`
+	GttTotalKiB     uint64          `json:"gtt_total_kib,omitempty"`
+	GttUsedKiB      uint64          `json:"gtt_used_kib,omitempty"`
 	TotalVramKiB    uint64          `json:"total_vram_kib,omitempty"`     // sum of per-fd drm-memory-vram
 	TotalGttKiB     uint64          `json:"total_gtt_kib,omitempty"`      // sum of per-fd drm-memory-gtt
 	TotalCpuKiB     uint64          `json:"total_cpu_kib,omitempty"`      // sum of per-fd drm-memory-cpu — system RAM pinned by DRM drivers
@@ -1365,13 +1430,13 @@ func readDRMSysfs(a *drmAccounting) {
 			v, _ := strconv.ParseUint(readFileTrim(filepath.Join(c, "device", name)), 10, 64)
 			return v
 		}
-		const toMiB = 1024 * 1024
-		a.VramTotalMiB += readUint("mem_info_vram_total") / toMiB
-		a.VramUsedMiB += readUint("mem_info_vram_used") / toMiB
-		a.VisVramTotalMiB += readUint("mem_info_vis_vram_total") / toMiB
-		a.VisVramUsedMiB += readUint("mem_info_vis_vram_used") / toMiB
-		a.GttTotalMiB += readUint("mem_info_gtt_total") / toMiB
-		a.GttUsedMiB += readUint("mem_info_gtt_used") / toMiB
+		const toKiB = 1024
+		a.VramTotalKiB += readUint("mem_info_vram_total") / toKiB
+		a.VramUsedKiB += readUint("mem_info_vram_used") / toKiB
+		a.VisVramTotalKiB += readUint("mem_info_vis_vram_total") / toKiB
+		a.VisVramUsedKiB += readUint("mem_info_vis_vram_used") / toKiB
+		a.GttTotalKiB += readUint("mem_info_gtt_total") / toKiB
+		a.GttUsedKiB += readUint("mem_info_gtt_used") / toKiB
 	}
 }
 
@@ -1474,7 +1539,7 @@ func readDRMAccounting() *drmAccounting {
 	a := &drmAccounting{}
 	readDRMSysfs(a)
 	readDRMFdinfo(a)
-	if a.VramTotalMiB == 0 && len(a.Processes) == 0 {
+	if a.VramTotalKiB == 0 && len(a.Processes) == 0 {
 		return nil
 	}
 	return a
@@ -1604,6 +1669,31 @@ func checkShutdownPending() string {
 	return fmt.Sprintf("%s in progress (scheduled for %s)", mode, when.Format("15:04:05"))
 }
 
+func buildMemSnapshot() memSnapshot {
+	drm := readDRMAccounting()
+	var gpuAnonPss uint64
+	if drm != nil && len(drm.Processes) > 0 {
+		pids := make([]int, 0, len(drm.Processes))
+		for _, p := range drm.Processes {
+			pids = append(pids, p.PID)
+		}
+		byPid := readAnonStatsByPid(pids)
+		for i := range drm.Processes {
+			s := byPid[drm.Processes[i].PID]
+			drm.Processes[i].PssAnonKiB = s.PssAnonKiB
+			drm.Processes[i].AnonHugePagesKiB = s.AnonHugePagesKiB
+			gpuAnonPss += s.PssAnonKiB
+		}
+	}
+	return memSnapshot{
+		MemInfoKB:    readMemInfoAll(),
+		DRMMem:       drm,
+		SockMemKB:    readSockMemKB(),
+		DmaBufBytes:  readDmaBufBytes(),
+		GpuAnonPssKB: gpuAnonPss,
+	}
+}
+
 func buildSystemInfo() systemInfo {
 	fans, volts, currs, pows, temps := readHwmon()
 	memInfo := readMemInfoAll()
@@ -1611,12 +1701,8 @@ func buildSystemInfo() systemInfo {
 	return systemInfo{
 		TotalRAMMiB:         memInfo["MemTotal"] / 1024,
 		AvailRAMMiB:         memInfo["MemAvailable"] / 1024,
-		MemInfoKB:           memInfo,
-		FirmwareReservedMiB: memRes.FirmwareReservedMiB,
+		FirmwareReservedKiB: memRes.FirmwareReservedKiB,
 		MemReservation:      memRes,
-		DRMMem:              readDRMAccounting(),
-		SockMemKB:           readSockMemKB(),
-		DmaBufBytes:         readDmaBufBytes(),
 		Errors:              diag.snapshot(),
 		ShutdownPending:     checkShutdownPending(),
 		UptimeSec:           readUptime(),
@@ -1630,7 +1716,14 @@ func buildSystemInfo() systemInfo {
 }
 
 func serveSystem(w http.ResponseWriter, r *http.Request) {
-	info := buildSystemInfo()
+	type fullSystem struct {
+		systemInfo
+		memSnapshot
+	}
+	info := fullSystem{
+		systemInfo:  buildSystemInfo(),
+		memSnapshot: buildMemSnapshot(),
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	json.NewEncoder(w).Encode(info)
@@ -1641,6 +1734,13 @@ func serveSystem(w http.ResponseWriter, r *http.Request) {
 type wsSysFrame struct {
 	Type string `json:"type"`
 	systemInfo
+}
+
+// wsMemFrame is the WebSocket envelope for fast-refresh memory snapshots pushed
+// at the amdgpu_top sample cadence.
+type wsMemFrame struct {
+	Type string `json:"type"`
+	memSnapshot
 }
 
 // runSystemPusher pushes a system-info frame over the WebSocket to all
@@ -1667,6 +1767,34 @@ func runSystemPusher(h *hub) {
 			hasPrevCPU = true
 		}
 		frame := wsSysFrame{Type: "system", systemInfo: info}
+		b, err := json.Marshal(frame)
+		if err != nil {
+			continue
+		}
+		h.pushAll(b)
+	}
+}
+
+// runMemPusher pushes a fast-refresh memory snapshot over WebSocket at the same
+// cadence as amdgpu_top (h.intervalMs), automatically adjusting when the
+// interval is changed via /api/interval.  Uses pushAll so h.last always holds
+// the most recent GPU frame.
+func runMemPusher(h *hub) {
+	h.mu.Lock()
+	cur := h.intervalMs
+	h.mu.Unlock()
+	ticker := time.NewTicker(time.Duration(cur) * time.Millisecond)
+	defer ticker.Stop()
+	for range ticker.C {
+		h.mu.Lock()
+		next := h.intervalMs
+		h.mu.Unlock()
+		if next != cur {
+			cur = next
+			ticker.Reset(time.Duration(cur) * time.Millisecond)
+		}
+		snap := buildMemSnapshot()
+		frame := wsMemFrame{Type: "mem", memSnapshot: snap}
 		b, err := json.Marshal(frame)
 		if err != nil {
 			continue
@@ -1883,7 +2011,9 @@ func main() {
 	}
 	go runStreamer(binary, atopArgs, h)
 	go runSystemPusher(h)
+	go runMemPusher(h)
 	go watchShutdownFile(h)
+	go watchLogindShutdown(h)
 
 	// GPU process early-detection pipeline.
 	gpuCache := loadGPUProcCache(*procCache)

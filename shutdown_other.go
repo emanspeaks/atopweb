@@ -2,4 +2,5 @@
 
 package main
 
-func watchShutdownFile(h *hub) {}
+func watchShutdownFile(h *hub)    {}
+func watchLogindShutdown(h *hub) {}

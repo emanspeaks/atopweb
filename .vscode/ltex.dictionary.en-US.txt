@@ -41,6 +41,7 @@ gofmt
 gomod
 GRBM
 GTT-only
+gttmargin
 hidepid
 hwmon
 initrd
@@ -63,6 +64,8 @@ mdegc
 Mem
 MEM
 MiB
+MiB-quantized
+mmaps
 MMIO
 monospace
 MP-NPU
@@ -78,6 +81,7 @@ nopc
 npuclk
 numtide
 osrelease
+pinnable
 pkgs
 ptables
 RAPL
@@ -86,6 +90,7 @@ Reclm
 Roboto
 rocm
 ROCm
+rollup
 ryzen
 ryzenadj
 sclk
@@ -94,12 +99,14 @@ Segoe
 setuid
 shmem
 shutdownd
+smaps
 socclk
 sreclm
 stapl
 STAPM
 stdenv
 Strix
+sub-MiB
 sudoers
 sysfs
 systemd
@@ -113,6 +120,7 @@ toml
 TSEG
 udev
 Unreclaim
+Unreclaimable
 Unreclm
 upgrader
 vclk
@@ -125,3 +133,8 @@ vmem
 XDNA
 xorg
 µW
+
+fd
+mmap
+MiB-huge-page
+CPU%

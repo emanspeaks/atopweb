@@ -422,7 +422,25 @@ main { padding: 6px 8px; }
 .mem-seg-vram-inv  { flex: 0 0 auto; background: #aed581; }  /* CPU-invisible VRAM used — light lime (high yellow) */
 .mem-seg-gtt-used  { flex: 0 0 auto; background: #80cbc4; }  /* GTT used — light teal (high blue) */
 .mem-seg-drmcpu    { flex: 0 0 auto; background: #00695c; }  /* DRM CPU-domain pinned — dark teal (high blue) */
-.mem-seg-anon      { flex: 0 0 auto; background: #ff7043; }  /* AnonPages — user process heap/stack */
+.mem-seg-anon-gpu   { flex: 0 0 auto; background: #43a047; display: flex; flex-direction: row; overflow: hidden; }  /* GPU process anon — Σ Pss_Anon for DRM-fdinfo PIDs (medium green; clusters with GPU greens) — flex container hosts one child per active GPU PID */
+.mem-anon-gpu-pid {
+  flex: 0 0 auto;
+  background: transparent;
+  border-right: 1px dotted rgba(255,255,255,0.7);
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255,255,255,0.95);
+  font-size: 9px;
+  font-weight: 600;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: clip;
+  min-width: 1px;
+}
+.mem-anon-gpu-pid:last-child { border-right: none; }
+.mem-seg-anon-other { flex: 0 0 auto; background: #ff7043; }  /* AnonPages − GPU Pss_Anon — non-GPU process heap/stack */
 .mem-seg-shmem     { flex: 0 0 auto; background: #1e88e5; }  /* Shmem — tmpfs / SysV shared */
 .mem-seg-cached    { flex: 0 0 auto; background: #ff9800; }  /* Cached − Shmem — file page cache */
 .mem-seg-buf       { flex: 0 0 auto; background: #00bcd4; }  /* Buffers — block-device cache */
@@ -466,7 +484,8 @@ main { padding: 6px 8px; }
 .mem-lswatch-vram-inv  { background: #aed581; }
 .mem-lswatch-gtt     { background: #80cbc4; border: 1px solid rgba(128,203,196,0.6); }
 .mem-lswatch-drmcpu  { background: #00695c; }
-.mem-lswatch-anon    { background: #ff7043; }
+.mem-lswatch-anon-gpu   { background: #43a047; }
+.mem-lswatch-anon-other { background: #ff7043; }
 .mem-lswatch-shmem   { background: #1e88e5; }
 .mem-lswatch-cached  { background: #ff9800; }
 .mem-lswatch-buf     { background: #00bcd4; }
@@ -822,6 +841,15 @@ main { padding: 6px 8px; }
 #status-log .log-line.ok    { color: var(--green); }
 #status-log .log-line.warn  { color: var(--yellow); }
 #status-log .log-line.err   { color: var(--red); }
+
+#status-bar.sev-ok   { background: var(--green); border-top-color: var(--green); }
+#status-bar.sev-ok   #status-bar-text { color: #fff; }
+#status-bar.sev-warn { background: var(--yellow); border-top-color: var(--yellow); }
+#status-bar.sev-warn #status-bar-text { color: #000; }
+#status-bar.sev-warn #status-bar-chevron { color: #000; }
+#status-bar.sev-err  { background: var(--red); border-top-color: var(--red); }
+#status-bar.sev-err  #status-bar-text { color: #fff; }
+#status-bar.sev-err  #status-bar-chevron { color: #fff; }
 
 #status-bar-main {
   display: flex;
