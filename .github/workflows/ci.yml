@@ -25,7 +25,7 @@ jobs:
           fi
 
           EXEMPTIONS_FILE=".github/workflows/exempt.txt"
-          changed_files=$(git diff --name-only origin/main...HEAD)
+          changed_files=$(git diff --name-only "${{ github.event.pull_request.base.sha }}...HEAD")
 
           if [ -z "$changed_files" ]; then
             echo "all_exempt=true" >> "$GITHUB_OUTPUT"
@@ -61,8 +61,10 @@ jobs:
           fetch-depth: 0
 
       - name: Check VERSION changed
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
-          if git diff origin/main...HEAD -- VERSION | grep -q '^+[0-9]'; then
+          if git diff "${BASE_SHA}...HEAD" -- VERSION | grep -q '^+[0-9]'; then
             echo "VERSION updated: $(cat VERSION)"
           else
             echo "::error::VERSION must be updated in every PR to main. Edit the VERSION file to bump the version."

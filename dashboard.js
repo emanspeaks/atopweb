@@ -2713,7 +2713,7 @@ function buildMemSegs(devIdx) {
   const mk     = sysInfo.meminfo_kb     ?? {};
   const memRes = sysInfo.mem_reservation ?? {};
   const drmMem = sysInfo.drm_mem         ?? {};
-  const totalKB = mk.MemTotal ?? ((sysInfo.total_ram_mib ?? 0) * 1024) || 1;
+  const totalKB = (mk.MemTotal ?? ((sysInfo.total_ram_mib ?? 0) * 1024)) || 1;
 
   const vramTotalKiB   = drmMem.vram_total_kib    ?? 0;
   const vramUsedKiB    = drmMem.vram_used_kib     ?? 0;
