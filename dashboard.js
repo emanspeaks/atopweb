@@ -192,8 +192,9 @@ function makeDataset(label, color, data, sourcePath, decimals) {
 // to the display refresh rate (60 fps) while still consuming every data point.
 let _rafPending = false;
 function scheduleRender() {
-  const hasOverlay = !!state.overlayChart;
-  if (state.paused && !hasOverlay) return;
+  const hasOverlay  = !!state.overlayChart;
+  const hasTreemap  = state.memTreemapDev != null;
+  if (state.paused && !hasOverlay && !hasTreemap) return;
   if (_rafPending) return;
   _rafPending = true;
   requestAnimationFrame(() => {
@@ -230,6 +231,10 @@ function scheduleRender() {
       state.overlayChart.options.scales.x.min = now - state.overlayWidthMs;
       state.overlayChart.options.scales.x.max = now;
       state.overlayChart.update('none');
+    }
+    if (state.memTreemapDev != null) {
+      if (state.paused) updateMemTreemapValues(state.memTreemapDev);
+      else              renderMemTreemap(state.memTreemapDev);
     }
   });
 }
@@ -2772,7 +2777,7 @@ function buildMemSegs(devIdx) {
 
   const segs = [];
   const add = (key, label, kib, color, desc) => {
-    if (kib > 0) segs.push({ key, label, kib, color, desc });
+    segs.push({ key, label, kib, color, desc });
   };
 
   // GPU process anon — grouped as a folder so all PID blocks stay contiguous.
@@ -2921,8 +2926,16 @@ function renderMemTreemap(devIdx) {
   if (W < 4 || H < 4) return;
 
   _tmKeyMap.clear();
-  const segs  = buildMemSegs(devIdx);
-  const rects = squarifyLayout(segs, 0, 0, W, H);
+  const segs = buildMemSegs(devIdx);
+
+  // Treemap uses only items with area; legend uses all (including zeros).
+  const tmSegs = segs.map(s => {
+    if (!s.children) return s.kib > 0 ? s : null;
+    const kids = s.children.filter(c => c.kib > 0);
+    return kids.length > 0 ? { ...s, children: kids } : null;
+  }).filter(Boolean);
+
+  const rects = squarifyLayout(tmSegs, 0, 0, W, H);
 
   const ns  = 'http://www.w3.org/2000/svg';
   const svg = document.createElementNS(ns, 'svg');
@@ -2930,59 +2943,29 @@ function renderMemTreemap(devIdx) {
   svg.setAttribute('width',  W);
   svg.setAttribute('height', H);
 
-  const GAP      = 1;
-  const HDR_H    = 18; // px — group folder header strip height
+  const GAP = 1;
 
   for (const { item, x, y, w, h } of rects) {
     if (item.children && item.children.length > 0) {
-      // Group folder: background rect + dark header strip + children inside
+      // Group: background rect for hover, children fill the full inner area.
       const bg = document.createElementNS(ns, 'rect');
-      bg.setAttribute('x',      x + GAP);
-      bg.setAttribute('y',      y + GAP);
-      bg.setAttribute('width',  Math.max(0, w - GAP * 2));
-      bg.setAttribute('height', Math.max(0, h - GAP * 2));
-      bg.setAttribute('fill',   item.color);
-      bg.setAttribute('stroke', 'rgba(255,255,255,0)');
+      bg.setAttribute('x',            x + GAP);
+      bg.setAttribute('y',            y + GAP);
+      bg.setAttribute('width',        Math.max(0, w - GAP * 2));
+      bg.setAttribute('height',       Math.max(0, h - GAP * 2));
+      bg.setAttribute('fill',         item.color);
+      bg.setAttribute('stroke',       'rgba(255,255,255,0)');
       bg.setAttribute('stroke-width', '2');
       svg.appendChild(bg);
       _tmKeyMap.set(item.key, bg);
 
-      // Header strip
-      const hdrH  = Math.min(HDR_H, h - GAP * 2);
-      const strip = document.createElementNS(ns, 'rect');
-      strip.setAttribute('x',      x + GAP);
-      strip.setAttribute('y',      y + GAP);
-      strip.setAttribute('width',  Math.max(0, w - GAP * 2));
-      strip.setAttribute('height', Math.max(0, hdrH));
-      strip.setAttribute('fill',   'rgba(0,0,0,0.45)');
-      strip.setAttribute('pointer-events', 'none');
-      svg.appendChild(strip);
-
-      if (w > 30 && hdrH > 8) {
-        const maxChars = Math.floor((w - 6) / 7);
-        const label    = item.label.length > maxChars ? item.label.slice(0, maxChars - 1) + '…' : item.label;
-        const txt = document.createElementNS(ns, 'text');
-        txt.setAttribute('x',                 x + GAP + 4);
-        txt.setAttribute('y',                 y + GAP + hdrH / 2);
-        txt.setAttribute('dominant-baseline', 'middle');
-        txt.setAttribute('fill',              '#e6edf3');
-        txt.setAttribute('font-size',         Math.min(12, hdrH - 2));
-        txt.setAttribute('font-family',       'system-ui, sans-serif');
-        txt.setAttribute('font-weight',       '600');
-        txt.setAttribute('pointer-events',    'none');
-        txt.textContent = label;
-        svg.appendChild(txt);
-      }
-
-      // Hover on the background rect (the whole group region)
       bg.addEventListener('mouseenter', () => bg.setAttribute('stroke', 'rgba(255,255,255,0.7)'));
       bg.addEventListener('mouseleave', () => bg.setAttribute('stroke', 'rgba(255,255,255,0)'));
 
-      // Lay children inside the area below the header strip
-      const innerY = y + GAP + hdrH;
-      const innerH = h - GAP * 2 - hdrH;
-      if (innerH > 2) {
-        const childRects = squarifyLayout(item.children, x + GAP, innerY, w - GAP * 2, innerH);
+      const innerX = x + GAP, innerY = y + GAP;
+      const innerW = w - GAP * 2, innerH = h - GAP * 2;
+      if (innerW > 1 && innerH > 1) {
+        const childRects = squarifyLayout(item.children, innerX, innerY, innerW, innerH);
         for (const cr of childRects)
           _tmAddLeaf(svg, ns, cr.item, cr.x, cr.y, cr.w, cr.h, GAP);
       }
@@ -3006,7 +2989,7 @@ function renderMemTreemap(devIdx) {
       for (const child of seg.children) {
         html += `<tr class="mem-tm-child-hdr" data-key="${child.key}">
           <td><span class="mem-tm-swatch mem-tm-indent" style="background:${child.color}"></span></td>
-          <td class="mem-tm-indent">${child.label}</td>
+          <td class="mem-tm-indent">◆ ${child.label}</td>
           <td class="mem-tm-kib">${child.kib.toLocaleString()}</td>
           <td class="mem-tm-desc">${child.desc}</td>
         </tr>`;
@@ -3032,6 +3015,26 @@ function renderMemTreemap(devIdx) {
       const el = _tmKeyMap.get(key);
       if (el) el.setAttribute('stroke', 'rgba(255,255,255,0)');
     });
+  });
+}
+
+// Update only the KiB value cells without rebuilding the SVG or re-sorting.
+// Called each tick when paused so digitals stay live.
+function updateMemTreemapValues(devIdx) {
+  const tbodyEl = document.getElementById('mem-tm-tbody');
+  if (!tbodyEl) return;
+  const segs = buildMemSegs(devIdx);
+  const kibMap = new Map();
+  for (const seg of segs) {
+    kibMap.set(seg.key, seg.kib);
+    if (seg.children) for (const c of seg.children) kibMap.set(c.key, c.kib);
+  }
+  tbodyEl.querySelectorAll('tr[data-key]').forEach(tr => {
+    const kib = kibMap.get(tr.dataset.key);
+    if (kib != null) {
+      const cell = tr.querySelector('.mem-tm-kib');
+      if (cell) cell.textContent = kib.toLocaleString();
+    }
   });
 }
 
