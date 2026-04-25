@@ -153,7 +153,7 @@
             # distinguish DRAM-backed firmware reservation from MMIO address
             # space above TOP_MEM2.  The msr character device only exists when
             # the msr kernel module is loaded.
-            boot.kernelModules = [ "msr" ];
+            boot.kernelModules = [ "msr" "amd_uncore" "amd_atl" ];
 
             systemd.services.atopweb = {
               description = "atopweb GPU web dashboard";

@@ -10,6 +10,7 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/godbus/dbus/v5"
 	"golang.org/x/sys/unix"
 )
 
@@ -106,4 +107,51 @@ func pushShutdownAlert(h *hub, msg string) {
 	b, _ := json.Marshal(alert{Type: "system_alert", ShutdownPending: msg})
 	h.pushAll(b)
 	log.Printf("shutdown alert pushed: %s", msg)
+}
+
+// watchLogindShutdown subscribes to systemd-logind's PrepareForShutdown signal
+// on the system D-Bus. logind emits PrepareForShutdown(true) immediately before
+// any shutdown/reboot/halt/kexec begins — including immediate `sudo reboot`,
+// ACPI power-button presses, and GUI-initiated shutdowns — none of which write
+// /run/systemd/shutdown/scheduled. This is the canonical signal documented at
+// https://www.freedesktop.org/software/systemd/man/org.freedesktop.login1.html.
+//
+// For delayed shutdowns the inotify watcher fires first (with a countdown
+// message); this watcher then refines the message when shutdown actually
+// starts. For immediate shutdowns this is the only thing that fires.
+func watchLogindShutdown(h *hub) {
+	conn, err := dbus.SystemBus()
+	if err != nil {
+		log.Printf("logind watcher: connect system bus: %v", err)
+		return
+	}
+
+	if err := conn.AddMatchSignal(
+		dbus.WithMatchInterface("org.freedesktop.login1.Manager"),
+		dbus.WithMatchMember("PrepareForShutdown"),
+		dbus.WithMatchObjectPath("/org/freedesktop/login1"),
+	); err != nil {
+		log.Printf("logind watcher: add match: %v", err)
+		return
+	}
+
+	ch := make(chan *dbus.Signal, 8)
+	conn.Signal(ch)
+	for sig := range ch {
+		if sig.Name != "org.freedesktop.login1.Manager.PrepareForShutdown" {
+			continue
+		}
+		if len(sig.Body) < 1 {
+			continue
+		}
+		active, _ := sig.Body[0].(bool)
+		if !active {
+			continue
+		}
+		msg := checkShutdownPending()
+		if msg == "" {
+			msg = "shutdown or reboot in progress"
+		}
+		pushShutdownAlert(h, msg)
+	}
 }
