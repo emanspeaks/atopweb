@@ -233,8 +233,8 @@ function scheduleRender() {
       state.overlayChart.update('none');
     }
     if (state.memTreemapDev != null) {
-      if (state.paused) updateMemTreemapValues(state.memTreemapDev);
-      else              renderMemTreemap(state.memTreemapDev);
+      if (state.paused || _tmHovered) updateMemTreemapValues(state.memTreemapDev);
+      else                            renderMemTreemap(state.memTreemapDev);
     }
   });
 }
@@ -615,7 +615,8 @@ function buildDom(devices) {
     const panel = el('div', 'gpu-panel' + (i === 0 ? ' active' : ''));
     panel.id = `panel-${i}`;
 
-    // ── Stat cards ──
+    // ── Fixed stats bar (sticky container: stat cards + memory bar) ──
+    const fixedStats = el('div', 'fixed-stats');
     const cards = el('div', 'cards');
     const cardDefs = [
       // Permanent system cards (fed by /api/system, never idle-hidden).
@@ -720,8 +721,9 @@ function buildDom(devices) {
         </span>
       </div>
     `;
-    cards.appendChild(memSec);
-    panel.appendChild(cards);
+    fixedStats.appendChild(cards);
+    fixedStats.appendChild(memSec);
+    panel.appendChild(fixedStats);
 
     const h = state.hist[i];
 
@@ -2633,12 +2635,9 @@ function updateStickyOffset() {
 function updateOverlayPosition() {
   const overlay = document.getElementById('plot-overlay');
   if (!overlay) return;
-  // Use the bottom of the sticky cards (viewport-relative) so the overlay
-  // never covers the digitals.  Fall back to header bottom if cards aren't
-  // built yet.
-  const cardsEl = document.querySelector('.gpu-panel.active .cards');
-  const anchorEl = cardsEl || document.querySelector('header');
-  const topPx = anchorEl ? anchorEl.getBoundingClientRect().bottom : 0;
+  const anchorEl = document.querySelector('.gpu-panel.active .fixed-stats')
+                ?? document.querySelector('header');
+  const topPx   = anchorEl ? anchorEl.getBoundingClientRect().bottom : 0;
   const statusH = document.getElementById('status-bar')?.offsetHeight || 0;
   overlay.style.top    = Math.round(topPx) + 'px';
   overlay.style.bottom = statusH + 'px';
@@ -2738,7 +2737,8 @@ const MEM_COLORS = {
   fw:         '#616161',
 };
 
-let _tmKeyMap = new Map(); // key → primary SVG rect element for hover cross-link
+let _tmKeyMap  = new Map(); // key → primary SVG rect element for hover cross-link
+let _tmHovered = false;    // true while mouse is over the overlay — suppresses full redraws
 
 function buildMemSegs(devIdx) {
   const sysInfo = state.systemInfo;
@@ -3041,8 +3041,8 @@ function updateMemTreemapValues(devIdx) {
 function updateMemTreemapPosition() {
   const overlay = document.getElementById('mem-treemap-overlay');
   if (!overlay || overlay.hidden) return;
-  const cardsEl  = document.querySelector('.gpu-panel.active .cards');
-  const anchorEl = cardsEl || document.querySelector('header');
+  const anchorEl = document.querySelector('.gpu-panel.active .cards')
+                ?? document.querySelector('header');
   const topPx    = anchorEl ? anchorEl.getBoundingClientRect().bottom : 0;
   const statusH  = document.getElementById('status-bar')?.offsetHeight || 0;
   overlay.style.top    = Math.round(topPx) + 'px';
@@ -3062,6 +3062,7 @@ function openMemTreemap(devIdx) {
 function closeMemTreemap() {
   document.getElementById('mem-treemap-overlay').hidden = true;
   state.memTreemapDev = null;
+  _tmHovered = false;
 }
 
 function initMemTreemap() {
@@ -3076,6 +3077,16 @@ function initMemTreemap() {
     if (!bar) return;
     openMemTreemap(parseInt(bar.dataset.dev ?? '0', 10));
   });
+
+  const overlay = document.getElementById('mem-treemap-overlay');
+  overlay.addEventListener('mouseenter', () => { _tmHovered = true; });
+  overlay.addEventListener('mouseleave', () => {
+    _tmHovered = false;
+    // Do one full redraw now that hover has ended so layout catches up.
+    if (state.memTreemapDev != null && !state.paused)
+      renderMemTreemap(state.memTreemapDev);
+  });
+
   new ResizeObserver(() => {
     if (state.memTreemapDev != null) {
       updateMemTreemapPosition();
