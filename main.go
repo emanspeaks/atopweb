@@ -38,16 +38,17 @@ var upgrader = websocket.Upgrader{
 }
 
 type hub struct {
-	mu                 sync.Mutex
-	clients            map[*websocket.Conn]struct{}
-	last               []byte
-	intervalMs         int
-	cancelFn           context.CancelFunc
-	atopVersion        string          // amdgpu_top version string
-	ryzenAdjArgs       []string        // nil if not configured; includes sudo prefix when needed
-	powerCache         powerLimitsInfo // last successful ryzenadj result
-	limitsRefreshedAt  time.Time       // when powerCache was last written
-	dramMaxBWKiBs      uint64          // theoretical DRAM bandwidth ceiling from dmidecode
+	mu                sync.Mutex
+	clients           map[*websocket.Conn]struct{}
+	last              []byte
+	intervalMs        int
+	showGttMargin     bool
+	cancelFn          context.CancelFunc
+	atopVersion       string          // amdgpu_top version string
+	ryzenAdjArgs      []string        // nil if not configured; includes sudo prefix when needed
+	powerCache        powerLimitsInfo // last successful ryzenadj result
+	limitsRefreshedAt time.Time       // when powerCache was last written
+	dramMaxBWKiBs     uint64          // theoretical DRAM bandwidth ceiling from dmidecode
 }
 
 func (h *hub) add(c *websocket.Conn) {
@@ -249,8 +250,8 @@ func getAtopVersion(binary string) string {
 // procEventTracker deduplicates start events across all three layers by PID.
 
 type procEvent struct {
-	Type   string `json:"type"`   // always "proc_event"
-	Event  string `json:"event"`  // "start"
+	Type   string `json:"type"`  // always "proc_event"
+	Event  string `json:"event"` // "start"
 	PID    int    `json:"pid"`
 	Name   string `json:"name"`
 	TimeMs int64  `json:"time_ms"`
@@ -478,8 +479,12 @@ func watchKnownGPUProcs(h *hub, cache *gpuProcCache, tracker *procEventTracker) 
 // process names for the GPU proc cache.
 type minFdFrame struct {
 	Devices []struct {
-		Fdinfo     map[string]struct{ Name string `json:"name"` } `json:"fdinfo"`
-		XdnaFdinfo map[string]struct{ Name string `json:"name"` } `json:"xdna_fdinfo"`
+		Fdinfo map[string]struct {
+			Name string `json:"name"`
+		} `json:"fdinfo"`
+		XdnaFdinfo map[string]struct {
+			Name string `json:"name"`
+		} `json:"xdna_fdinfo"`
 	} `json:"devices"`
 }
 
@@ -518,6 +523,7 @@ func populateGPUProcCache(h *hub, cache *gpuProcCache) {
 
 type configInfo struct {
 	IntervalMs      int    `json:"interval_ms"`
+	ShowGttMargin   bool   `json:"show_gtt_margin"`
 	AtopwebVersion  string `json:"atopweb_version"`
 	AtopTopVersion  string `json:"amdgpu_top_version"`
 	TotalRAMMiB     uint64 `json:"total_ram_mib"`
@@ -673,6 +679,7 @@ func (h *hub) serveConfig(w http.ResponseWriter, r *http.Request) {
 	h.mu.Lock()
 	info := configInfo{
 		IntervalMs:      h.intervalMs,
+		ShowGttMargin:   h.showGttMargin,
 		AtopwebVersion:  version,
 		AtopTopVersion:  h.atopVersion,
 		TotalRAMMiB:     total,
@@ -760,7 +767,7 @@ func (h *hub) serveVRAM(w http.ResponseWriter, r *http.Request) {
 
 	result := make([]vramInfo, 0, len(frame.Devices))
 	for i, dev := range frame.Devices {
-		used  := dev.VRAM["Total VRAM Usage"].Value + dev.VRAM["Total GTT Usage"].Value
+		used := dev.VRAM["Total VRAM Usage"].Value + dev.VRAM["Total GTT Usage"].Value
 		total := dev.VRAM["Total VRAM"].Value + dev.VRAM["Total GTT"].Value
 		var pct float64
 		if total > 0 {
@@ -846,9 +853,12 @@ type powerLimitsInfo struct {
 // parseRyzenAdjInfo extracts power and thermal limits from `ryzenadj -i` output.
 //
 // Modern ryzenadj output uses a leading "|" on every data row:
-//   | STAPM LIMIT | 45000 | (bias) | (min) | (max) | mW |
+//
+//	| STAPM LIMIT | 45000 | (bias) | (min) | (max) | mW |
+//
 // Older/alternative output may omit the leading "|":
-//   stapm_limit | 45000 | mW
+//
+//	stapm_limit | 45000 | mW
 //
 // Both formats are handled by detecting whether parts[0] is empty.
 // The unit is found by scanning all columns after the value.
@@ -868,7 +878,7 @@ func parseRyzenAdjInfo(output string) powerLimitsInfo {
 		if off+1 >= len(parts) {
 			continue
 		}
-		name   := strings.TrimSpace(parts[off])
+		name := strings.TrimSpace(parts[off])
 		valStr := strings.TrimSpace(parts[off+1])
 		if name == "" || name == "Name" {
 			continue
@@ -1033,13 +1043,13 @@ type systemInfo struct {
 	Errors              []string       `json:"errors,omitempty"`                // sticky non-fatal diagnostics (permissions, missing modules, etc.); each unique message appears once
 	ShutdownPending     string         `json:"shutdown_pending,omitempty"`      // non-empty when systemd has a shutdown/reboot scheduled; value is human-readable (e.g. "reboot in 30s")
 	UptimeSec           float64        `json:"uptime_sec"`
-	LoadAvg     [3]float64     `json:"loadavg"`
-	Fans        []sysSensor    `json:"fans"`           // RPM
-	Voltages    []sysSensor    `json:"voltages"`       // mV
-	Currents    []sysSensor    `json:"currents"`       // mA
-	Powers      []sysSensor    `json:"powers"`         // µW
-	Temps       []sysSensor    `json:"temps"`          // °C
-	CPUUsagePct *float64       `json:"cpu_usage_pct,omitempty"` // 0–100; absent on first tick
+	LoadAvg             [3]float64     `json:"loadavg"`
+	Fans                []sysSensor    `json:"fans"`                    // RPM
+	Voltages            []sysSensor    `json:"voltages"`                // mV
+	Currents            []sysSensor    `json:"currents"`                // mA
+	Powers              []sysSensor    `json:"powers"`                  // µW
+	Temps               []sysSensor    `json:"temps"`                   // °C
+	CPUUsagePct         *float64       `json:"cpu_usage_pct,omitempty"` // 0–100; absent on first tick
 }
 
 // cpuStat holds the raw tick counters from the aggregate "cpu" line in /proc/stat.
@@ -1274,10 +1284,10 @@ func readMSR(cpu int, msr uint32) (uint64, error) {
 // AMD architectural MSRs used below.  See AMD64 Architecture Programmer's
 // Manual vol.2 §15 and BKDG for Family 17h/19h/1Ah.
 const (
-	msrAMDTopMem   uint32 = 0xC001001A // Low DRAM boundary (end of 0–4 GiB DRAM range)
-	msrAMDTopMem2  uint32 = 0xC001001D // Upper DRAM boundary (top of all physical DRAM)
-	msrAMDSMMAddr  uint32 = 0xC0010112 // TSEG base (bits 51:17)
-	msrAMDSMMMask  uint32 = 0xC0010113 // TSEG mask (bits 51:17) + ASeg/TSeg enables
+	msrAMDTopMem  uint32 = 0xC001001A // Low DRAM boundary (end of 0–4 GiB DRAM range)
+	msrAMDTopMem2 uint32 = 0xC001001D // Upper DRAM boundary (top of all physical DRAM)
+	msrAMDSMMAddr uint32 = 0xC0010112 // TSEG base (bits 51:17)
+	msrAMDSMMMask uint32 = 0xC0010113 // TSEG mask (bits 51:17) + ASeg/TSeg enables
 )
 
 // memReservation is the authoritative memory layout report, derived from
@@ -1462,24 +1472,24 @@ var (
 // Values are KiB (matching the fdinfo wire format) and per-process aggregates
 // across all of that process's DRM FDs.
 type drmProcessMem struct {
-	PID        int    `json:"pid"`
-	Comm       string `json:"comm,omitempty"`
-	Cmdline    string `json:"cmdline,omitempty"`     // /proc/<pid>/cmdline, args joined with spaces
-	Driver     string `json:"driver,omitempty"`      // e.g. "amdgpu"
+	PID              int    `json:"pid"`
+	Comm             string `json:"comm,omitempty"`
+	Cmdline          string `json:"cmdline,omitempty"`             // /proc/<pid>/cmdline, args joined with spaces
+	Driver           string `json:"driver,omitempty"`              // e.g. "amdgpu"
 	PssAnonKiB       uint64 `json:"pss_anon_kib,omitempty"`        // /proc/<pid>/smaps_rollup Pss_Anon — proportional anonymous RSS, captures ROCm UMA/HSA host allocations and LLM model weights mmap'd into the process address space
 	AnonHugePagesKiB uint64 `json:"anon_huge_pages_kib,omitempty"` // /proc/<pid>/smaps_rollup AnonHugePages — anonymous transparent-huge-page-backed RSS; under ROCm UMA, large model weight mmaps get THP-promoted, so this approximates the ROCm-attributable share of Pss_Anon (vs heap/stack which use 4 KiB pages)
-	VramKiB    uint64 `json:"vram_kib,omitempty"`    // drm-memory-vram
-	GttKiB     uint64 `json:"gtt_kib,omitempty"`     // drm-memory-gtt
-	CpuKiB     uint64 `json:"cpu_kib,omitempty"`     // drm-memory-cpu  (system-RAM pinned by the driver)
-	VisVramKiB uint64 `json:"vis_vram_kib,omitempty"` // amd-memory-visible-vram
+	VramKiB          uint64 `json:"vram_kib,omitempty"`            // drm-memory-vram
+	GttKiB           uint64 `json:"gtt_kib,omitempty"`             // drm-memory-gtt
+	CpuKiB           uint64 `json:"cpu_kib,omitempty"`             // drm-memory-cpu  (system-RAM pinned by the driver)
+	VisVramKiB       uint64 `json:"vis_vram_kib,omitempty"`        // amd-memory-visible-vram
 }
 
 // drmAccounting bundles everything we know about graphics-subsystem memory
 // from three sources:
-//   1. /proc/<pid>/fdinfo/<fd>                   — per-process DRM usage
-//   2. /sys/class/drm/card*/device/mem_info_*    — kernel-authoritative per-GPU
-//      totals (VRAM total/used, CPU-visible VRAM, GTT)
-//   3. /sys/kernel/debug/dma_buf/bufinfo         — dma-buf allocations
+//  1. /proc/<pid>/fdinfo/<fd>                   — per-process DRM usage
+//  2. /sys/class/drm/card*/device/mem_info_*    — kernel-authoritative per-GPU
+//     totals (VRAM total/used, CPU-visible VRAM, GTT)
+//  3. /sys/kernel/debug/dma_buf/bufinfo         — dma-buf allocations
 //
 // Fields ending *KiB come from (2) (byte-exact from sysfs, expressed as KiB).
 // Total*KiB come from (1).  DmaBufBytes is separate because dma-bufs can be
@@ -1492,9 +1502,9 @@ type drmAccounting struct {
 	VisVramUsedKiB  uint64          `json:"vis_vram_used_kib,omitempty"`
 	GttTotalKiB     uint64          `json:"gtt_total_kib,omitempty"`
 	GttUsedKiB      uint64          `json:"gtt_used_kib,omitempty"`
-	TotalVramKiB    uint64          `json:"total_vram_kib,omitempty"`     // sum of per-fd drm-memory-vram
-	TotalGttKiB     uint64          `json:"total_gtt_kib,omitempty"`      // sum of per-fd drm-memory-gtt
-	TotalCpuKiB     uint64          `json:"total_cpu_kib,omitempty"`      // sum of per-fd drm-memory-cpu — system RAM pinned by DRM drivers
+	TotalVramKiB    uint64          `json:"total_vram_kib,omitempty"` // sum of per-fd drm-memory-vram
+	TotalGttKiB     uint64          `json:"total_gtt_kib,omitempty"`  // sum of per-fd drm-memory-gtt
+	TotalCpuKiB     uint64          `json:"total_cpu_kib,omitempty"`  // sum of per-fd drm-memory-cpu — system RAM pinned by DRM drivers
 	Processes       []drmProcessMem `json:"processes,omitempty"`
 }
 
@@ -1795,12 +1805,12 @@ func buildSystemInfo() systemInfo {
 		Errors:              diag.snapshot(),
 		ShutdownPending:     checkShutdownPending(),
 		UptimeSec:           readUptime(),
-		LoadAvg:     readLoadAvg(),
-		Fans:        fans,
-		Voltages:    volts,
-		Currents:    currs,
-		Powers:      pows,
-		Temps:       temps,
+		LoadAvg:             readLoadAvg(),
+		Fans:                fans,
+		Voltages:            volts,
+		Currents:            currs,
+		Powers:              pows,
+		Temps:               temps,
 	}
 }
 
@@ -1937,7 +1947,7 @@ func readCoreRanks() []int {
 		if !ok {
 			continue
 		}
-		pkgID, hasPkg   := readSysInt(filepath.Join(cpuDir, "topology/physical_package_id"))
+		pkgID, hasPkg := readSysInt(filepath.Join(cpuDir, "topology/physical_package_id"))
 		coreID, hasCore := readSysInt(filepath.Join(cpuDir, "topology/core_id"))
 		var coreKey string
 		if hasPkg && hasCore {
@@ -2026,22 +2036,23 @@ func serveStatic(name, contentType string) http.HandlerFunc {
 
 func main() {
 	// atopweb-specific flags
-	port    := flag.Int("port", 5899, "TCP port to listen on")
+	port := flag.Int("port", 5899, "TCP port to listen on")
 	atopBin := flag.String("amdgpu-top", "", "path to amdgpu_top binary (default: search PATH)")
-	useSudo  := flag.Bool("sudo", false, "launch amdgpu_top via 'sudo -n' (requires a NOPASSWD sudoers entry for the atopweb user)")
-	sudoBin    := flag.String("sudo-bin",  "sudo", "path to the sudo binary (NixOS: /run/wrappers/bin/sudo)")
-	ryzenAdj   := flag.String("ryzenadj", "",     "path to ryzenadj binary for reading APU power limits")
-	procCache  := flag.String("proc-cache", "", "path to JSON file for persistent GPU process name cache (enables early process start detection across restarts); empty = in-memory only")
+	useSudo := flag.Bool("sudo", false, "launch amdgpu_top via 'sudo -n' (requires a NOPASSWD sudoers entry for the atopweb user)")
+	sudoBin := flag.String("sudo-bin", "sudo", "path to the sudo binary (NixOS: /run/wrappers/bin/sudo)")
+	ryzenAdj := flag.String("ryzenadj", "", "path to ryzenadj binary for reading APU power limits")
+	procCache := flag.String("proc-cache", "", "path to JSON file for persistent GPU process name cache (enables early process start detection across restarts); empty = in-memory only")
 	useFanotify := flag.Bool("fanotify", false, "use Linux fanotify to watch GPU device nodes for zero-lag process start detection (requires CAP_SYS_ADMIN)")
+	showGttMargin := flag.Bool("show-gtt-margin", false, "show Non-GTT and GTT Margin calculations in the memory bar legend")
 
 	// amdgpu_top JSON-mode passthrough flags
 	intervalMs := flag.Int("s", 1000, "amdgpu_top refresh period in milliseconds")
-	updateIdx  := flag.Int("u", 5, "amdgpu_top fdinfo update interval in seconds")
-	instance   := flag.Int("i", -1, "amdgpu_top GPU instance index (default: all)")
-	pci        := flag.String("pci", "", "amdgpu_top PCI path: domain:bus:dev.func")
-	apu        := flag.Bool("apu", false, "amdgpu_top: select APU instance")
-	single     := flag.Bool("single", false, "amdgpu_top: display only the selected GPU")
-	nopc       := flag.Bool("no-pc", false, "amdgpu_top: skip GPU performance counter reads")
+	updateIdx := flag.Int("u", 5, "amdgpu_top fdinfo update interval in seconds")
+	instance := flag.Int("i", -1, "amdgpu_top GPU instance index (default: all)")
+	pci := flag.String("pci", "", "amdgpu_top PCI path: domain:bus:dev.func")
+	apu := flag.Bool("apu", false, "amdgpu_top: select APU instance")
+	single := flag.Bool("single", false, "amdgpu_top: display only the selected GPU")
+	nopc := flag.Bool("no-pc", false, "amdgpu_top: skip GPU performance counter reads")
 
 	flag.Parse()
 
@@ -2095,6 +2106,7 @@ func main() {
 	h := &hub{
 		clients:       make(map[*websocket.Conn]struct{}),
 		intervalMs:    *intervalMs,
+		showGttMargin: *showGttMargin,
 		atopVersion:   atopVer,
 		ryzenAdjArgs:  ryzenAdjArgs,
 		dramMaxBWKiBs: readDRAMMaxBWKiBs(),
@@ -2108,7 +2120,7 @@ func main() {
 
 	// GPU process early-detection pipeline.
 	gpuCache := loadGPUProcCache(*procCache)
-	tracker  := newProcEventTracker()
+	tracker := newProcEventTracker()
 	go watchKFDProcs(h, tracker)
 	go watchKnownGPUProcs(h, gpuCache, tracker)
 	go populateGPUProcCache(h, gpuCache)
@@ -2138,15 +2150,15 @@ func main() {
 		dashHandler(w, r)
 	})
 	http.HandleFunc("/dashboard.css", serveStatic("dashboard.css", "text/css; charset=utf-8"))
-	http.HandleFunc("/dashboard.js",  serveStatic("dashboard.js",  "application/javascript; charset=utf-8"))
-	http.HandleFunc("/api/config",       h.serveConfig)
-	http.HandleFunc("/api/interval",     h.serveSetInterval)
-	http.HandleFunc("/api/vram",         h.serveVRAM)
-	http.HandleFunc("/api/gpu-pct",      h.serveGPUPct)
-	http.HandleFunc("/api/limits",       h.serveLimits)
-	http.HandleFunc("/api/system",       serveSystem)
-	http.HandleFunc("/api/cpu-ranks",    serveCoreRanks)
-	http.HandleFunc("/ws",               h.serveWS)
+	http.HandleFunc("/dashboard.js", serveStatic("dashboard.js", "application/javascript; charset=utf-8"))
+	http.HandleFunc("/api/config", h.serveConfig)
+	http.HandleFunc("/api/interval", h.serveSetInterval)
+	http.HandleFunc("/api/vram", h.serveVRAM)
+	http.HandleFunc("/api/gpu-pct", h.serveGPUPct)
+	http.HandleFunc("/api/limits", h.serveLimits)
+	http.HandleFunc("/api/system", serveSystem)
+	http.HandleFunc("/api/cpu-ranks", serveCoreRanks)
+	http.HandleFunc("/ws", h.serveWS)
 
 	addr := fmt.Sprintf(":%d", *port)
 	log.Printf("listening on http://0.0.0.0%s", addr)

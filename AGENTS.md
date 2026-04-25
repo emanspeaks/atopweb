@@ -18,7 +18,7 @@ Open `http://localhost:5899` in a browser.
 
 - **Build order**: `go vet ./...` → `go build` → verify binary runs. No separate test suite.
 
-- **NixOS deployment**: 
+- **NixOS deployment**:
   1. Run `go mod tidy && nix run github:nix-community/gomod2nix -- generate` after `go.mod` changes
   2. Commit `gomod2nix.toml` before `nix build`
   3. The `gomod2nix.yml` workflow auto-updates it on `go.mod` changes
@@ -86,3 +86,7 @@ No automated tests. Manual verification:
    - Builds `atopweb-linux-amd64` and `atopweb-linux-arm64`
    - Creates GitHub Release with binaries
    - Tag format: `vX.Y.Z`
+
+## Tools
+
+This development work is running on a Windows machine.  Use Git Bash as the shell for executing any commands.  The target platform is Linux and only Linux; do not worry about cross-platform development except to stub out features for running tests locally on Windows or avoiding Go LSP warnings about cross-platform issues.
