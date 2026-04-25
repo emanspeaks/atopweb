@@ -47,6 +47,7 @@ type hub struct {
 	ryzenAdjArgs       []string        // nil if not configured; includes sudo prefix when needed
 	powerCache         powerLimitsInfo // last successful ryzenadj result
 	limitsRefreshedAt  time.Time       // when powerCache was last written
+	dramMaxBWKiBs      uint64          // theoretical DRAM bandwidth ceiling from dmidecode
 }
 
 func (h *hub) add(c *websocket.Conn) {
@@ -524,6 +525,7 @@ type configInfo struct {
 	NixosVersion    string `json:"nixos_version,omitempty"`
 	NixosGeneration int    `json:"nixos_generation,omitempty"`
 	CPUGovernor     string `json:"cpu_gov,omitempty"`
+	DRAMMaxBWKiBs   uint64 `json:"dram_max_bw_kibs,omitempty"`
 }
 
 // readCPUGovernor returns the scaling governor of cpu0 — e.g. "performance",
@@ -587,6 +589,83 @@ func readNixosInfo() (version string, generation int) {
 	return version, generation
 }
 
+// dmidecodeBins lists absolute paths to try when dmidecode is not in PATH.
+var dmidecodeBins = []string{
+	"/sbin/dmidecode",
+	"/usr/sbin/dmidecode",
+	"/usr/bin/dmidecode",
+	"/bin/dmidecode",
+	"/run/current-system/sw/bin/dmidecode",
+}
+
+// readDRAMMaxBWKiBs parses dmidecode --type 17 to calculate the theoretical
+// peak DRAM bandwidth: Σ (data_width_bytes × configured_speed_MT_s × 1e6) / 1024.
+// Returns 0 and logs if dmidecode is unavailable or the output can't be parsed.
+func readDRAMMaxBWKiBs() uint64 {
+	bin, _ := exec.LookPath("dmidecode")
+	if bin == "" {
+		for _, p := range dmidecodeBins {
+			if _, err := os.Stat(p); err == nil {
+				bin = p
+				break
+			}
+		}
+	}
+	if bin == "" {
+		log.Printf("atopweb: dmidecode not found — DRAM bandwidth ceiling unavailable")
+		return 0
+	}
+
+	out, err := exec.Command(bin, "--type", "17").Output()
+	if err != nil {
+		log.Printf("atopweb: dmidecode --type 17: %v", err)
+		return 0
+	}
+
+	var totalBps uint64
+	var dataWidthBits, speedMTs int
+	var populated bool
+
+	flush := func() {
+		if populated && dataWidthBits > 0 && speedMTs > 0 {
+			totalBps += uint64(dataWidthBits/8) * uint64(speedMTs) * 1_000_000
+		}
+		dataWidthBits, speedMTs, populated = 0, 0, false
+	}
+
+	for _, raw := range strings.Split(string(out), "\n") {
+		line := strings.TrimSpace(raw)
+		switch {
+		case line == "Memory Device":
+			flush()
+		case strings.HasPrefix(line, "Data Width:"):
+			var bits int
+			if _, err := fmt.Sscanf(strings.TrimPrefix(line, "Data Width:"), "%d", &bits); err == nil && bits > 0 {
+				dataWidthBits = bits
+			}
+		case strings.HasPrefix(line, "Configured Memory Speed:"):
+			var speed int
+			if _, err := fmt.Sscanf(strings.TrimPrefix(line, "Configured Memory Speed:"), "%d", &speed); err == nil && speed > 0 {
+				speedMTs = speed
+			}
+		case strings.HasPrefix(line, "Size:"):
+			s := strings.TrimSpace(strings.TrimPrefix(line, "Size:"))
+			if s != "" && s != "No Module Installed" && s != "Not Installed" && s != "Not Present" && !strings.HasPrefix(s, "0 ") {
+				populated = true
+			}
+		}
+	}
+	flush()
+
+	if totalBps == 0 {
+		log.Printf("atopweb: could not parse DRAM bandwidth ceiling from dmidecode output")
+		return 0
+	}
+	kiBs := totalBps / 1024
+	log.Printf("atopweb: DRAM theoretical max: %d KiB/s (%d GB/s)", kiBs, totalBps/1_000_000_000)
+	return kiBs
+}
+
 func (h *hub) serveConfig(w http.ResponseWriter, r *http.Request) {
 	mem := readMemInfoAll()
 	total := mem["MemTotal"] / 1024
@@ -601,6 +680,7 @@ func (h *hub) serveConfig(w http.ResponseWriter, r *http.Request) {
 		NixosVersion:    nixosVer,
 		NixosGeneration: nixosGen,
 		CPUGovernor:     readCPUGovernor(),
+		DRAMMaxBWKiBs:   h.dramMaxBWKiBs,
 	}
 	h.mu.Unlock()
 
@@ -2009,10 +2089,11 @@ func main() {
 	}
 
 	h := &hub{
-		clients:      make(map[*websocket.Conn]struct{}),
-		intervalMs:   *intervalMs,
-		atopVersion:  atopVer,
-		ryzenAdjArgs: ryzenAdjArgs,
+		clients:       make(map[*websocket.Conn]struct{}),
+		intervalMs:    *intervalMs,
+		atopVersion:   atopVer,
+		ryzenAdjArgs:  ryzenAdjArgs,
+		dramMaxBWKiBs: readDRAMMaxBWKiBs(),
 	}
 	initDRAMBW()
 	go runStreamer(binary, atopArgs, h)

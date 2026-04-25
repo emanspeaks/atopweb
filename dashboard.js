@@ -261,6 +261,7 @@ const state = {
   cardLastData:    {},   // cardId   → ms timestamp of last tick with any finite value
   serverVersion:   null, // atopweb version string as reported by /api/config on first load
   lastConfig:      null, // last seen /api/config snapshot for change detection
+  dramMaxBWKiBs:   0,    // theoretical DRAM bandwidth ceiling in KiB/s (from dmidecode via /api/config)
 };
 
 // History size = time window / update interval, so the x-axis always shows a
@@ -510,10 +511,10 @@ function makeChartCallbacks(h) {
     label(item) {
       if (item.raw == null) return null;
       const raw = Number(item.raw);
+      if (isNaN(raw)) return ` ${item.dataset.label}: ${String(item.raw)}`;
+      if (item.dataset.commas) return ` ${item.dataset.label}: ${Math.round(raw).toLocaleString()}`;
       const dec = item.dataset.decimals ?? 3;
-      const str = isNaN(raw) ? String(item.raw) :
-        (Number.isInteger(raw) ? String(raw) : raw.toFixed(dec));
-      return ` ${item.dataset.label}: ${str}`;
+      return ` ${item.dataset.label}: ${Number.isInteger(raw) ? String(raw) : raw.toFixed(dec)}`;
     },
     afterLabel(item) {
       const sp = item.dataset.sourcePath;
@@ -876,10 +877,11 @@ function buildDom(devices) {
         ]
       },
       {
-        key: 'dram-bw', title: 'DRAM Bandwidth (MB/s)', height: 150, yMax: null,
+        key: 'dram-bw', title: 'DRAM Bandwidth (KiB/s)', height: 150, yMax: null,
+        tickFmt: v => typeof v !== 'number' ? String(v) : Math.round(v).toLocaleString(),
         datasets: () => [
-          makeDataset('Reads',  '#3fb950', h.dramReads,  `mem_snapshot.dram_read_bps × 1e-6 (MB/s, from amd_df Σ local_or_remote_socket_read_data_beats_dram_* × 32 / elapsed)`),
-          makeDataset('Writes', '#f85149', h.dramWrites, `mem_snapshot.dram_write_bps × 1e-6 (MB/s, from amd_df Σ local_or_remote_socket_write_data_beats_dram_* × 32 / elapsed)`),
+          Object.assign(makeDataset('Reads',  '#3fb950', h.dramReads,  `mem_snapshot.dram_read_bps ÷ 1024 (KiB/s, from amd_df Σ local_or_remote_socket_read_data_beats_dram_* × 32 / elapsed)`, 0), {commas: true}),
+          Object.assign(makeDataset('Writes', '#f85149', h.dramWrites, `mem_snapshot.dram_write_bps ÷ 1024 (KiB/s, from amd_df Σ local_or_remote_socket_write_data_beats_dram_* × 32 / elapsed)`, 0), {commas: true}),
         ]
       },
       {
@@ -1108,6 +1110,11 @@ function fmt(val, decimals) {
   return decimals != null ? val.toFixed(decimals) : String(Math.round(val));
 }
 
+function fmtKib(val) {
+  if (val == null) return '—';
+  return Math.round(val).toLocaleString();
+}
+
 function setCard(id, value, decimals) {
   const e = document.getElementById(id);
   if (!e) return;
@@ -1243,6 +1250,28 @@ function staggerLimitPositions(specs) {
   return present.map((s, i) => ({ ...s, position: `${Math.round(step * (i + 1))}%` }));
 }
 
+function dramBWLimitAnnotation() {
+  const max = state.dramMaxBWKiBs;
+  if (!max) return {};
+  return {
+    dramMaxLine: {
+      type: 'line', yMin: max, yMax: max, drawTime: 'afterDraw',
+      borderColor: '#e3b341', borderWidth: 1, borderDash: [6, 4],
+      label: {
+        display: true,
+        content: `Max ${Math.round(max).toLocaleString()} KiB/s`,
+        position: 'end',
+        color: '#e3b341',
+        font: { size: 9 },
+        backgroundColor: 'rgba(22,27,34,0.85)',
+        borderColor: 'transparent',
+        borderWidth: 0,
+        padding: { x: 4, y: 2 },
+      },
+    },
+  };
+}
+
 function powerLimitAnnotations() {
   const pl = state.powerLimits;
   const out = {};
@@ -1280,7 +1309,7 @@ function memoryLimitAnnotations(h) {
     { key: 'vramGttLine', val: combinedGiB > 0 ? combinedGiB : null,
       label: 'VRAM+GTT', color: '#e3b341', unit: ' GiB' },
     { key: 'physLine',    val: ramGiB,
-      label: 'Phys Mem', color: '#f85149', unit: ' GiB' },
+      label: 'Total Usable Mem', color: '#f85149', unit: ' GiB' },
   ]);
   for (const s of specs) out[s.key] = makeLimitLine(s.val, s.label, s.color, s.unit, s.position);
   return out;
@@ -1606,11 +1635,11 @@ function updateDevice(i, dev) {
   pushHistory(h.vddnb,   vddnb);
   // DRAM bandwidth from our perf-event monitor (amd_df data beats), not
   // amdgpu_top — bypasses the gpu_metrics read/write swap bug.  Convert
-  // bytes/sec → MB/s (decimal) so the chart's scale stays comparable.
+  // bytes/sec → KiB/s so the chart's scale stays in familiar disk/memory units.
   const dramReadBps  = state.systemInfo?.dram_read_bps;
   const dramWriteBps = state.systemInfo?.dram_write_bps;
-  pushHistory(h.dramReads,  typeof dramReadBps  === 'number' ? dramReadBps  / 1e6 : null);
-  pushHistory(h.dramWrites, typeof dramWriteBps === 'number' ? dramWriteBps / 1e6 : null);
+  pushHistory(h.dramReads,  typeof dramReadBps  === 'number' ? dramReadBps  / 1024 : null);
+  pushHistory(h.dramWrites, typeof dramWriteBps === 'number' ? dramWriteBps / 1024 : null);
 
   const nm = dev.npu_metrics || {};
   const npuBusyArr = Array.isArray(nm.npu_busy) ? nm.npu_busy : [];
@@ -1661,7 +1690,7 @@ function updateDevice(i, dev) {
   if (cGfxClk)  setAnnotations(cGfxClk, h.times, {},                         h.sclk, h.mclk, h.fclk, h.fclkAvg, h.socClk, h.vclk);
   if (cVoltage) setAnnotations(cVoltage, h.times, {},                         h.vddgfx, h.vddnb);
   if (cCorePwr) setAnnotations(cCorePwr, h.times, {},                         ...h.corePwr);
-  if (cDramBw)  setAnnotations(cDramBw,  h.times, {},                         h.dramReads, h.dramWrites);
+  if (cDramBw)  setAnnotations(cDramBw,  h.times, dramBWLimitAnnotation(),    h.dramReads, h.dramWrites);
   if (cNpuAct)  setAnnotations(cNpuAct,  h.times, {},                         ...h.npuBusy);
   if (cNpuClk)  setAnnotations(cNpuClk,  h.times, {},                         h.npuClk, h.npuMpClk);
   if (cNpuBw)   setAnnotations(cNpuBw,   h.times, {},                         h.npuReads, h.npuWrites);
@@ -1678,7 +1707,7 @@ function updateDevice(i, dev) {
     else if (oc === `${i}-gfx-clk`) setAnnotations(ovl, h.times, {},                             h.sclk, h.mclk, h.fclk, h.fclkAvg, h.socClk, h.vclk);
     else if (oc === `${i}-voltage`) setAnnotations(ovl, h.times, {},                             h.vddgfx, h.vddnb);
     else if (oc === `${i}-core-pwr`) setAnnotations(ovl, h.times, {},                            ...h.corePwr);
-    else if (oc === `${i}-dram-bw`)  setAnnotations(ovl, h.times, {},                            h.dramReads, h.dramWrites);
+    else if (oc === `${i}-dram-bw`)  setAnnotations(ovl, h.times, dramBWLimitAnnotation(),       h.dramReads, h.dramWrites);
     else if (oc === `${i}-npu-act`)  setAnnotations(ovl, h.times, {},                            ...h.npuBusy);
     else if (oc === `${i}-npu-clk`)  setAnnotations(ovl, h.times, {},                            h.npuClk, h.npuMpClk);
     else if (oc === `${i}-npu-bw`)   setAnnotations(ovl, h.times, {},                            h.npuReads, h.npuWrites);
@@ -1823,12 +1852,12 @@ function updateDevice(i, dev) {
       <td class="proc-pid">${pid}</td>
       <td class="proc-name">${name}</td>
       <td data-src="CPU usage: devices[${i}].fdinfo[${pid}].usage.CPU (% of one core)">${fmt(cpu, 0)}</td>
-      <td data-src="GPU-private VRAM: drm_mem.processes[pid=${pid}].vram_kib − vis_vram_kib — VRAM not mapped through the PCIe BAR; GPU-exclusive buffers (drm-memory-vram minus amd-memory-visible-vram from /proc/${pid}/fdinfo)">${fmt(invVramKiB, 0)}</td>
-      <td data-src="CPU-accessible VRAM: drm_mem.processes[pid=${pid}].vis_vram_kib — VRAM mapped through the PCIe BAR aperture, shared between CPU and GPU (amd-memory-visible-vram from /proc/${pid}/fdinfo)">${fmt(visVramKiB, 0)}</td>
-      <td data-src="${memSrcGtt}">${fmt(gttKiB, 0)}</td>
-      <td data-src="DRM CPU-domain buffers: drm_mem.processes[pid=${pid}].cpu_kib (KiB-exact via /proc/${pid}/fdinfo drm-memory-cpu — system RAM staged through amdgpu's CPU pool, rarely populated)">${fmt(drmCpuKiB, 0)}</td>
-      <td data-src="Regular-page application memory (Apps-reg): /proc/${pid}/smaps_rollup Pss_Anon − AnonHugePages (anonymous RSS NOT backed by 2 MiB transparent huge pages — process heap, stack, and small mmap regions; in a ROCm UMA workload this is the non-model overhead while Apps-THP holds the model weights)">${fmt(appsRegKiB, 0)}</td>
-      <td data-src="Anonymous transparent huge pages (AnonHugePages): /proc/${pid}/smaps_rollup AnonHugePages (anon RSS backed by 2 MiB THP)">${fmt(thpKiB, 0)}</td>
+      <td data-src="GPU-private VRAM: drm_mem.processes[pid=${pid}].vram_kib − vis_vram_kib — VRAM not mapped through the PCIe BAR; GPU-exclusive buffers (drm-memory-vram minus amd-memory-visible-vram from /proc/${pid}/fdinfo)">${fmtKib(invVramKiB)}</td>
+      <td data-src="CPU-accessible VRAM: drm_mem.processes[pid=${pid}].vis_vram_kib — VRAM mapped through the PCIe BAR aperture, shared between CPU and GPU (amd-memory-visible-vram from /proc/${pid}/fdinfo)">${fmtKib(visVramKiB)}</td>
+      <td data-src="${memSrcGtt}">${fmtKib(gttKiB)}</td>
+      <td data-src="DRM CPU-domain buffers: drm_mem.processes[pid=${pid}].cpu_kib (KiB-exact via /proc/${pid}/fdinfo drm-memory-cpu — system RAM staged through amdgpu's CPU pool, rarely populated)">${fmtKib(drmCpuKiB)}</td>
+      <td data-src="Regular-page application memory (Apps-reg): /proc/${pid}/smaps_rollup Pss_Anon − AnonHugePages (anonymous RSS NOT backed by 2 MiB transparent huge pages — process heap, stack, and small mmap regions; in a ROCm UMA workload this is the non-model overhead while Apps-THP holds the model weights)">${fmtKib(appsRegKiB)}</td>
+      <td data-src="Anonymous transparent huge pages (AnonHugePages): /proc/${pid}/smaps_rollup AnonHugePages (anon RSS backed by 2 MiB THP)">${fmtKib(thpKiB)}</td>
       <td data-src="GFX engine usage: devices[${i}].fdinfo[${pid}].usage.GFX (% of GFX engine time consumed by this process)">${fmt(gfx, 0)}</td>
       <td data-src="Compute engine usage: devices[${i}].fdinfo[${pid}].usage.Compute (% of compute queue time consumed by this process — async compute and HSA dispatch)">${fmt(compute, 0)}</td>
       <td data-src="DMA (SDMA) engine usage: devices[${i}].fdinfo[${pid}].usage.DMA (% of system DMA engine time consumed by this process)">${fmt(dma, 0)}</td>
@@ -1836,7 +1865,7 @@ function updateDevice(i, dev) {
       <td data-src="VCN (Video Core Next) engine usage: devices[${i}].fdinfo[${pid}].usage.VCN_Unified (% of unified video codec engine time — H.264/HEVC/AV1 encode and decode)">${fmt(vcn, 0)}</td>
       <td data-src="VPE (Video Processing Engine) usage: devices[${i}].fdinfo[${pid}].usage.VPE (% of video post-processing engine time — color conversion, scaling, deinterlace)">${fmt(vpe, 0)}</td>
       <td data-src="NPU (Neural Processing Unit / XDNA) usage: devices[${i}].xdna_fdinfo[${pid}].usage.NPU (% of XDNA accelerator time consumed by this process)">${fmt(npu, 0)}</td>
-      <td data-src="NPU memory allocated: devices[${i}].xdna_fdinfo[${pid}].usage['NPU Mem'] (MiB \u2192 KiB; XDNA driver-allocated buffers for NPU workloads)">${fmt(npuMem != null ? npuMem * 1024 : null, 0)}</td>
+      <td data-src="NPU memory allocated: devices[${i}].xdna_fdinfo[${pid}].usage['NPU Mem'] (MiB \u2192 KiB; XDNA driver-allocated buffers for NPU workloads)">${fmtKib(npuMem != null ? npuMem * 1024 : null)}</td>
     </tr>`;
   }).join('');
 }
@@ -2244,7 +2273,8 @@ function fetchConfig() {
       if (cfg.cpu_gov)            subSpans.push(`<span data-src="/api/config → cpu_gov (/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor)">CPU Gov: ${cfg.cpu_gov}</span>`);
       const subtitleEl = document.getElementById('page-subtitle');
       subtitleEl.innerHTML = subSpans.join('<span class="subtitle-sep"> ◆ </span>');
-      if (cfg.total_ram_mib) state.totalRAMMiB = cfg.total_ram_mib;
+      if (cfg.total_ram_mib)    state.totalRAMMiB   = cfg.total_ram_mib;
+      if (cfg.dram_max_bw_kibs) state.dramMaxBWKiBs = cfg.dram_max_bw_kibs;
       if (state.serverVersion === null && newVer) {
         state.serverVersion = newVer;                   // record version this page was loaded with
         document.getElementById('page-title').textContent = `atopweb v${newVer}`;
