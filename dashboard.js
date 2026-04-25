@@ -483,6 +483,9 @@ function el(tag, cls, text) {
   return e;
 }
 
+// Escape string for safe insertion into innerHTML (& < > → entities).
+const escHtml = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
 function setConnStatus(status, label) {
   document.getElementById('conn-dot').className = 'conn-dot ' + status;
   document.getElementById('conn-label').textContent = label;
@@ -1558,7 +1561,8 @@ function updateDevice(i, dev) {
         const note = thpPct >= 80 ? ' — likely UMA model'
                    : thpPct <  20 ? ' — heap/stack dominant'
                    : '';
-        const tip = `${p.comm || '?'} (PID ${p.pid}): ${gib} GiB Pss_Anon (${thpGib} GiB THP, ${thpPct}%${note})`;
+        const tip = `${p.comm || '?'} (PID ${p.pid}): ${gib} GiB Pss_Anon (${thpGib} GiB THP, ${thpPct}%${note})`
+                  + (p.cmdline ? `<br>\`${escHtml(p.cmdline)}\`` : '');
         html += `<div class="mem-anon-gpu-pid" style="width:${pct}%" data-src="${escAttr(tip)}" data-dev="${i}">${p.pid}</div>`;
       }
       gpuAppsEl.innerHTML = html;
@@ -1862,6 +1866,8 @@ function updateDevice(i, dev) {
     const u       = gpuProc ? getUsage(gpuProc) : null;
     const nu      = npuProc ? getUsage(npuProc) : null;
     const name    = proc?.name || drm?.comm || '?';
+    const cmdline = drm?.cmdline || proc?.name || name;
+    const escCmd  = ('`' + escHtml(cmdline) + '`').replace(/&/g, '&amp;').replace(/"/g, '&quot;');
     // Activity counters — amdgpu_top fdinfo only.
     const cpu     = u ? (v(u, 'CPU') ?? v(u, 'cpu_usage') ?? v(u, 'cpu')) : null;
     const gfx     = u ? v(u, 'GFX')         : null;
@@ -1882,8 +1888,8 @@ function updateDevice(i, dev) {
     const memSrcGtt  = drm ? `GTT (Graphics Translation Table) used: drm_mem.processes[pid=${pid}].gtt_kib (KiB-exact via /proc/${pid}/fdinfo drm-memory-gtt)`
                            : `GTT (Graphics Translation Table) used: devices[${i}].fdinfo[${pid}].usage.GTT (MiB \u2192 KiB, amdgpu_top fallback)`;
     return `<tr>
-      <td class="proc-pid">${pid}</td>
-      <td class="proc-name">${name}</td>
+      <td class="proc-pid" data-src="${escCmd}">${pid}</td>
+      <td class="proc-name" data-src="${escCmd}">${name}</td>
       <td data-src="CPU usage: devices[${i}].fdinfo[${pid}].usage.CPU (% of one core)">${fmt(cpu, 0)}</td>
       <td data-src="GPU-private VRAM: drm_mem.processes[pid=${pid}].vram_kib − vis_vram_kib — VRAM not mapped through the PCIe BAR; GPU-exclusive buffers (drm-memory-vram minus amd-memory-visible-vram from /proc/${pid}/fdinfo)">${fmtKib(invVramKiB)}</td>
       <td data-src="CPU-accessible VRAM: drm_mem.processes[pid=${pid}].vis_vram_kib — VRAM mapped through the PCIe BAR aperture, shared between CPU and GPU (amd-memory-visible-vram from /proc/${pid}/fdinfo)">${fmtKib(visVramKiB)}</td>
@@ -2791,7 +2797,7 @@ function buildMemSegs(devIdx) {
       const thpPct = kib > 0 ? Math.round(thpKib / kib * 100) : 0;
       const note   = thpPct >= 80 ? ' — likely UMA model' : thpPct < 20 ? ' — heap/stack dominant' : '';
       return { key: `pid-${p.pid}`, label: `${p.comm || '?'} (${p.pid})`, kib,
-               color: MEM_COLORS.anonGpu,
+               color: MEM_COLORS.anonGpu, cmdline: p.cmdline || '',
                desc: `${p.comm || '?'} (PID ${p.pid}): ${(kib/1048576).toFixed(3)} GiB Pss_Anon `
                    + `(${(thpKib/1048576).toFixed(3)} GiB THP, ${thpPct}%${note})` };
     });
@@ -2882,6 +2888,13 @@ function squarifyLayout(items, x, y, w, h) {
 function _tmAddLeaf(svg, ns, item, x, y, w, h, GAP) {
   const g = document.createElementNS(ns, 'g');
   g.dataset.key = item.key;
+  if (item.desc) g.dataset.src = item.cmdline
+    ? `${item.desc}<br>\`${escHtml(item.cmdline)}\``
+    : item.desc;
+
+  const isPid       = item.key.startsWith('pid-');
+  const strokeIdle  = isPid ? 'rgba(255,255,255,0.45)' : 'rgba(255,255,255,0)';
+  const strokeHover = 'rgba(255,255,255,0.9)';
 
   const rect = document.createElementNS(ns, 'rect');
   rect.setAttribute('x',            x + GAP);
@@ -2889,8 +2902,9 @@ function _tmAddLeaf(svg, ns, item, x, y, w, h, GAP) {
   rect.setAttribute('width',        Math.max(0, w - GAP * 2));
   rect.setAttribute('height',       Math.max(0, h - GAP * 2));
   rect.setAttribute('fill',         item.color);
-  rect.setAttribute('stroke',       'rgba(255,255,255,0)');
-  rect.setAttribute('stroke-width', '2');
+  rect.setAttribute('stroke',       strokeIdle);
+  rect.setAttribute('stroke-width', '1.5');
+  if (isPid) rect.setAttribute('stroke-dasharray', '3 2');
   g.appendChild(rect);
 
   if (w > 38 && h > 14) {
@@ -2910,8 +2924,8 @@ function _tmAddLeaf(svg, ns, item, x, y, w, h, GAP) {
     g.appendChild(text);
   }
 
-  g.addEventListener('mouseenter', () => rect.setAttribute('stroke', 'rgba(255,255,255,0.7)'));
-  g.addEventListener('mouseleave', () => rect.setAttribute('stroke', 'rgba(255,255,255,0)'));
+  g.addEventListener('mouseenter', () => rect.setAttribute('stroke', strokeHover));
+  g.addEventListener('mouseleave', () => rect.setAttribute('stroke', strokeIdle));
   svg.appendChild(g);
   _tmKeyMap.set(item.key, rect);
 }
@@ -2987,9 +3001,12 @@ function renderMemTreemap(devIdx) {
         <td class="mem-tm-desc">${seg.desc}</td>
       </tr>`;
       for (const child of seg.children) {
+        const cmdlineHtml = child.cmdline
+          ? `<span class="mem-tm-cmdline">\`${escHtml(child.cmdline)}\`</span>`
+          : '';
         html += `<tr class="mem-tm-child-hdr" data-key="${child.key}">
           <td><span class="mem-tm-swatch mem-tm-indent" style="background:${child.color}"></span></td>
-          <td class="mem-tm-indent">◆ ${child.label}</td>
+          <td class="mem-tm-indent">◆ ${child.label}${cmdlineHtml}</td>
           <td class="mem-tm-kib">${child.kib.toLocaleString()}</td>
           <td class="mem-tm-desc">${child.desc}</td>
         </tr>`;

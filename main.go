@@ -1464,6 +1464,7 @@ var (
 type drmProcessMem struct {
 	PID        int    `json:"pid"`
 	Comm       string `json:"comm,omitempty"`
+	Cmdline    string `json:"cmdline,omitempty"`     // /proc/<pid>/cmdline, args joined with spaces
 	Driver     string `json:"driver,omitempty"`      // e.g. "amdgpu"
 	PssAnonKiB       uint64 `json:"pss_anon_kib,omitempty"`        // /proc/<pid>/smaps_rollup Pss_Anon — proportional anonymous RSS, captures ROCm UMA/HSA host allocations and LLM model weights mmap'd into the process address space
 	AnonHugePagesKiB uint64 `json:"anon_huge_pages_kib,omitempty"` // /proc/<pid>/smaps_rollup AnonHugePages — anonymous transparent-huge-page-backed RSS; under ROCm UMA, large model weight mmaps get THP-promoted, so this approximates the ROCm-attributable share of Pss_Anon (vs heap/stack which use 4 KiB pages)
@@ -1558,7 +1559,10 @@ func readDRMFdinfo(a *drmAccounting) {
 			}
 			p := byPID[pid]
 			if p == nil {
-				p = &drmProcessMem{PID: pid, Comm: readFileTrim(filepath.Join(procDir, "comm"))}
+				comm := readFileTrim(filepath.Join(procDir, "comm"))
+				cmdlineRaw, _ := os.ReadFile(filepath.Join(procDir, "cmdline"))
+				cmdline := strings.TrimRight(strings.ReplaceAll(string(cmdlineRaw), "\x00", " "), " ")
+				p = &drmProcessMem{PID: pid, Comm: comm, Cmdline: cmdline}
 				byPID[pid] = p
 			}
 			// Each fdinfo line is "key:\tvalue [KiB]".  Parse the relevant
