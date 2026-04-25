@@ -941,6 +941,8 @@ type memSnapshot struct {
 	SockMemKB    uint64            `json:"sock_mem_kb,omitempty"`     // kernel network-stack page allocations (sum of /proc/net/sockstat "mem" lines × page size)
 	DmaBufBytes  uint64            `json:"dma_buf_bytes,omitempty"`   // total dma-buf bytes across all exporters (informational; overlaps with VRAM/GTT)
 	GpuAnonPssKB uint64            `json:"gpu_anon_pss_kb,omitempty"` // Σ Pss_Anon across PIDs in DRMMem.Processes (proportional anon RSS attributable to GPU processes; isolates ROCm UMA/HSA host allocations from generic AnonPages)
+	DRAMReadBps  uint64            `json:"dram_read_bps,omitempty"`   // DRAM read bandwidth in bytes/sec from amd_df Σ local_or_remote_socket_read_data_beats_dram_* × 32 (DF link width); replaces amdgpu_top average_dram_reads which has a known read/write swap bug
+	DRAMWriteBps uint64            `json:"dram_write_bps,omitempty"`  // DRAM write bandwidth in bytes/sec from amd_df Σ local_or_remote_socket_write_data_beats_dram_* × 32
 }
 
 type systemInfo struct {
@@ -1685,12 +1687,15 @@ func buildMemSnapshot() memSnapshot {
 			gpuAnonPss += s.PssAnonKiB
 		}
 	}
+	readBps, writeBps, _ := readDRAMBW()
 	return memSnapshot{
 		MemInfoKB:    readMemInfoAll(),
 		DRMMem:       drm,
 		SockMemKB:    readSockMemKB(),
 		DmaBufBytes:  readDmaBufBytes(),
 		GpuAnonPssKB: gpuAnonPss,
+		DRAMReadBps:  readBps,
+		DRAMWriteBps: writeBps,
 	}
 }
 
@@ -2009,6 +2014,7 @@ func main() {
 		atopVersion:  atopVer,
 		ryzenAdjArgs: ryzenAdjArgs,
 	}
+	initDRAMBW()
 	go runStreamer(binary, atopArgs, h)
 	go runSystemPusher(h)
 	go runMemPusher(h)

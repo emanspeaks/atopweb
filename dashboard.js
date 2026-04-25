@@ -867,8 +867,8 @@ function buildDom(devices) {
       {
         key: 'dram-bw', title: 'DRAM Bandwidth (MB/s)', height: 150, yMax: null,
         datasets: () => [
-          makeDataset('Reads',  '#3fb950', h.dramReads,  `devices[${i}].gpu_metrics.average_dram_reads`),
-          makeDataset('Writes', '#f85149', h.dramWrites, `devices[${i}].gpu_metrics.average_dram_writes`),
+          makeDataset('Reads',  '#3fb950', h.dramReads,  `mem_snapshot.dram_read_bps × 1e-6 (MB/s, from amd_df Σ local_or_remote_socket_read_data_beats_dram_* × 32 / elapsed)`),
+          makeDataset('Writes', '#f85149', h.dramWrites, `mem_snapshot.dram_write_bps × 1e-6 (MB/s, from amd_df Σ local_or_remote_socket_write_data_beats_dram_* × 32 / elapsed)`),
         ]
       },
       {
@@ -1593,8 +1593,13 @@ function updateDevice(i, dev) {
   pushHistory(h.vclk,    typeof gm.average_vclk_frequency  === 'number' ? gm.average_vclk_frequency  : null);
   pushHistory(h.vddgfx,  vddgfx);
   pushHistory(h.vddnb,   vddnb);
-  pushHistory(h.dramReads,  typeof gm.average_dram_reads  === 'number' ? gm.average_dram_reads  : null);
-  pushHistory(h.dramWrites, typeof gm.average_dram_writes === 'number' ? gm.average_dram_writes : null);
+  // DRAM bandwidth from our perf-event monitor (amd_df data beats), not
+  // amdgpu_top — bypasses the gpu_metrics read/write swap bug.  Convert
+  // bytes/sec → MB/s (decimal) so the chart's scale stays comparable.
+  const dramReadBps  = state.systemInfo?.dram_read_bps;
+  const dramWriteBps = state.systemInfo?.dram_write_bps;
+  pushHistory(h.dramReads,  typeof dramReadBps  === 'number' ? dramReadBps  / 1e6 : null);
+  pushHistory(h.dramWrites, typeof dramWriteBps === 'number' ? dramWriteBps / 1e6 : null);
 
   const nm = dev.npu_metrics || {};
   const npuBusyArr = Array.isArray(nm.npu_busy) ? nm.npu_busy : [];

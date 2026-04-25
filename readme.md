@@ -79,7 +79,7 @@ idle charts auto-hide the same way cards do):
 | CPU Core Power | Per-core power (W) for all 16 cores |
 | Package Power | PPT, Average Power, CPU Cores, NPU — with ryzenadj STAPM / Fast / Slow / APU Slow limit lines |
 | Clocks | SCLK, MCLK, FCLK, FCLK avg, SoC Clk, VCN Clk |
-| DRAM Bandwidth | Reads, Writes (MB/s) |
+| DRAM Bandwidth | Reads, Writes (MB/s) — sampled directly from the AMD Data Fabric perf PMU (`amd_df` `local_or_remote_socket_{read,write}_data_beats_dram_*` × 32 bytes per beat), bypassing `amdgpu_top` `gpu_metrics.average_dram_*` |
 | Voltage | VDDGFX, VDDNB (mV) |
 | NPU Tile Activity | Per-tile activity % for all 8 tiles |
 | NPU Clocks | NPU Clk, MP-NPU Clk (MHz) |
@@ -223,6 +223,7 @@ significantly — the full memory overview bar.
 | `drm_mem` | Per-GPU authoritative totals from `/sys/class/drm/card*/device/mem_info_*` (`vram_total_kib`, `vram_used_kib`, `vis_vram_total_kib`, `vis_vram_used_kib`, `gtt_total_kib`, `gtt_used_kib` — KiB derived from byte-exact sysfs reads, **not** the MiB-quantized values amdgpu_top reports) plus aggregated per-process breakdown from `/proc/*/fdinfo/*` (`total_vram_kib`, `total_gtt_kib`, `total_cpu_kib`, and a `processes[]` array with `{pid, comm, driver, pss_anon_kib, anon_huge_pages_kib, vram_kib, gtt_kib, cpu_kib, vis_vram_kib}` per DRM-holding process, the largest first.  `pss_anon_kib` is `/proc/<pid>/smaps_rollup Pss_Anon` and captures ROCm UMA / HSA host allocations including LLM model weights; `anon_huge_pages_kib` is the THP-backed subset of `Pss_Anon` and is a strong heuristic for distinguishing model bytes from process heap, since large contiguous mmaps get THP-promoted while ordinary heap/stack rarely produces THP at any meaningful scale) |
 | `sock_mem_kb` | Kernel network-buffer memory: sum of the `mem` / `memory` fields in `/proc/net/sockstat` and `/proc/net/sockstat6`, multiplied by the system page size |
 | `dma_buf_bytes` | Total size column from `/sys/kernel/debug/dma_buf/bufinfo` (diagnostic only — dma-bufs are usually backed by VRAM/GTT/shmem so adding this to the bar would double-count) |
+| `dram_read_bps`, `dram_write_bps` | DRAM read/write bandwidth in bytes per second.  Each tick of `runMemPusher` reads 24 perf-event counters (12 DRAM channels × {read, write}) attached to the AMD Data Fabric `amd_df` PMU, scales for multiplexing via `enabled_time / running_time`, deltas against the previous tick, multiplies by 32 bytes per DF data beat, and divides by elapsed wall time.  Bypasses amdgpu_top `gpu_metrics.average_dram_*` and the read/write swap bug there.  Zero / absent when the `amd_uncore` and `amd_atl` kernel modules are not loaded |
 | `errors` | Array of sticky server-side diagnostics (missing kernel modules, unexpected permission errors, etc.).  Each unique message appears once per process lifetime; the same list is emitted to the systemd journal via `log.Printf` and surfaced in the dashboard log pane as a red error entry |
 | `shutdown_pending` | Non-empty string when systemd has a shutdown or reboot queued — e.g. `"reboot scheduled in 45s (at 17:33:00)"`.  Written within milliseconds of the user running `sudo reboot` or `sudo shutdown`, via an inotify watch on `/run/systemd/shutdown/scheduled`. Empty when no shutdown is pending |
 
@@ -367,10 +368,13 @@ http://<server-ip>:5899
 
 Enabling the module:
 
-- Loads the `msr` kernel module (`boot.kernelModules = [ "msr" ]`) so the
+- Loads the `msr`, `amd_uncore`, and `amd_atl` kernel modules
+  (`boot.kernelModules = [ "msr" "amd_uncore" "amd_atl" ];`) so the
   service can open `/dev/cpu/*/msr` to read AMD memory-topology MSRs
   (`TOP_MEM`, `TOP_MEM2`, `SMM_ADDR`, `SMM_MASK`) for byte-exact memory
-  reconciliation.
+  reconciliation, and `/sys/bus/event_source/devices/amd_df/` for direct
+  DRAM-bandwidth perf counters (used by the DRAM Bandwidth chart;
+  bypasses the read/write swap bug in amdgpu_top's `gpu_metrics`).
 - Runs the systemd unit as **root** (`User = "root"`), which gives it
   unrestricted access to `/proc/*/fdinfo` (per-process DRM memory),
   `/dev/cpu/*/msr` (AMD memory topology), and

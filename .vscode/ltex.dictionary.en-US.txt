@@ -14,6 +14,7 @@ chartjs
 Clk
 CLOEXEC
 coreclk
+CPU%
 cputmp
 crashkernel
 currs
@@ -24,12 +25,14 @@ dma-buf
 dma-bufs
 dmabuf
 DQI-colored
+DRAMBW
 drvpg
 ECAM
 etmp
 fanotify
 fanotify-based
 fclk
+fd
 fdinfo
 FDs
 fnmatch
@@ -64,7 +67,9 @@ mdegc
 Mem
 MEM
 MiB
+MiB-huge-page
 MiB-quantized
+mmap
 mmaps
 MMIO
 monospace
@@ -87,6 +92,7 @@ ptables
 RAPL
 RAWIO
 Reclm
+robined
 Roboto
 rocm
 ROCm
@@ -119,6 +125,7 @@ tmpfs
 toml
 TSEG
 udev
+uncore
 Unreclaim
 Unreclaimable
 Unreclm
@@ -134,7 +141,4 @@ XDNA
 xorg
 µW
 
-fd
-mmap
-MiB-huge-page
-CPU%
+perf-event
