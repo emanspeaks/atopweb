@@ -79,13 +79,19 @@ header {
 
 .header-right {
   display: grid;
-  grid-template-columns: auto auto;
+  grid-template-columns: auto auto auto;
   column-gap: 16px;
   row-gap: 3px;
   justify-self: end;
   justify-items: end;
   align-items: center;
 }
+
+#memsnap-btn       { grid-row: 2; grid-column: 1; }
+#plotwidth-ctrl    { grid-row: 1; grid-column: 2; }
+.header-pause-ts   { grid-row: 1; grid-column: 3; }
+#corewidth-ctrl    { grid-row: 2; grid-column: 2; }
+#interval-ctrl     { grid-row: 2; grid-column: 3; }
 
 .header-pause-ts {
   display: flex;
@@ -142,6 +148,21 @@ header .period {
 .conn-dot.connected    { background: var(--green); }
 .conn-dot.connecting   { background: var(--yellow); }
 .conn-dot.disconnected { background: var(--red); }
+
+#shutdown-badge {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--red);
+  border: 1px solid var(--red);
+  border-radius: 3px;
+  padding: 1px 5px;
+  white-space: nowrap;
+  animation: badge-pulse 2s ease-in-out infinite;
+}
+@keyframes badge-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.45; }
+}
 
 /* ── Device info (truly centered via grid column 2) ─────────────── */
 .device-info {
@@ -502,7 +523,7 @@ main { padding: 6px 8px; }
 
 .mem-legend-val   { color: var(--data-color); }
 .mem-legend-sep   { color: var(--border); margin: 0 4px; }
-.mem-legend-total { margin-left: auto; color: var(--muted); }
+.mem-legend-total { display: flex; align-items: center; flex-wrap: wrap; margin-left: auto; color: var(--muted); }
 
 /* ── Charts ──────────────────────────────────────────────────────── */
 .charts {
@@ -723,6 +744,9 @@ main { padding: 6px 8px; }
   white-space: nowrap;
 }
 
+.proc-table th:nth-child(n+3),
+.proc-table td:not(.proc-name):not(.proc-pid) { text-align: right; }
+
 .proc-table td {
   padding: 4px 10px;
   border-bottom: 1px solid var(--border);
@@ -842,14 +866,21 @@ main { padding: 6px 8px; }
 #status-log .log-line.warn  { color: var(--yellow); }
 #status-log .log-line.err   { color: var(--red); }
 
-#status-bar.sev-ok   { background: var(--green); border-top-color: var(--green); }
+#status-bar.sev-ok   { border-top-color: var(--green); }
+#status-bar.sev-ok   #status-bar-main { background: var(--green); }
 #status-bar.sev-ok   #status-bar-text { color: #fff; }
-#status-bar.sev-warn { background: var(--yellow); border-top-color: var(--yellow); }
+#status-bar.sev-warn { border-top-color: var(--yellow); }
+#status-bar.sev-warn #status-bar-main { background: var(--yellow); }
 #status-bar.sev-warn #status-bar-text { color: #000; }
 #status-bar.sev-warn #status-bar-chevron { color: #000; }
-#status-bar.sev-err  { background: var(--red); border-top-color: var(--red); }
+#status-bar.sev-err  { border-top-color: var(--red); }
+#status-bar.sev-err  #status-bar-main { background: var(--red); }
 #status-bar.sev-err  #status-bar-text { color: #fff; }
 #status-bar.sev-err  #status-bar-chevron { color: #fff; }
+
+#status-bar-text.text-ok   { color: var(--green); }
+#status-bar-text.text-warn { color: var(--yellow); }
+#status-bar-text.text-err  { color: var(--red); }
 
 #status-bar-main {
   display: flex;
