@@ -33,8 +33,7 @@ import (
 // hardware via perf eliminates that translation layer entirely.
 
 const (
-	dramAmdDFType       = 16   // /sys/bus/event_source/devices/amd_df/type
-	dramBytesPerBeat    = 32   // DF link width on Zen 5
+	dramBytesPerBeat    = 32 // DF link width on Zen 5
 	dramNumChannels     = 12
 	dramMuxIntervalPath = "/sys/bus/event_source/devices/amd_df/perf_event_mux_interval_ms"
 	dramMuxIntervalMs   = 1
@@ -54,14 +53,16 @@ const (
 //	config bit   8      = 0 (read)  / 1 (write) read/write toggles umask LSB
 //
 // Constant base bits 0x0F00FE1F encode the rest of the event-id and umask
-// fields.  If perf_list ever stops accepting these names on a future kernel,
-// re-derive with:
+// fields.  The PMU type is read at runtime from
+// /sys/bus/event_source/devices/amd_df/type — it is kernel-assigned and must
+// never be hardcoded.  If perf_list ever stops accepting these names on a
+// future kernel, re-derive with:
 //
-//	perf stat -vv -e 'amd_df/local_or_remote_socket_read_data_beats_dram_0/' \
-//	              -e 'amd_df/local_or_remote_socket_write_data_beats_dram_0/' \
-//	              -e 'amd_df/local_or_remote_socket_read_data_beats_dram_4/' \
-//	              -e 'amd_df/local_or_remote_socket_read_data_beats_dram_8/' \
-//	              -- sleep 0.05 2>&1 | grep config
+//	sudo perf stat -vv -e 'amd_df/local_or_remote_socket_read_data_beats_dram_0/' \
+//	                   -e 'amd_df/local_or_remote_socket_write_data_beats_dram_0/' \
+//	                   -e 'amd_df/local_or_remote_socket_read_data_beats_dram_4/' \
+//	                   -e 'amd_df/local_or_remote_socket_read_data_beats_dram_8/' \
+//	                   -- sleep 0.05 2>&1 | grep config
 func dramBeatsConfig(channel int, write bool) uint64 {
 	cfg := uint64(0x0F00FE1F)
 	cfg |= uint64(channel&3) << 6
@@ -83,17 +84,47 @@ type dramBWMonitor struct {
 
 var dramBW = &dramBWMonitor{}
 
+// modprobeBins lists absolute paths to try when modprobe is not in PATH.
+// Services commonly run with a stripped PATH, so we search known locations
+// across major distros and NixOS before giving up.
+var modprobeBins = []string{
+	"/sbin/modprobe",                        // traditional FHS
+	"/usr/sbin/modprobe",                    // FHS 3.0+
+	"/usr/bin/modprobe",                     // merged-usr distros (Arch, Fedora 37+)
+	"/bin/modprobe",                         // some embedded / minimal systems
+	"/run/current-system/sw/bin/modprobe",   // NixOS (kmod in systemPackages)
+}
+
+// findModprobe returns an absolute path to modprobe, searching PATH first
+// and then well-known locations so the service works even with a stripped PATH.
+// Returns "" if not found anywhere.
+func findModprobe() string {
+	if p, err := exec.LookPath("modprobe"); err == nil {
+		return p
+	}
+	for _, p := range modprobeBins {
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+	return ""
+}
+
 // loadDRAMBWModules best-effort modprobes the kernel modules we need so the
 // service can self-bootstrap even when boot.kernelModules wasn't set or the
 // user is running the binary manually before a reboot.  Failures are logged
-// to journald but not fatal: modprobe returns 0 when the module is already
-// loaded, and if it fails for any other reason (built-in driver, module not
-// present in this kernel, missing modprobe in PATH) the subsequent /sys check
-// + perf_event_open surface the real reason via diag.report.
+// to journald but not fatal: if modules are already built-in or loaded the
+// subsequent /sys check will succeed; if they genuinely aren't present,
+// perf_event_open will surface the real reason via diag.report.
 func loadDRAMBWModules() {
+	modprobe := findModprobe()
+	if modprobe == "" {
+		log.Printf("atopweb dram bw: modprobe not found in PATH or well-known locations — assuming modules are already built-in or loaded")
+		return
+	}
 	for _, mod := range []string{"amd_uncore", "amd_atl"} {
-		if err := exec.Command("modprobe", mod).Run(); err != nil {
-			log.Printf("atopweb dram bw: modprobe %s: %v (best-effort; may already be built-in)", mod, err)
+		if err := exec.Command(modprobe, mod).Run(); err != nil {
+			log.Printf("atopweb dram bw: %s %s: %v (best-effort; may already be built-in)", modprobe, mod, err)
 		}
 	}
 }
@@ -117,6 +148,27 @@ func initDRAMBW() {
 		return
 	}
 
+	// PMU type is assigned dynamically by the kernel at boot — never hardcode it.
+	typeBytes, err := os.ReadFile("/sys/bus/event_source/devices/amd_df/type")
+	if err != nil {
+		diag.report("dram bw: could not read amd_df PMU type (%v)", err)
+		return
+	}
+	var dfType uint32
+	if n, _ := fmt.Sscanf(string(typeBytes), "%d", &dfType); n != 1 {
+		diag.report("dram bw: could not parse amd_df PMU type from %q", typeBytes)
+		return
+	}
+	log.Printf("atopweb dram bw: amd_df PMU type = %d", dfType)
+
+	// Uncore PMUs must be opened on a CPU listed in their cpumask, not an
+	// arbitrary CPU.  Read it rather than assuming CPU 0.
+	dfCPU := 0
+	if cpuBytes, err := os.ReadFile("/sys/bus/event_source/devices/amd_df/cpumask"); err == nil {
+		fmt.Sscanf(string(cpuBytes), "%d", &dfCPU)
+	}
+	log.Printf("atopweb dram bw: using CPU %d (from cpumask)", dfCPU)
+
 	// Tighten DF multiplex rotation so 24 events through ~8 slots see uniform
 	// coverage at our tick rate.  Best effort — failure just means slightly
 	// more variance at 100 ms cadence.
@@ -128,13 +180,13 @@ func initDRAMBW() {
 	for ch := 0; ch < dramNumChannels; ch++ {
 		for w := 0; w < 2; w++ {
 			attr := unix.PerfEventAttr{
-				Type:        dramAmdDFType,
+				Type:        dfType,
 				Config:      dramBeatsConfig(ch, w == 1),
 				Read_format: unix.PERF_FORMAT_TOTAL_TIME_ENABLED | unix.PERF_FORMAT_TOTAL_TIME_RUNNING,
 			}
 			attr.Size = uint32(unsafe.Sizeof(attr))
-			// pid=-1 (any), cpu=0 (cpumask is "0"), groupFd=-1, flags=0.
-			fd, err := unix.PerfEventOpen(&attr, -1, 0, -1, 0)
+			// pid=-1 (any process), cpu from cpumask, groupFd=-1, flags=0.
+			fd, err := unix.PerfEventOpen(&attr, -1, dfCPU, -1, 0)
 			if err != nil {
 				for _, f := range fds {
 					unix.Close(f)
