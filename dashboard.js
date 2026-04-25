@@ -678,8 +678,9 @@ function buildDom(devices) {
     });
     // ── Memory overview bar ──
     const memSec = el('div', 'mem-section');
+    // <div class="mem-bar-outer" data-dev="${i}" title="Click to open memory treemap">
     memSec.innerHTML = `
-      <div class="mem-bar-outer" data-dev="${i}" title="Click to open memory treemap">
+      <div class="mem-bar-outer" data-dev="${i}">
         <div class="mem-bar-vram-part" id="mem-vram-part-${i}">
           <div class="mem-seg mem-seg-vram-free" id="mem-vram-free-${i}" data-src="${MEM_TIPS.vramFree}"></div>
           <div class="mem-seg mem-seg-vram-inv"  id="mem-vram-inv-${i}"  data-src="${MEM_TIPS.vramInv}"></div>
