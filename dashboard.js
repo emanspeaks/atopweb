@@ -2257,11 +2257,12 @@ function fetchPowerLimits() {
         thm_gfx_c:  d.thm_gfx_c  ?? null,
         thm_soc_c:  d.thm_soc_c  ?? null,
       };
+      const wasUninitialized = Object.keys(nxt).every(k => pl[k] === null);
       const changed = Object.keys(nxt).some(k => nxt[k] !== pl[k]);
       Object.assign(pl, nxt);
       // Refresh header once limits are loaded (device may already be shown).
       if (state.hist.length > 0 && state.lastDev0) updateDeviceInfoHeader(state.lastDev0);
-      if (!changed) return;
+      if (!changed || wasUninitialized) return;
       const parts = [];
       if (pl.stapm_w    != null) parts.push(`STAPM ${pl.stapm_w.toFixed(3)}W`);
       if (pl.fast_w     != null) parts.push(`Fast ${pl.fast_w.toFixed(3)}W`);
