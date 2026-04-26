@@ -4,8 +4,10 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 	"unsafe"
@@ -154,4 +156,42 @@ func watchLogindShutdown(h *hub) {
 		}
 		pushShutdownAlert(h, msg)
 	}
+}
+
+// checkShutdownPending reads /run/systemd/shutdown/scheduled and returns a
+// human-readable message when systemd has a shutdown, reboot, halt, or power-
+// off queued.  The file is world-readable (no CAP required) and is written
+// immediately when any of the following are invoked:
+//   - sudo reboot / sudo shutdown / sudo halt / sudo poweroff
+//   - systemctl reboot / poweroff / halt / kexec (including via ACPI/power-btn)
+//
+// Returns "" when no shutdown is pending or the file does not exist.
+func checkShutdownPending() string {
+	data, err := os.ReadFile("/run/systemd/shutdown/scheduled")
+	if err != nil {
+		return ""
+	}
+	var mode string
+	var usec int64
+	for _, line := range strings.Split(string(data), "\n") {
+		k, v, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		switch strings.TrimSpace(k) {
+		case "MODE":
+			mode = strings.TrimSpace(v)
+		case "USEC":
+			usec, _ = strconv.ParseInt(strings.TrimSpace(v), 10, 64)
+		}
+	}
+	if mode == "" {
+		return ""
+	}
+	when := time.UnixMicro(usec)
+	remaining := time.Until(when).Truncate(time.Second)
+	if remaining > 0 {
+		return fmt.Sprintf("%s scheduled in %s (at %s)", mode, remaining, when.Format("15:04:05"))
+	}
+	return fmt.Sprintf("%s in progress (scheduled for %s)", mode, when.Format("15:04:05"))
 }

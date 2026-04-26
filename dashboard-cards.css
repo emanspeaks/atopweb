@@ -1,0 +1,201 @@
+/* ── Stat cards ──────────────────────────────────────────────────── */
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(125px, 1fr));
+  gap: 5px;
+  margin-bottom: 4px;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 5px 8px;
+  text-align: center;
+}
+
+.card-label {
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+  margin-bottom: 1px;
+}
+
+.card-value {
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.2;
+  display: inline-block;
+  color: var(--data-color);
+}
+
+/* compact value for cards showing "used / total" */
+.c-vram .card-value,
+.c-gtt  .card-value {
+  font-size: 11px;
+}
+
+.card-unit {
+  font-size: 10px;
+  color: var(--muted);
+  margin-left: 1px;
+}
+
+.card-value-sep {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.subtitle-sep, .di-sep {
+  color: var(--muted);
+}
+
+.card-bar-wrap {
+  height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+  margin-top: 3px;
+  overflow: hidden;
+}
+
+.card-bar {
+  height: 100%;
+  border-radius: 2px;
+  width: 0%;
+  transition: width 0.4s ease;
+  background: var(--data-color);
+}
+
+/* per-card accent color overrides (currently unused — all cards use --blue default)
+.c-gfx    .card-value { color: var(--orange); }
+.c-media  .card-value { color: var(--purple); }
+.c-vram   .card-value { color: var(--green); }
+.c-gtt    .card-value { color: var(--green); }
+.c-sclk   .card-value { color: var(--orange); }
+.c-pwr    .card-value { color: var(--yellow); }
+.c-etmp   .card-value { color: var(--red); }
+.c-cputmp .card-value { color: var(--yellow); }
+.c-fan    .card-value { color: var(--muted); }
+.c-vddgfx .card-value { color: var(--yellow); }
+.c-vddnb  .card-value { color: var(--muted); }
+.c-uptime .card-value { color: var(--green); }
+
+.c-gfx   .card-bar { background: var(--orange); }
+.c-media .card-bar { background: var(--purple); }
+.c-vram  .card-bar { background: var(--green); }
+.c-gtt   .card-bar { background: var(--green); }
+*/
+.c-uptime .card-value {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Memory overview bar ────────────────────────────────────────── */
+.mem-section {
+  margin-bottom: 4px;
+}
+
+.mem-bar-outer {
+  display: flex;
+  height: 18px;
+  border-radius: 4px;
+  overflow: hidden;
+  border: 2px solid rgba(255,255,255,0.5);
+}
+
+.mem-bar-vram-part,
+.mem-bar-sys-part {
+  display: flex;
+  height: 100%;
+  overflow: hidden;
+}
+
+.mem-bar-vram-part { flex-shrink: 0; }
+.mem-bar-sys-part  { flex: 1; }
+
+.mem-seg-vram-free { flex: 1;        background: rgba(76,175,80,0.08); }
+.mem-seg-vram-vis  { flex: 0 0 auto; background: #2e7d32; }  /* CPU-visible VRAM used — dark forest green */
+.mem-seg-vram-inv  { flex: 0 0 auto; background: #aed581; }  /* CPU-invisible VRAM used — light lime (high yellow) */
+.mem-seg-gtt-used  { flex: 0 0 auto; background: #80cbc4; }  /* GTT used — light teal (high blue) */
+.mem-seg-drmcpu    { flex: 0 0 auto; background: #00695c; }  /* DRM CPU-domain pinned — dark teal (high blue) */
+.mem-seg-anon-gpu   { flex: 0 0 auto; background: #43a047; display: flex; flex-direction: row; overflow: hidden; }  /* GPU process anon — Σ Pss_Anon for DRM-fdinfo PIDs (medium green; clusters with GPU greens) — flex container hosts one child per active GPU PID */
+.mem-anon-gpu-pid {
+  flex: 0 0 auto;
+  background: transparent;
+  border-right: 1px dotted rgba(255,255,255,0.7);
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255,255,255,0.95);
+  font-size: 9px;
+  font-weight: 600;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: clip;
+  min-width: 1px;
+}
+.mem-anon-gpu-pid:last-child { border-right: none; }
+.mem-seg-anon-other { flex: 0 0 auto; background: #ff7043; }  /* AnonPages − GPU Pss_Anon — non-GPU process heap/stack */
+.mem-seg-shmem     { flex: 0 0 auto; background: #1e88e5; }  /* Shmem — tmpfs / SysV shared */
+.mem-seg-cached    { flex: 0 0 auto; background: #ff9800; }  /* Cached − Shmem — file page cache */
+.mem-seg-buf       { flex: 0 0 auto; background: #00bcd4; }  /* Buffers — block-device cache */
+.mem-seg-sreclm    { flex: 0 0 auto; background: #fdd835; }  /* SReclaimable */
+.mem-seg-sunrec    { flex: 0 0 auto; background: #5c6bc0; }  /* SUnreclaim */
+.mem-seg-vmalloc   { flex: 0 0 auto; background: #ffa726; }  /* VmallocUsed (incl. Percpu) */
+.mem-seg-kstack    { flex: 0 0 auto; background: #7b1fa2; }  /* KernelStack */
+.mem-seg-ptables   { flex: 0 0 auto; background: #8bc34a; }  /* PageTables + SecPageTables */
+.mem-seg-netbuf    { flex: 0 0 auto; background: #e91e63; }  /* socket buffers from /proc/net/sockstat */
+.mem-seg-drvpg     { flex: 0 0 auto; background: #4caf50; }  /* residual: direct alloc_pages() by drivers */
+.mem-seg-free      { flex: 1;        background: rgba(255,255,255,0.06); }
+.mem-seg-kres      { flex: 0 0 auto; background: #37474f; }  /* SystemRAM − MemTotal (crashkernel, initrd, kernel image) */
+.mem-seg-fw        { flex: 0 0 auto; background: #616161; }  /* firmware-reserved DRAM incl. BIOS VRAM carveout */
+
+.mem-legend {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
+  font-size: 10px;
+  color: var(--muted);
+  flex-wrap: wrap;
+}
+
+.mem-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.mem-lswatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  flex-shrink: 0;
+  display: inline-block;
+}
+
+.mem-lswatch-vram-free { background: rgba(76,175,80,0.12); border: 1px solid rgba(76,175,80,0.35); }
+.mem-lswatch-vram-vis  { background: #2e7d32; }
+.mem-lswatch-vram-inv  { background: #aed581; }
+.mem-lswatch-gtt     { background: #80cbc4; border: 1px solid rgba(128,203,196,0.6); }
+.mem-lswatch-drmcpu  { background: #00695c; }
+.mem-lswatch-anon-gpu   { background: #43a047; }
+.mem-lswatch-anon-other { background: #ff7043; }
+.mem-lswatch-shmem   { background: #1e88e5; }
+.mem-lswatch-cached  { background: #ff9800; }
+.mem-lswatch-buf     { background: #00bcd4; }
+.mem-lswatch-sreclm  { background: #fdd835; }
+.mem-lswatch-sunrec  { background: #5c6bc0; }
+.mem-lswatch-vmalloc { background: #ffa726; }
+.mem-lswatch-kstack  { background: #7b1fa2; }
+.mem-lswatch-ptables { background: #8bc34a; }
+.mem-lswatch-netbuf  { background: #e91e63; }
+.mem-lswatch-drvpg   { background: #4caf50; }
+.mem-lswatch-free    { background: rgba(255,255,255,0.12); border: 1px solid var(--border); }
+.mem-lswatch-kres    { background: #37474f; border: 1px solid #546e7a; }
+.mem-lswatch-fw      { background: #616161; border: 1px solid #858585; }
+
+.mem-legend-val   { color: var(--data-color); }
+.mem-legend-sep   { color: var(--border); margin: 0 4px; }
+.mem-legend-total { display: flex; align-items: center; flex-wrap: wrap; margin-left: auto; color: var(--muted); }

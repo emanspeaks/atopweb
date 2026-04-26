@@ -1,3 +1,20 @@
 {
-  "embeddingProvider": "custom"
+  "embeddingProvider": "custom",
+  "customProvider": {
+    "baseUrl": "http://192.168.2.44:5900/v1",
+    "model": "opencode:qwen3-embed-0.6b",
+    "dimensions": 1024
+  },
+  "reranker": {
+    "enabled": true,
+    "baseUrl": "http://192.168.2.44:5900/v1",
+    "model": "opencode:qwen3-rerank-0.6b"
+  },
+  "debug": {
+    "enabled": false
+  },
+  "knowledgeBases": [
+    "C:\\scratch\\git\\atopweb"
+  ],
+  "additionalInclude": []
 }
