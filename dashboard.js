@@ -741,6 +741,7 @@ function buildDom(devices) {
     `;
     // <span class="mem-legend-sep">◆</span>
     // <span class="mem-legend-item" data-src="${MEM_TIPS.dmabuf}">dma-buf (shared): <span class="mem-legend-val" id="mem-lbl-dmabuf-${i}">—</span> GiB</span>
+    memSec.querySelector('.mem-bar-outer').addEventListener('click', () => openMemTreemap(i));
     fixedStats.appendChild(cards);
     fixedStats.appendChild(memSec);
     panel.appendChild(fixedStats);
@@ -2256,11 +2257,12 @@ function fetchPowerLimits() {
         thm_gfx_c:  d.thm_gfx_c  ?? null,
         thm_soc_c:  d.thm_soc_c  ?? null,
       };
+      const wasUninitialized = Object.keys(nxt).every(k => pl[k] === null);
       const changed = Object.keys(nxt).some(k => nxt[k] !== pl[k]);
       Object.assign(pl, nxt);
       // Refresh header once limits are loaded (device may already be shown).
       if (state.hist.length > 0 && state.lastDev0) updateDeviceInfoHeader(state.lastDev0);
-      if (!changed) return;
+      if (!changed || wasUninitialized) return;
       const parts = [];
       if (pl.stapm_w    != null) parts.push(`STAPM ${pl.stapm_w.toFixed(3)}W`);
       if (pl.fast_w     != null) parts.push(`Fast ${pl.fast_w.toFixed(3)}W`);
@@ -3116,13 +3118,6 @@ function initMemTreemap() {
     if (e.key === 'Escape' && !document.getElementById('mem-treemap-overlay').hidden)
       closeMemTreemap();
   });
-  document.addEventListener('click', e => {
-    if (e.target.closest('#mem-treemap-overlay')) return;
-    const bar = e.target.closest('.mem-bar-outer') ?? e.target.closest('[data-dev].mem-anon-gpu-pid');
-    if (!bar) return;
-    openMemTreemap(parseInt(bar.dataset.dev ?? '0', 10));
-  });
-
   const overlay = document.getElementById('mem-treemap-overlay');
   overlay.addEventListener('mouseenter', () => { _tmHovered = true; });
   overlay.addEventListener('mouseleave', () => {
