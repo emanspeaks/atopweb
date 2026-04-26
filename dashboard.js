@@ -741,6 +741,7 @@ function buildDom(devices) {
     `;
     // <span class="mem-legend-sep">◆</span>
     // <span class="mem-legend-item" data-src="${MEM_TIPS.dmabuf}">dma-buf (shared): <span class="mem-legend-val" id="mem-lbl-dmabuf-${i}">—</span> GiB</span>
+    memSec.querySelector('.mem-bar-outer').addEventListener('click', () => openMemTreemap(i));
     fixedStats.appendChild(cards);
     fixedStats.appendChild(memSec);
     panel.appendChild(fixedStats);
@@ -3116,13 +3117,6 @@ function initMemTreemap() {
     if (e.key === 'Escape' && !document.getElementById('mem-treemap-overlay').hidden)
       closeMemTreemap();
   });
-  document.addEventListener('click', e => {
-    if (e.target.closest('#mem-treemap-overlay')) return;
-    const bar = e.target.closest('.mem-bar-outer') ?? e.target.closest('[data-dev].mem-anon-gpu-pid');
-    if (!bar) return;
-    openMemTreemap(parseInt(bar.dataset.dev ?? '0', 10));
-  });
-
   const overlay = document.getElementById('mem-treemap-overlay');
   overlay.addEventListener('mouseenter', () => { _tmHovered = true; });
   overlay.addEventListener('mouseleave', () => {
