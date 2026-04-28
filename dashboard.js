@@ -1653,11 +1653,10 @@ function updateDevice(i, dev) {
 
   // ── History ──
   const nowMs = Date.now();
-  // If the gap since the last sample exceeds the idle threshold (same 10%-of-
-  // window debounce used to suppress idle charts in scheduleRender), inject NaN
-  // so Chart.js breaks the line instead of connecting across the discontinuity.
+  // If the gap since the last sample exceeds 3 sample intervals, inject NaN so
+  // Chart.js breaks the line instead of connecting across the discontinuity.
   // This catches WebSocket reconnects after reboots/pauses without a page reload.
-  const idleMs = state.timeWidthMs * 0.1;
+  const idleMs = 3 * state.intervalMs;
   if (nowMs - h.times[h.times.length - 1] > idleMs)
     shiftHistGap(h, Math.round((nowMs - h.times[h.times.length - 1]) / state.intervalMs), state.intervalMs);
 
