@@ -1,0 +1,211 @@
+/* ── Charts ──────────────────────────────────────────────────────── */
+.charts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+@media (max-width: 800px) {
+  .charts { grid-template-columns: 1fr; }
+}
+
+/* ── Per-CPU-core frequency mini-charts (8 per row) ─────────────────── */
+.charts-cores {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+@media (max-width: 900px) {
+  .charts-cores { grid-template-columns: repeat(4, 1fr); }
+}
+
+.charts-cores .chart-box {
+  padding: 6px;
+}
+
+.charts-cores .chart-title { margin-bottom: 4px; }
+.charts-cores .chart-title-text { font-size: 10px; }
+
+.chart-box {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 7px;
+  min-width: 0;
+}
+
+/* span both columns (e.g. clocks chart) */
+.chart-wide { grid-column: 1 / -1; }
+
+.chart-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  margin-bottom: 3px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.chart-title-text {
+  color: var(--muted);
+  cursor: pointer;
+  user-select: none;
+  transition: color 0.15s;
+}
+
+.chart-title-text:hover { color: var(--text); }
+
+.chart-title-text::after {
+  content: ' ⤢';
+  font-size: 9px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.chart-title-text:hover::after { opacity: 0.5; }
+
+.chart-title-ctrl {
+  margin-left: auto;
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--muted);
+  cursor: default;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.chart-title-ctrl input[type="checkbox"] { cursor: pointer; margin: 0; }
+
+.chart-box canvas { display: block; }
+
+/* ── Shared section style ────────────────────────────────────────── */
+.section-title {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  color: var(--muted);
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* ── GRBM / GRBM2 performance counters ──────────────────────────── */
+.grbm-section {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+
+.grbm-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+
+@media (max-width: 700px) {
+  .grbm-grid { grid-template-columns: 1fr; }
+  .grbm-col:first-child { border-right: none; border-bottom: 1px solid var(--border); }
+}
+
+.grbm-col { padding: 6px 10px; }
+
+.grbm-col:first-child { border-right: 1px solid var(--border); }
+
+.grbm-col-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  color: var(--muted);
+  margin-bottom: 5px;
+}
+
+.grbm-item {
+  margin-bottom: 4px;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background 0.15s;
+}
+
+.grbm-item:hover   { background: rgba(255,255,255,0.03); }
+.grbm-item.expanded { background: rgba(255,255,255,0.04); }
+
+.grbm-chart-wrap {
+  display: none;
+  margin-top: 6px;
+  height: 138px;
+}
+
+.grbm-item.expanded .grbm-chart-wrap { display: block; }
+
+.grbm-item-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 3px;
+}
+
+.grbm-item-label {
+  font-size: 11px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: calc(100% - 44px);
+}
+
+.grbm-item-val {
+  font-size: 11px;
+  color: var(--data-color);
+  font-variant-numeric: tabular-nums;
+  min-width: 40px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.grbm-bar-wrap {
+  height: 3px;
+  background: var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.grbm-bar {
+  height: 100%;
+  border-radius: 2px;
+  width: 0%;
+  transition: width 0.3s ease;
+}
+
+.grbm-orange { background: var(--orange); }
+.grbm-blue   { background: var(--blue); }
+
+/* ── Collapsible section title ───────────────────────────────────── */
+.grbm-section-title {
+  cursor: pointer;
+  user-select: none;
+}
+.grbm-section-title::before {
+  content: '▼  ';
+  font-size: 9px;
+  vertical-align: middle;
+}
+.grbm-section.collapsed .grbm-section-title::before { content: '▶  '; }
+
+/* ── Collapsed state: bars only, tightly packed ──────────────────── */
+.grbm-section.collapsed .grbm-col-title  { display: none; }
+.grbm-section.collapsed .grbm-item-header { display: none; }
+.grbm-section.collapsed .grbm-item.expanded .grbm-chart-wrap { display: none; }
+.grbm-section.collapsed .grbm-item {
+  margin-bottom: 3px;
+  cursor: default;
+  border-radius: 2px;
+}
+.grbm-section.collapsed .grbm-item:hover { background: none; }
+.grbm-section.collapsed .grbm-bar-wrap   { height: 5px; }
+.grbm-section.collapsed .grbm-col        { padding: 4px 10px; }
