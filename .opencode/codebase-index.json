@@ -11,10 +11,17 @@
     "model": "opencode:qwen3-rerank-0.6b"
   },
   "debug": {
-    "enabled": false
+    "enabled": true,
+    "metrics": true,
+    "logLevel": "debug"
   },
   "knowledgeBases": [
-    "C:\\scratch\\git\\atopweb"
+    "C:\\scratch\\git\\atopweb",
+    "C:\\scratch\\git\\amdgpu_top"
   ],
-  "additionalInclude": []
+  "additionalInclude": [],
+  "indexing": {
+    "autoIndex": true,
+    "maxFilesPerDirectory": 1000
+  }
 }
