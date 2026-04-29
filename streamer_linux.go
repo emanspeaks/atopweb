@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"context"
 	"log"
-	"os"
 	"os/exec"
 	"strconv"
 	"strings"
