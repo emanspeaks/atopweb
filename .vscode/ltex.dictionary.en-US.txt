@@ -26,6 +26,7 @@ CPU%
 cputmp
 crashkernel
 currs
+dclk
 debugfs
 deduplicator
 degc
@@ -51,6 +52,7 @@ fnmatch
 Freqs
 GFLOPS
 GFX%
+gfxclk
 GiB
 GOARCH
 gofmt
@@ -62,6 +64,7 @@ gttmargin
 hidepid
 HWIP
 hwmon
+indep
 initrd
 inotify
 Inotify
@@ -69,6 +72,7 @@ int
 ints
 invis
 ioctls
+ipuclk
 Jnct
 journalctl
 jtmp
@@ -96,9 +100,11 @@ mmaps
 MMIO
 monospace
 MP-NPU
+mpipu
 mpnpuclk
 msr
 myhostname
+Navi
 nixos
 nixpkgs
 Non-GTT
@@ -161,6 +167,7 @@ THMSOC
 tmpfs
 toml
 TSEG
+uclk
 udev
 uncore
 Unrec
@@ -175,6 +182,10 @@ vddnb
 VDDNB
 Vmalloc
 vmem
+vpeclk
+vrgfx
+vrmem
+vrsoc
 XDNA
 xorg
 µW
