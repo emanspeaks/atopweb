@@ -81,6 +81,7 @@ kB
 kexec
 kibs
 kmisc
+kmod
 known-proc
 kres
 ldflags

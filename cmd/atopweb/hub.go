@@ -20,7 +20,8 @@ type hub struct {
 	intervalMs        int
 	showGttMargin     bool
 	cancelFn          context.CancelFunc
-	atopVersion       string          // amdgpu_top version string
+	atopVersion       string          // amdgpu_top version string (or amdgpu-go version for DRM backend)
+	backendName       string          // "amdgpu_top" or "drm"
 	ryzenAdjArgs      []string        // nil if not configured; includes sudo prefix when needed
 	powerCache        powerLimitsInfo // last successful ryzenadj result
 	limitsRefreshedAt time.Time       // when powerCache was last written

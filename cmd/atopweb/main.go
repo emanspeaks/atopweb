@@ -11,6 +11,7 @@ import (
 	"os/user"
 	"time"
 
+	amdgpu "github.com/emanspeaks/amdgpu-go/amdgpu"
 	"github.com/gorilla/websocket"
 )
 
@@ -58,6 +59,7 @@ func main() {
 
 	var binary string
 	var atopVer string
+	var backendName string
 	var atopArgs []string
 
 	if *useTop {
@@ -72,6 +74,7 @@ func main() {
 		log.Printf("amdgpu_top binary: %s", binary)
 
 		atopVer = getAtopVersion(binary)
+		backendName = "amdgpu_top"
 		log.Printf("amdgpu_top version: %s", atopVer)
 
 		atopArgs = buildAtopArgs(*updateIdx, *instance, *pci, *apu, *single, *nopc)
@@ -87,7 +90,9 @@ func main() {
 
 		log.Printf("amdgpu_top base args: %v (interval injected dynamically)", atopArgs)
 	} else {
-		log.Printf("using amdgpu-go libdrm bindings (default); pass --use-top to switch to amdgpu_top JSON mode")
+		atopVer = amdgpu.Version
+		backendName = "amdgpu-go"
+		log.Printf("using amdgpu-go libdrm bindings %s (default); pass --use-top to switch to amdgpu_top JSON mode", amdgpu.Version)
 	}
 
 	// Build ryzenadj invocation (with sudo prefix when --sudo is set).
@@ -106,6 +111,7 @@ func main() {
 		intervalMs:    *intervalMs,
 		showGttMargin: *showGttMargin,
 		atopVersion:   atopVer,
+		backendName:   backendName,
 		ryzenAdjArgs:  ryzenAdjArgs,
 		dramMaxBWKiBs: readDRAMMaxBWKiBs(),
 	}

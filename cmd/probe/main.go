@@ -28,7 +28,7 @@ import (
 	"strings"
 	"time"
 
-	amdgpu "github.com/emanspeaks/amdgpu-go"
+	amdgpu "github.com/emanspeaks/amdgpu-go/amdgpu"
 )
 
 func main() {
