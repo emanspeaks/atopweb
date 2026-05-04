@@ -1,2 +1,7 @@
 /atopweb
+/atopweb-linux-*
 node_modules/
+/atopweb.exe
+
+*.o
+*.a

@@ -1,0 +1,22 @@
+{
+  "name": "atopweb-linux-cgo",
+  "image": "mcr.microsoft.com/devcontainers/go:1-bookworm",
+  "remoteUser": "vscode",
+  "overrideCommand": false,
+  "postCreateCommand": "sudo apt-get update && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y pkg-config libdrm-dev && go mod download && cd amdgpu-go && go mod download",
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "go.testFlags": [
+          "-v"
+        ],
+        "go.toolsEnvVars": {
+          "CGO_ENABLED": "1"
+        }
+      },
+      "extensions": [
+        "golang.Go"
+      ]
+    }
+  }
+}

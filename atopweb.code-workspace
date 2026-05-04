@@ -9,13 +9,29 @@
 		"files.exclude": {
 			"atopweb-linux-*": true,
 			"**/node_modules": true,
+      "atopweb.exe": true,
+      "atopweb": true,
+		},
+		"files.watcherExclude": {
+			"**/node_modules": true
 		},
     "files.associations": {
-      "VERSION": "plaintext"
+      "VERSION": "plaintext",
+      ".local-gitignore": "gitignore"
     },
     "go.toolsEnvVars": {
-      "GOOS": "linux",
-      "GOARCH": "amd64"
-    },
+			"GOOS": "linux",
+			"GOARCH": "amd64",
+			"CGO_ENABLED": "1",
+			"CC": "${workspaceFolder}/zig-cc.cmd",
+			"ZIG_LIB_DIR": "C:/exe/zig-0.17.0/lib",
+			"CGO_CFLAGS": "-IC:/scratch/mesa/drm -IC:/scratch/mesa/drm/include/drm -IC:/scratch/mesa/drm/amdgpu",
+			"CGO_LDFLAGS": "-LC:/scratch/git/atopweb/libstub -ldrm -ldrm_amdgpu",
+		},
+		"gopls": {
+			"build.buildFlags": ["-tags=cproto"]
+		},
+		"go.buildFlags": ["-tags=cproto"],
+		"go.testTags": "cproto",
 	}
 }

@@ -1,0 +1,95 @@
+/* ── Status bar ──────────────────────────────────────────────────── */
+#status-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  z-index: 150;
+  font-size: 11px;
+}
+
+#status-log-wrapper {
+  overflow: hidden;
+  max-height: 0;
+  transition: max-height 0.2s ease;
+}
+
+#status-bar.expanded #status-log-wrapper { max-height: var(--log-height); }
+
+#status-resize-handle {
+  display: none;
+  height: 4px;
+  cursor: ns-resize;
+  background: var(--border);
+  transition: background 0.15s;
+}
+
+#status-resize-handle:hover,
+#status-resize-handle.dragging { background: var(--muted); }
+
+#status-bar.expanded #status-resize-handle { display: block; }
+
+#status-log {
+  height: var(--log-height);
+  overflow-y: auto;
+  padding: 4px 12px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  white-space: pre-wrap;
+  word-break: break-all;
+  user-select: text;
+  cursor: text;
+  font-family: 'Menlo', 'Consolas', monospace;
+}
+
+#status-log .log-line       { display: block; font-size: 10px; line-height: 1.7; }
+#status-log .log-line.ok    { color: var(--green); }
+#status-log .log-line.warn  { color: var(--yellow); }
+#status-log .log-line.err   { color: var(--red); }
+
+#status-bar.sev-ok   { border-top-color: var(--green); }
+#status-bar.sev-ok   #status-bar-main { background: var(--green); }
+#status-bar.sev-ok   #status-bar-text { color: #fff; }
+#status-bar.sev-warn { border-top-color: var(--yellow); }
+#status-bar.sev-warn #status-bar-main { background: var(--yellow); }
+#status-bar.sev-warn #status-bar-text { color: #000; }
+#status-bar.sev-warn #status-bar-chevron { color: #000; }
+#status-bar.sev-err  { border-top-color: var(--red); }
+#status-bar.sev-err  #status-bar-main { background: var(--red); }
+#status-bar.sev-err  #status-bar-text { color: #fff; }
+#status-bar.sev-err  #status-bar-chevron { color: #fff; }
+
+#status-bar-text.text-ok   { color: var(--green); }
+#status-bar-text.text-warn { color: var(--yellow); }
+#status-bar-text.text-err  { color: var(--red); }
+
+#status-bar-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  min-height: 24px;
+  cursor: pointer;
+  user-select: none;
+}
+
+#status-bar-text {
+  flex: 1;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--muted);
+  font-size: 10px;
+  font-family: 'Menlo', 'Consolas', monospace;
+}
+
+#status-bar-chevron {
+  color: var(--border);
+  font-size: 9px;
+  flex-shrink: 0;
+  transition: transform 0.2s;
+}
+
+#status-bar.expanded #status-bar-chevron { transform: rotate(180deg); }

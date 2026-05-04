@@ -1,0 +1,44 @@
+/* ── Process table ───────────────────────────────────────────────── */
+.proc-section {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.proc-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.proc-table th {
+  text-align: left;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.proc-table th:nth-child(n+3),
+.proc-table td:not(.proc-name):not(.proc-pid) { text-align: right; }
+
+.proc-table td {
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--border);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--data-color);
+}
+
+.proc-table tr:last-child td { border-bottom: none; }
+
+.proc-table tbody tr:hover { background: rgba(255,255,255,0.03); }
+
+.proc-empty { color: var(--muted); font-style: italic; }
+
+.proc-name { color: var(--text); }
+.proc-pid  { color: var(--muted); font-size: 12px; }

@@ -63,6 +63,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          submodules: true
 
       - name: Read version
         id: ver
@@ -82,11 +83,14 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Install libdrm (CGO dependency for amd64)
+        run: sudo apt-get install -y libdrm-dev
+
       - name: Build linux/amd64
         env:
           GOOS: linux
           GOARCH: amd64
-          CGO_ENABLED: 0
+          CGO_ENABLED: 1
         run: |
           go build -trimpath \
             -ldflags="-s -w -X main.version=${{ steps.ver.outputs.tag }}" \
