@@ -42,6 +42,13 @@
           default = atopweb;
           inherit atopweb;
         };
+
+        devShells.default = pkgs.mkShell {
+          nativeBuildInputs = [ pkgs.go pkgs.pkg-config ];
+          buildInputs = [ pkgs.libdrm ];
+          # CGO_ENABLED=1 is needed for the DRM backend; pkg-config finds libdrm.
+          CGO_ENABLED = "1";
+        };
       }
     )
     //
