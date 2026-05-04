@@ -1,0 +1,6 @@
+CompileFlags:
+  Add:
+    - -IC:/scratch/mesa/drm
+    - -IC:/scratch/mesa/drm/include/drm
+    - -IC:/scratch/mesa/drm/amdgpu
+    - --target=x86_64-linux-gnu

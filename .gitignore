@@ -1,4 +1,7 @@
 /atopweb
+/atopweb-linux-*
 node_modules/
-/orig_refactor_conversation.md
 /atopweb.exe
+
+*.o
+*.a

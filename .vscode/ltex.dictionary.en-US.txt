@@ -5,6 +5,7 @@ AMDSMM
 apu
 asic
 ASIC
+atopFrame
 atopweb
 atopwebver
 BARTS
@@ -35,6 +36,7 @@ dmabuf
 DQI-colored
 DRAMBW
 drvpg
+dword
 ECAM
 ELLCIN
 enums
@@ -48,6 +50,7 @@ FDs
 fnmatch
 Freqs
 GFLOPS
+GFX%
 GiB
 GOARCH
 gofmt
@@ -62,6 +65,7 @@ hwmon
 initrd
 inotify
 Inotify
+int
 ints
 invis
 ioctls
@@ -77,6 +81,7 @@ known-proc
 kres
 ldflags
 libdrm
+linux-tagged
 lswatch
 mA
 mclk
@@ -125,10 +130,12 @@ ROCm
 rollup
 ryzen
 ryzenadj
+samp
 sclk
 SDMA
 Segoe
 setuid
+SetupAPI
 shmem
 shutdownd
 smaps
@@ -171,5 +178,3 @@ vmem
 XDNA
 xorg
 µW
-
-linux-tagged

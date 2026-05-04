@@ -46,15 +46,16 @@ func main() {
 	procCache := flag.String("proc-cache", "", "path to JSON file for persistent GPU process name cache (enables early process start detection across restarts); empty = in-memory only")
 	useFanotify := flag.Bool("fanotify", false, "use Linux fanotify to watch GPU device nodes for zero-lag process start detection (requires CAP_SYS_ADMIN)")
 	showGttMargin := flag.Bool("show-gtt-margin", false, "show Non-GTT and GTT Margin calculations in the memory bar legend")
+	useTop := flag.Bool("use-top", false, "use amdgpu_top JSON mode instead of the default amdgpu-go libdrm bindings (requires amdgpu_top to be installed)")
 
-	// amdgpu_top JSON-mode passthrough flags
+	// amdgpu_top JSON-mode passthrough flags (ignored unless --use-top is set)
 	intervalMs := flag.Int("s", 1000, "amdgpu_top refresh period in milliseconds")
 	updateIdx := flag.Int("u", 5, "amdgpu_top fdinfo update interval in seconds")
 	instance := flag.Int("i", -1, "amdgpu_top GPU instance index (default: all)")
 	pci := flag.String("pci", "", "amdgpu_top PCI path: domain:bus:dev.func")
 	apu := flag.Bool("apu", false, "amdgpu_top: select APU instance")
 	single := flag.Bool("single", false, "amdgpu_top: display only the selected GPU")
-	nopc := flag.Bool("no-pc", false, "amdgpu_top: skip GPU performance counter reads")
+	nopc := flag.Bool("no-pc", false, "skip GPU performance counter reads (GRBM register sampling)")
 
 	flag.Parse()
 
@@ -63,36 +64,44 @@ func main() {
 	// Log the current process user.
 	if u, err := user.Current(); err == nil {
 		log.Printf("running as %s (uid %s)", u.Username, u.Uid)
-		if u.Uid != "0" && !*useSudo {
+		if u.Uid != "0" && !*useSudo && *useTop {
 			log.Printf("warning: not running as root and --sudo not set — amdgpu_top may lack access to fdinfo, perf counters, and power limits")
 		}
 	}
 
-	binary := *atopBin
-	if binary == "" {
-		var err error
-		binary, err = exec.LookPath("amdgpu_top")
-		if err != nil {
-			log.Fatal("amdgpu_top not found on PATH; use --amdgpu-top to specify the path")
+	var binary string
+	var atopVer string
+	var atopArgs []string
+
+	if *useTop {
+		binary = *atopBin
+		if binary == "" {
+			var err error
+			binary, err = exec.LookPath("amdgpu_top")
+			if err != nil {
+				log.Fatal("amdgpu_top not found on PATH; use --amdgpu-top to specify the path, or omit --use-top to use the default libdrm backend")
+			}
 		}
+		log.Printf("amdgpu_top binary: %s", binary)
+
+		atopVer = getAtopVersion(binary)
+		log.Printf("amdgpu_top version: %s", atopVer)
+
+		atopArgs = buildAtopArgs(*updateIdx, *instance, *pci, *apu, *single, *nopc)
+
+		// When --sudo is set, run amdgpu_top as root via sudo. The -n flag makes
+		// sudo fail immediately if no NOPASSWD entry exists rather than hanging.
+		if *useSudo {
+			atopArgs = append([]string{binary}, atopArgs...)
+			binary = *sudoBin
+			atopArgs = append([]string{"-n"}, atopArgs...)
+			log.Printf("amdgpu_top will run via sudo (%s)", *sudoBin)
+		}
+
+		log.Printf("amdgpu_top base args: %v (interval injected dynamically)", atopArgs)
+	} else {
+		log.Printf("using amdgpu-go libdrm bindings (default); pass --use-top to switch to amdgpu_top JSON mode")
 	}
-	log.Printf("amdgpu_top binary: %s", binary)
-
-	atopVer := getAtopVersion(binary)
-	log.Printf("amdgpu_top version: %s", atopVer)
-
-	atopArgs := buildAtopArgs(*updateIdx, *instance, *pci, *apu, *single, *nopc)
-
-	// When --sudo is set, run amdgpu_top as root via sudo. The -n flag makes
-	// sudo fail immediately if no NOPASSWD entry exists rather than hanging.
-	if *useSudo {
-		atopArgs = append([]string{binary}, atopArgs...)
-		binary = *sudoBin
-		atopArgs = append([]string{"-n"}, atopArgs...)
-		log.Printf("amdgpu_top will run via sudo (%s)", *sudoBin)
-	}
-
-	log.Printf("amdgpu_top base args: %v (interval injected dynamically)", atopArgs)
 
 	// Build ryzenadj invocation (with sudo prefix when --sudo is set).
 	var ryzenAdjArgs []string
@@ -114,7 +123,11 @@ func main() {
 		dramMaxBWKiBs: readDRAMMaxBWKiBs(),
 	}
 	initDRAMBW()
-	go runStreamer(binary, atopArgs, h)
+	if *useTop {
+		go runStreamer(binary, atopArgs, h)
+	} else {
+		go runDRMPoller(h, *nopc)
+	}
 	go runSystemPusher(h)
 	go runMemPusher(h)
 	go watchShutdownFile(h)
