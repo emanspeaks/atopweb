@@ -167,6 +167,7 @@ THMSOC
 tmpfs
 toml
 TSEG
+uapi
 uclk
 udev
 uncore

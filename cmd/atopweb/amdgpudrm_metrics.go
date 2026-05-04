@@ -105,6 +105,17 @@ func parseMetricsV2(data []byte, _ uint8) map[string]interface{} {
 	m["temperature_gfx"] = gmu16(data, 4)
 	m["temperature_soc"] = gmu16(data, 6)
 
+	// Per-core temperatures (centi-°C, 8 cores)
+	coreTemp := make([]uint16, 8)
+	for j := range coreTemp {
+		coreTemp[j] = gmu16(data, 8+j*2)
+	}
+	m["temperature_core"] = coreTemp
+
+	// Activity percentages
+	m["average_gfx_activity"] = gmu16(data, 28)
+	m["average_mm_activity"] = gmu16(data, 30)
+
 	// Power (milliwatts)
 	m["average_socket_power"] = gmu16(data, 40)
 	// average_cpu_power is the total CPU power; map it to average_all_core_power
@@ -124,6 +135,9 @@ func parseMetricsV2(data []byte, _ uint8) map[string]interface{} {
 	}
 	if f := gmu16(data, 66); f > 0 {
 		m["average_socclk_frequency"] = f
+	}
+	if f := gmu16(data, 68); f > 0 {
+		m["average_uclk_frequency"] = f
 	}
 	if f := gmu16(data, 70); f > 0 {
 		m["average_fclk_frequency"] = f
@@ -187,9 +201,37 @@ func parseMetricsV3(data []byte, _ uint8) map[string]interface{} {
 
 	m["temperature_gfx"] = gmu16(data, 4)
 	m["temperature_soc"] = gmu16(data, 6)
+	m["temperature_skin"] = gmu16(data, 40)
 
+	// Per-core temperatures (centi-°C, 16 cores)
+	coreTemp := make([]uint16, 16)
+	for j := range coreTemp {
+		coreTemp[j] = gmu16(data, 8+j*2)
+	}
+	m["temperature_core"] = coreTemp
+
+	// Activity percentages
+	m["average_gfx_activity"] = gmu16(data, 42)
+	m["average_vcn_activity"] = gmu16(data, 44)
+
+	// IPU (NPU) activity across 8 engines
+	ipuAct := make([]uint16, 8)
+	for j := range ipuAct {
+		ipuAct[j] = gmu16(data, 46+j*2)
+	}
+	m["average_ipu_activity"] = ipuAct
+
+	// DRAM and IPU bandwidth
+	m["average_dram_reads"] = gmu16(data, 94)
+	m["average_dram_writes"] = gmu16(data, 96)
+	m["average_ipu_reads"] = gmu16(data, 98)
+	m["average_ipu_writes"] = gmu16(data, 100)
+
+	// Power (mW)
 	m["average_socket_power"] = gmu32(data, 112)
 	m["average_ipu_power"] = gmu16(data, 116)
+	m["average_apu_power"] = gmu32(data, 120)
+	m["average_gfx_power"] = gmu32(data, 124)
 	m["average_all_core_power"] = gmu32(data, 132)
 
 	// Per-core power array (mW each, 16 cores)
@@ -199,17 +241,32 @@ func parseMetricsV3(data []byte, _ uint8) map[string]interface{} {
 	}
 	m["average_core_power"] = corePwr
 
+	m["average_sys_power"] = gmu16(data, 168)
+
+	// Clock frequencies (MHz)
 	if f := gmu16(data, 174); f > 0 {
 		m["average_gfxclk_frequency"] = f
 	}
 	if f := gmu16(data, 176); f > 0 {
 		m["average_socclk_frequency"] = f
 	}
+	if f := gmu16(data, 178); f > 0 {
+		m["average_vpeclk_frequency"] = f
+	}
+	if f := gmu16(data, 180); f > 0 {
+		m["average_ipuclk_frequency"] = f
+	}
 	if f := gmu16(data, 182); f > 0 {
 		m["average_fclk_frequency"] = f
 	}
 	if f := gmu16(data, 184); f > 0 {
 		m["average_vclk_frequency"] = f
+	}
+	if f := gmu16(data, 186); f > 0 {
+		m["average_uclk_frequency"] = f
+	}
+	if f := gmu16(data, 188); f > 0 {
+		m["average_mpipu_frequency"] = f
 	}
 
 	// Per-core current clocks (16 cores)
@@ -259,6 +316,12 @@ func parseMetricsV1(data []byte, contentRev uint8) map[string]interface{} {
 	m["temperature_gfx"] = gmu16(data, 4)
 	m["temperature_hotspot"] = gmu16(data, 6)
 	m["temperature_mem"] = gmu16(data, 8)
+
+	// Activity percentages (dGPU only)
+	m["average_gfx_activity"] = gmu16(data, 16)
+	m["average_umc_activity"] = gmu16(data, 18)
+	m["average_mm_activity"] = gmu16(data, 20)
+
 	m["average_socket_power"] = gmu16(data, 22)
 
 	// Clock frequencies (available from v1.1+, starts at offset 40)

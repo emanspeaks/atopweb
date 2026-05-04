@@ -373,10 +373,7 @@ func readFile(path string) string {
 func pciDevFromCard(card int) string {
 	dev, err := filepath.EvalSymlinks(fmt.Sprintf("/sys/class/drm/renderD%d/device", 128+card))
 	if err != nil {
-		dev, err = filepath.EvalSymlinks(fmt.Sprintf("/sys/class/drm/card%d/device", card))
-		if err != nil {
-			return ""
-		}
+		return ""
 	}
 	return filepath.Base(dev)
 }

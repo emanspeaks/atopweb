@@ -18,12 +18,7 @@ func hwmonDirForCard(card int) string {
 	cardDev := fmt.Sprintf("/sys/class/drm/renderD%d/device", 128+card)
 	realCard, err := filepath.EvalSymlinks(cardDev)
 	if err != nil {
-		// fall back to card%d path
-		cardDev = fmt.Sprintf("/sys/class/drm/card%d/device", card)
-		realCard, err = filepath.EvalSymlinks(cardDev)
-		if err != nil {
-			return ""
-		}
+		return ""
 	}
 	dirs, _ := filepath.Glob("/sys/class/hwmon/hwmon*")
 	for _, dir := range dirs {

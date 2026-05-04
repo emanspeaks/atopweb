@@ -89,7 +89,7 @@ jobs:
       - run: go vet ./...
 
       - name: Build
-        run: go build -v -o atopweb .
+        run: go build -v -o atopweb ./cmd/atopweb
 
       - name: Verify binary exists and runs
         run: ./atopweb --help || true
