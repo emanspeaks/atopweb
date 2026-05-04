@@ -1,6 +1,10 @@
 schema = 3
 
 [mod]
+  [mod.'github.com/emanspeaks/amdgpu-go']
+    version = 'v0.1.0'
+    hash = 'sha256-CvgdIXY5LbEy5jDRLz+DKWhM4tO6E/PeJUPsiGdHWH4='
+
   [mod.'github.com/godbus/dbus/v5']
     version = 'v5.2.2'
     hash = 'sha256-j+LicPlXcB1R3oVFPa8cd4yVJLpBx+ca5gXmHqOJSN8='
