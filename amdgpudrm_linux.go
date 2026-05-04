@@ -1,4 +1,4 @@
-//go:build linux
+//go:build linux && cgo
 
 package main
 
@@ -12,6 +12,8 @@ import (
 
 	amdgpu "github.com/emanspeaks/amdgpu-go"
 )
+
+const drmAvailable = true
 
 // grbmGUIActive is GRBM_STATUS bit 31, set whenever the GFX pipeline is active.
 const grbmGUIActive = uint32(1 << 31)

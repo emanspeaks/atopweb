@@ -46,7 +46,7 @@ func main() {
 	procCache := flag.String("proc-cache", "", "path to JSON file for persistent GPU process name cache (enables early process start detection across restarts); empty = in-memory only")
 	useFanotify := flag.Bool("fanotify", false, "use Linux fanotify to watch GPU device nodes for zero-lag process start detection (requires CAP_SYS_ADMIN)")
 	showGttMargin := flag.Bool("show-gtt-margin", false, "show Non-GTT and GTT Margin calculations in the memory bar legend")
-	useTop := flag.Bool("use-top", false, "use amdgpu_top JSON mode instead of the default amdgpu-go libdrm bindings (requires amdgpu_top to be installed)")
+	useTop := flag.Bool("use-top", !drmAvailable, "use amdgpu_top JSON mode instead of the default amdgpu-go libdrm bindings (requires amdgpu_top to be installed)")
 
 	// amdgpu_top JSON-mode passthrough flags (ignored unless --use-top is set)
 	intervalMs := flag.Int("s", 1000, "amdgpu_top refresh period in milliseconds")

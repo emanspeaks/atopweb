@@ -78,10 +78,15 @@ jobs:
     if: needs.check-exempt.outputs.all_exempt != 'true'
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true
 
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+
+      - name: Install libdrm (CGO dependency)
+        run: sudo apt-get install -y libdrm-dev
 
       - run: go vet ./...
 
