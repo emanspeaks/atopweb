@@ -7,3 +7,4 @@ readme.md
 assets/*
 assets/**
 .github/workflows/exempt.txt
+.github/workflows/gomod2nix.yml
