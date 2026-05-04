@@ -1,3 +1,0 @@
-[submodule "amdgpu-go"]
-	path = amdgpu-go
-	url = https://github.com/emanspeaks/amdgpu-go.git
