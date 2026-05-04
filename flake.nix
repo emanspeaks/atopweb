@@ -26,6 +26,9 @@
           src = ./.;
           modules = ./gomod2nix.toml;
 
+          nativeBuildInputs = [ pkgs.pkg-config ];
+          buildInputs = [ pkgs.libdrm ];
+
           meta = {
             description = "Web dashboard server that streams amdgpu_top JSON output over WebSocket";
             license = lib.licenses.mit;
