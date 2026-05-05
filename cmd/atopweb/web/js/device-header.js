@@ -15,8 +15,6 @@ function updateDeviceInfoHeader(dev) {
   const metaHtml = '';
 
   const specsParts = [];
-  const cu = info['Compute Unit'] ?? info['Compute Units'] ?? null;
-  if (cu != null) specsParts.push(`<span data-src="devices[0].Info['Compute Unit']">${cu} CUs</span>`);
   const vramTotalMiB = (dev.VRAM ? (dev.VRAM['Total VRAM']?.value ?? dev.VRAM['Total VRAM'] ?? null) : null);
   if (vramTotalMiB != null) {
     const gib = vramTotalMiB / 1024;
@@ -26,6 +24,8 @@ function updateDeviceInfoHeader(dev) {
   if (vramType) specsParts.push(`<span data-src="devices[0].Info['VRAM Type']">${vramType}</span>`);
   const bw = info['Memory Bandwidth'] ?? null;
   if (bw != null) specsParts.push(`<span data-src="devices[0].Info['Memory Bandwidth']">${typeof bw === 'number' ? bw.toFixed(3) : bw} GB/s BW</span>`);
+  const cu = info['Compute Unit'] ?? info['Compute Units'] ?? null;
+  if (cu != null) specsParts.push(`<span data-src="devices[0].Info['Compute Unit']">${cu} CUs</span>`);
   const fp32Raw = v(info, 'Peak FP32') ?? v(info, 'Peak GFLOPS') ?? null;
   const fp32Num = fp32Raw != null ? Number(fp32Raw) : null;
   if (fp32Num != null && !isNaN(fp32Num)) specsParts.push(`<span data-src="devices[0].Info['Peak FP32' || 'Peak GFLOPS'] / 1000">${(fp32Num / 1000).toFixed(3)} TFLOPS</span>`);

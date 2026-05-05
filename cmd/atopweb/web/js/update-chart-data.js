@@ -8,7 +8,10 @@ function pushChartHistory(i, dev) {
   const nm = dev.npu_metrics || {};
   const nowMs = Date.now();
 
-  const idleMs = state.timeWidthMs * 0.1;
+  // If the gap since the last sample exceeds 3 sample intervals, inject NaN so
+  // Chart.js breaks the line instead of connecting across the discontinuity.
+  // This catches WebSocket reconnects after reboots/pauses without a page reload.
+  const idleMs = 5 * state.intervalMs;
   if (nowMs - h.times[h.times.length - 1] > idleMs)
     shiftHistGap(h, Math.round((nowMs - h.times[h.times.length - 1]) / state.intervalMs), state.intervalMs);
 

@@ -11,7 +11,10 @@ function fetchConfig() {
       applyGttMarginVisibility();
       const newVer = cfg.atopweb_version || '';
       const subSpans = [];
-      if (cfg.amdgpu_top_version) subSpans.push(`<span data-src="/api/config → amdgpu_top_version">${cfg.amdgpu_top_version}</span>`);
+      const _backendLabel = cfg.backend_name && cfg.amdgpu_top_version
+        ? `${cfg.backend_name} ${cfg.amdgpu_top_version}`
+        : (cfg.amdgpu_top_version || cfg.backend_name || null);
+      if (_backendLabel) subSpans.push(`<span data-src="/api/config → backend">${_backendLabel}</span>`);
       if (cfg.kernel_version)     subSpans.push(`<span data-src="/api/config → kernel_version (/proc/sys/kernel/osrelease)">Linux v${cfg.kernel_version}</span>`);
       if (cfg.nixos_version)      subSpans.push(`<span data-src="/api/config → nixos_version (/etc/os-release VERSION_ID)">NixOS v${cfg.nixos_version}</span>`);
       if (cfg.nixos_generation)   subSpans.push(`<span data-src="/api/config → nixos_generation (/nix/var/nix/profiles/system symlink)">Nix Profile Gen ${cfg.nixos_generation}</span>`);
@@ -33,13 +36,14 @@ function fetchConfig() {
         nixos_generation:   cfg.nixos_generation   ?? null,
         cpu_gov:            cfg.cpu_gov            || null,
         amdgpu_top_version: cfg.amdgpu_top_version || null,
+        backend_name:       cfg.backend_name       || null,
         show_gtt_margin:    !!cfg.show_gtt_margin,
       };
       const lc = state.lastConfig;
       if (lc === null) {
         // First load — log a one-time snapshot of all present values.
         const parts = [];
-        if (snap.amdgpu_top_version) parts.push(snap.amdgpu_top_version);
+        if (_backendLabel) parts.push(_backendLabel);
         if (snap.kernel_version)     parts.push(`Linux v${snap.kernel_version}`);
         if (snap.nixos_version)      parts.push(`NixOS v${snap.nixos_version}`);
         if (snap.nixos_generation != null) parts.push(`Nix Gen ${snap.nixos_generation}`);
@@ -54,6 +58,7 @@ function fetchConfig() {
         chk('Nix generation',  lc.nixos_generation,   snap.nixos_generation);
         chk('CPU governor',    lc.cpu_gov,             snap.cpu_gov);
         chk('amdgpu_top',      lc.amdgpu_top_version, snap.amdgpu_top_version);
+        chk('backend',         lc.backend_name,       snap.backend_name);
         chk('Show GTT margin', lc.show_gtt_margin,    snap.show_gtt_margin);
       }
       state.lastConfig = snap;

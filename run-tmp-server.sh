@@ -7,5 +7,5 @@ sudo /tmp/atopweb \
   --sudo-bin /run/wrappers/bin/sudo \
   --ryzenadj "$(command -v ryzenadj)" \
   --proc-cache /tmp/atopweb-gpu-procs.json \
-  --legacy-front \
   $*
+  # --legacy-front \
