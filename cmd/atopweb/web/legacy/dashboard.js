@@ -644,7 +644,7 @@ function buildDom(devices) {
       { id: `c-vram-${i}`,   cls: 'c-vram',   label: 'BIOS Reserved VRAM', unit: 'GiB', bar: true,  split: true, srcU: `devices[${i}].VRAM['Total VRAM Usage'].value (MiB → GiB)`, srcT: `devices[${i}].VRAM['Total VRAM'].value (MiB → GiB)` },
       { id: `c-gtt-${i}`,    cls: 'c-gtt',    label: 'GTT',                unit: 'GiB', bar: true,  split: true, srcU: `devices[${i}].VRAM['Total GTT Usage'].value (MiB → GiB)`,  srcT: `devices[${i}].VRAM['Total GTT'].value (MiB → GiB)` },
       { id: `c-sclk-${i}`,   cls: 'c-sclk',   label: 'GFX Clock',          unit: 'MHz', bar: false, src: `devices[${i}].Sensors.GFX_SCLK.value` },
-      { id: `c-fclk-${i}`,   cls: 'c-fclk',   label: 'FCLK (Fabric Clock)', unit: 'MHz', bar: false, src: `devices[${i}].Sensors.FCLK.value` },
+      { id: `c-fclk-${i}`,   cls: 'c-fclk',   label: 'Avg FCLK (Fabric Clock)', unit: 'MHz', bar: false, src: `devices[${i}].gpu_metrics.average_fclk_frequency` },
       { id: `c-mclk-${i}`,   cls: 'c-mclk',   label: 'Mem Clock',          unit: 'MHz', bar: false, src: `devices[${i}].Sensors.GFX_MCLK.value` },
       { id: `c-vddgfx-${i}`, cls: 'c-vddgfx', label: 'VDDGFX',             unit: 'mV',  bar: false, src: `devices[${i}].Sensors.VDDGFX.value` },
       { id: `c-vddnb-${i}`,  cls: 'c-vddnb',  label: 'VDDNB',              unit: 'mV',  bar: false, src: `devices[${i}].Sensors.VDDNB.value` },
@@ -1410,6 +1410,7 @@ function updateDevice(i, dev) {
   const act   = dev.gpu_activity || {};
   const vram  = dev.VRAM         || {};
   const sens  = dev.Sensors      || {};
+  const gm    = dev.gpu_metrics  || {};
   const grbm  = dev.GRBM         || {};
   const grbm2 = dev.GRBM2        || {};
 
@@ -1423,14 +1424,14 @@ function updateDevice(i, dev) {
   const gttT   = v(vram, 'Total GTT');
   const sclk   = v(sens, 'GFX_SCLK');
   const mclk   = v(sens, 'GFX_MCLK');
-  const fclk   = v(sens, 'FCLK');
+  const fclk     = v(sens, 'FCLK'); // sysfs active clock — null when no * marker; used for chart only
+  const fclkCard = typeof gm.average_fclk_frequency === 'number' ? gm.average_fclk_frequency : null;
   const gfxPwr = v(sens, 'GFX Power');
   const pwr    = v(sens, 'Average Power') ?? v(sens, 'Socket Power') ?? v(sens, 'Input Power') ?? gfxPwr;
   const tempE  = v(sens, 'Edge Temperature');
   const cputmp = v(sens, 'CPU Tctl');
   const vddgfx = v(sens, 'VDDGFX') || null;  // 0 = sensor not populated, treat as no-data
   const vddnb  = v(sens, 'VDDNB')  || null;
-  const gm = dev.gpu_metrics || {};
   const tempSRaw   = gm.temperature_soc     ?? null;
   const tempS      = tempSRaw   != null ? tempSRaw   / 100 : null;
   const tempGfxRaw = gm.temperature_gfx     ?? null;
@@ -1450,7 +1451,7 @@ function updateDevice(i, dev) {
   setCard(`c-media-${i}`,  media);
   setCard(`c-sclk-${i}`,   sclk);
   setCard(`c-mclk-${i}`,   mclk);
-  setCard(`c-fclk-${i}`,   fclk);
+  setCard(`c-fclk-${i}`,   fclkCard);
   setCard(`c-pwr-${i}`,    pwr,    1);
   setCard(`c-etmp-${i}`,   tempE,  1);
   setCard(`c-cputmp-${i}`, cputmp, 1);
@@ -2065,8 +2066,6 @@ function updateDeviceInfoHeader(dev) {
   const metaHtml = '';
 
   const specsParts = [];
-  const cu = info['Compute Unit'] ?? info['Compute Units'] ?? null;
-  if (cu != null) specsParts.push(`<span data-src="devices[0].Info['Compute Unit']">${cu} CUs</span>`);
   const vramTotalMiB = (dev.VRAM ? (dev.VRAM['Total VRAM']?.value ?? dev.VRAM['Total VRAM'] ?? null) : null);
   if (vramTotalMiB != null) {
     const gib = vramTotalMiB / 1024;
@@ -2076,6 +2075,8 @@ function updateDeviceInfoHeader(dev) {
   if (vramType) specsParts.push(`<span data-src="devices[0].Info['VRAM Type']">${vramType}</span>`);
   const bw = info['Memory Bandwidth'] ?? null;
   if (bw != null) specsParts.push(`<span data-src="devices[0].Info['Memory Bandwidth']">${typeof bw === 'number' ? bw.toFixed(3) : bw} GB/s BW</span>`);
+  const cu = info['Compute Unit'] ?? info['Compute Units'] ?? null;
+  if (cu != null) specsParts.push(`<span data-src="devices[0].Info['Compute Unit']">${cu} CUs</span>`);
   const fp32Raw = v(info, 'Peak FP32') ?? v(info, 'Peak GFLOPS') ?? null;
   const fp32Num = fp32Raw != null ? Number(fp32Raw) : null;
   if (fp32Num != null && !isNaN(fp32Num)) specsParts.push(`<span data-src="devices[0].Info['Peak FP32' || 'Peak GFLOPS'] / 1000">${(fp32Num / 1000).toFixed(3)} TFLOPS</span>`);

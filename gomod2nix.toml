@@ -2,7 +2,7 @@ schema = 3
 
 [mod]
   [mod.'github.com/emanspeaks/amdgpu-go']
-    version = 'v0.2.0'
+    version = 'v0.2.1'
     hash = 'sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='
 
   [mod.'github.com/godbus/dbus/v5']

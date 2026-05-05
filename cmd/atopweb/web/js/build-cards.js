@@ -10,7 +10,7 @@ function buildStatCards(i) {
     { id: `c-vram-${i}`,   cls: 'c-vram',   label: 'BIOS Reserved VRAM', unit: 'GiB', bar: true,  split: true, srcU: `devices[${i}].VRAM['Total VRAM Usage'].value (MiB → GiB)`, srcT: `devices[${i}].VRAM['Total VRAM'].value (MiB → GiB)` },
     { id: `c-gtt-${i}`,    cls: 'c-gtt',    label: 'GTT',                unit: 'GiB', bar: true,  split: true, srcU: `devices[${i}].VRAM['Total GTT Usage'].value (MiB → GiB)`,  srcT: `devices[${i}].VRAM['Total GTT'].value (MiB → GiB)` },
     { id: `c-sclk-${i}`,   cls: 'c-sclk',   label: 'GFX Clock',          unit: 'MHz', bar: false, src: `devices[${i}].Sensors.GFX_SCLK.value` },
-    { id: `c-fclk-${i}`,   cls: 'c-fclk',   label: 'FCLK (Fabric Clock)', unit: 'MHz', bar: false, src: `devices[${i}].Sensors.FCLK.value` },
+    { id: `c-fclk-${i}`,   cls: 'c-fclk',   label: 'Avg FCLK (Fabric Clock)', unit: 'MHz', bar: false, src: `devices[${i}].gpu_metrics.average_fclk_frequency` },
     { id: `c-mclk-${i}`,   cls: 'c-mclk',   label: 'Mem Clock',          unit: 'MHz', bar: false, src: `devices[${i}].Sensors.GFX_MCLK.value` },
     { id: `c-vddgfx-${i}`, cls: 'c-vddgfx', label: 'VDDGFX',             unit: 'mV',  bar: false, src: `devices[${i}].Sensors.VDDGFX.value` },
     { id: `c-vddnb-${i}`,  cls: 'c-vddnb',  label: 'VDDNB',              unit: 'mV',  bar: false, src: `devices[${i}].Sensors.VDDNB.value` },
