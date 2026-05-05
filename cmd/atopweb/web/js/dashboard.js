@@ -1,3 +1,4 @@
+'use strict';
 // ── Initialization (runs on page load) ───────────────────────────────────────
 loadSavedSettings();
 initDataSrcTooltip();

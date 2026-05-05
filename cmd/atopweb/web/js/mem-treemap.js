@@ -1,3 +1,4 @@
+'use strict';
 // ── Memory treemap overlay ────────────────────────────────────────────────────
 const MEM_COLORS = {
   vramFree:   'rgba(76,175,80,0.08)',

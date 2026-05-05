@@ -1,3 +1,4 @@
+'use strict';
 // ── [data-src] hover tooltips (process table cells) ──────────────────────────
 function initDataSrcTooltip() {
   document.addEventListener('mouseover', e => {

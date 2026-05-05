@@ -1,3 +1,4 @@
+'use strict';
 // ── Constants ────────────────────────────────────────────────────────────────
 
 const GRBM_KEYS = [
@@ -175,10 +176,15 @@ function tooltipItemSort(a, b) {
   return bv - av;
 }
 
-function makeDataset(label, color, data, sourcePath, decimals) {
+// `buf` is a circular history buffer (state.js makeBuf).  We expose its current
+// linearized view to Chart.js as `data` and remember `_buf` so scheduleRender
+// can refresh `data` to the latest view each frame (the subarray reference
+// becomes stale when head advances).
+function makeDataset(label, color, buf, sourcePath, decimals) {
   return {
     label,
-    data,
+    _buf: buf,
+    data: bufView(buf),
     sourcePath: sourcePath || null,
     decimals:   decimals  ?? 3,
     borderColor: color,

@@ -42,3 +42,8 @@
 
 .proc-name { color: var(--text); }
 .proc-pid  { color: var(--muted); font-size: 12px; }
+
+.proc-table th.sortable         { cursor: pointer; user-select: none; }
+.proc-table th.sortable:hover   { color: var(--text); }
+.proc-table th.sort-asc::after  { content: ' ▲'; font-size: 9px; opacity: 0.7; }
+.proc-table th.sort-desc::after { content: ' ▼'; font-size: 9px; opacity: 0.7; }

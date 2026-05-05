@@ -1,3 +1,4 @@
+'use strict';
 // ── GRBM performance counter updates ─────────────────────────────────────────
 
 function updateGRBM(i, dev) {

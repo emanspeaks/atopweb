@@ -1,3 +1,4 @@
+'use strict';
 function updateDevice(i, dev) {
   if (i === 0) { state.lastDev0 = dev; updateDeviceInfoHeader(dev); }
   const h     = state.hist[i];

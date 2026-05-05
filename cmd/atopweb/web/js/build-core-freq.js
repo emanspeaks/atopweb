@@ -1,3 +1,4 @@
+'use strict';
 function buildCoreFreqGrid(i, h) {
   const coreFreqGrid = el('div', 'charts-cores');
   for (let j = 0; j < 16; j++) {
@@ -43,14 +44,15 @@ function buildCoreFreqGrid(i, h) {
     coreCfg.scales.y.ticks.maxTicksLimit = 7;
     coreCfg.scales.y.ticks.stepSize = 1000;
 
-    state.charts[`${i}-cpu-core-${j}`] = new Chart(canvas, {
+    const coreChart = new Chart(canvas, {
       type: 'line',
       data: {
-        labels: h.coreTimes,
+        labels: bufView(h.coreTimes),
         datasets: [
           {
             label: 'Scaling',
-            data: h.cpuScalingClk[j],
+            _buf: h.cpuScalingClk[j],
+            data: bufView(h.cpuScalingClk[j]),
             sourcePath: `devices[${i}].Sensors['CPU Core freq'][${j}].cur_freq`,
             borderColor: coreColor(j),
             backgroundColor: 'transparent',
@@ -62,7 +64,8 @@ function buildCoreFreqGrid(i, h) {
           {
             label: 'System Mgmt Unit',
             _shortLabel: 'SMU',
-            data: h.coreClk[j],
+            _buf: h.coreClk[j],
+            data: bufView(h.coreClk[j]),
             sourcePath: `devices[${i}].gpu_metrics.current_coreclk[${j}]`,
             borderColor: '#ffffff',
             backgroundColor: 'transparent',
@@ -76,6 +79,8 @@ function buildCoreFreqGrid(i, h) {
       },
       options: coreCfg,
     });
+    coreChart._labelBuf = h.coreTimes;
+    state.charts[`${i}-cpu-core-${j}`] = coreChart;
   }
   return coreFreqGrid;
 }

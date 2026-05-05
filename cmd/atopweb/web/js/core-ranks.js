@@ -1,3 +1,4 @@
+'use strict';
 // ── CPU core performance ranks ────────────────────────────────────────────────
 
 // 16-color categorical palette hand-picked for a dark background. Arranged so

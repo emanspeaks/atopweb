@@ -1,3 +1,4 @@
+'use strict';
 function buildStatCards(i) {
   const cards = el('div', 'cards');
   const cardDefs = [

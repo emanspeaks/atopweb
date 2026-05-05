@@ -1,3 +1,4 @@
+'use strict';
 // ── Persist user settings across reloads (localStorage) ──────────────────────
 function loadSavedSettings() {
   const iv  = parseInt(localStorage.getItem('atopweb.intervalMs'),      10);

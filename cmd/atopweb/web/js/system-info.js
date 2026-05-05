@@ -1,3 +1,4 @@
+'use strict';
 // ── System info (fan / voltage / power / temp / RAM via /api/system) ────────
 // Polled at low frequency (1 Hz) since these metrics change slowly and the
 // endpoint is cheap to serve but not instant.
