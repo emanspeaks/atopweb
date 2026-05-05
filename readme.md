@@ -285,6 +285,7 @@ Then open `http://localhost:5899` in a browser.
 | `--show-gtt-margin` | `false` | Show Non-GTT and GTT Margin calculations in the memory bar legend |
 | `--proc-cache <path>` | | Path to a JSON file used as a persistent cache of process names that have previously touched the GPU. When set, enables early-detection of known processes across service restarts. Empty = in-memory only |
 | `--fanotify` | `false` | Enable the fanotify-based GPU device watcher for zero-lag process-start detection (requires root or `CAP_SYS_ADMIN`; falls back silently when unavailable) |
+| `--legacy-front` | `false` | Serve the legacy (v1.6.11) frontend instead of the current one |
 
 ---
 
@@ -366,6 +367,7 @@ http://<server-ip>:5899
 | `services.atopweb.ryzenAdjBin` | `str` | `""` | `ryzenadj` binary path; when set, polls for APU power and thermal limits and adds a NOPASSWD sudoers rule |
 | `services.atopweb.gpuProcCache` | `bool` | `true` | Persist the GPU process-name learning cache in `/var/lib/atopweb/gpu-procs.json` so early-detection survives restarts. Disable to run entirely from memory |
 | `services.atopweb.fanotify` | `bool` | `false` | Enable the fanotify-based GPU device watcher for zero-lag process-start detection |
+| `services.atopweb.legacyFront` | `bool` | `false` | Serve the legacy (v1.6.11) frontend instead of the current one |
 | `services.atopweb.extraArgs` | `[str]` | `[]` | Extra flags passed to atopweb (e.g. `[ "-i" "0" ]`) |
 | `services.atopweb.package` | `package` | flake default | Override the atopweb package |
 
@@ -427,5 +429,5 @@ journalctl -u atopweb -b   # since last boot
 ## Releasing
 
 Bump `VERSION` in a PR to `main`.  Merging triggers the release workflow which
-cross-compiles `atopweb-linux-amd64` and `atopweb-linux-arm64` and publishes
-them as a GitHub Release tagged with the version.
+compiles `atopweb-linux-amd64` and publishes it as a GitHub Release tagged with
+the version.
