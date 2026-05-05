@@ -27,6 +27,8 @@
           modules = ./gomod2nix.toml;
           subPackages = [ "cmd/atopweb" ];
 
+          ldflags = [ "-s" "-w" "-X main.version=${lib.fileContents ./VERSION}" ];
+
           nativeBuildInputs = [ pkgs.pkg-config ];
           buildInputs = [ pkgs.libdrm ];
 
