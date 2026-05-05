@@ -1,3 +1,4 @@
+'use strict';
 function buildMemoryBar(i) {
   const memSec = el('div', 'mem-section');
   memSec.innerHTML = `

@@ -1,3 +1,4 @@
+'use strict';
 // ── Status bar ────────────────────────────────────────────────────────────────
 let barRestoreTimer = null;
 const LOG_MAX_LINES = 500;

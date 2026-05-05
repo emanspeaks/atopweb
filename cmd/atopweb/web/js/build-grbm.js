@@ -1,3 +1,4 @@
+'use strict';
 function buildGRBMSection(i, h) {
   const grbmSec = el('div', 'grbm-section');
   if (localStorage.getItem('atopweb.grbmCollapsed') !== 'false') grbmSec.classList.add('collapsed');

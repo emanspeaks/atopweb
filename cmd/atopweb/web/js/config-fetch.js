@@ -1,3 +1,4 @@
+'use strict';
 // ── Config fetch (version check + subtitle refresh) ───────────────────────────
 function fetchConfig() {
   fetch('/api/config')

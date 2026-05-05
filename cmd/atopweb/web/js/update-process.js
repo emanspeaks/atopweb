@@ -1,3 +1,4 @@
+'use strict';
 // ── Process table update ─────────────────────────────────────────────────────
 
 function updateProcessTable(i, dev) {
@@ -78,16 +79,38 @@ function updateProcessTable(i, dev) {
   if (tbody.firstElementChild?.classList.contains('proc-empty-row')) tbody.innerHTML = '';
   if (!h.procRows) h.procRows = new Map();
 
-  const memSize = (e) => {
-    if (e.drm) return (e.drm.vram_kib ?? 0) + (e.drm.gtt_kib ?? 0) + (e.drm.cpu_kib ?? 0) + (e.drm.pss_anon_kib ?? 0);
-    if (e.gpuProc) {
-      const u = getUsage(e.gpuProc);
-      return ((v(u, 'VRAM') ?? v(u, 'vram_usage') ?? v(u, 'vram') ?? 0) +
-              (v(u, 'GTT')  ?? v(u, 'gtt_usage')  ?? v(u, 'gtt')  ?? 0)) * 1024;
+  if (!h.procSort) h.procSort = { col: 'pid', dir: 1 };
+  const { col: sortCol, dir: sortDir } = h.procSort;
+  const sortVal = (pid) => {
+    const { gpuProc, npuProc, drm } = procMap[pid];
+    const u  = gpuProc ? getUsage(gpuProc) : null;
+    const nu = npuProc ? getUsage(npuProc) : null;
+    switch (sortCol) {
+      case 'pid':      return Number(pid);
+      case 'name':     return ((gpuProc || npuProc)?.name || drm?.comm || '').toLowerCase();
+      case 'cpu':      return u ? (v(u,'CPU') ?? v(u,'cpu_usage') ?? v(u,'cpu') ?? 0) : 0;
+      case 'v-priv':   return drm ? Math.max(0, (drm.vram_kib??0) - (drm.vis_vram_kib??0)) : 0;
+      case 'v-shm':    return drm ? (drm.vis_vram_kib ?? 0) : 0;
+      case 'gtt':      return drm ? (drm.gtt_kib??0) : (u ? ((v(u,'GTT')??v(u,'gtt_usage')??v(u,'gtt')??0)*1024) : 0);
+      case 'drm-cpu':  return drm ? (drm.cpu_kib ?? 0) : 0;
+      case 'apps-reg': return drm ? Math.max(0, (drm.pss_anon_kib??0) - (drm.anon_huge_pages_kib??0)) : 0;
+      case 'apps-thp': return drm ? (drm.anon_huge_pages_kib ?? 0) : 0;
+      case 'gfx':      return u ? (v(u,'GFX') ?? 0) : 0;
+      case 'compute':  return u ? (v(u,'Compute') ?? 0) : 0;
+      case 'dma':      return u ? (v(u,'DMA') ?? 0) : 0;
+      case 'media':    return u ? (v(u,'Media') ?? 0) : 0;
+      case 'vcn':      return u ? (v(u,'VCN_Unified')??v(u,'VCN_JPEG')??v(u,'Decode')??0) : 0;
+      case 'vpe':      return u ? (v(u,'VPE') ?? 0) : 0;
+      case 'npu':      return nu ? (v(nu,'NPU') ?? 0) : 0;
+      case 'npu-mem':  return nu ? (v(nu,'NPU Mem')??v(nu,'npu_mem')??v(nu,'npu_memory')??0) : 0;
+      default:         return Number(pid);
     }
-    return 0;
   };
-  pids.sort((a, b) => memSize(procMap[b]) - memSize(procMap[a]));
+  pids.sort((a, b) => {
+    const ka = sortVal(a), kb = sortVal(b);
+    if (typeof ka === 'string') return sortDir * ka.localeCompare(kb);
+    return sortDir * ((ka ?? 0) - (kb ?? 0));
+  });
 
   // Static `data-src` tooltip strings depend only on pid + device index, both
   // stable for a row's lifetime, so we attach them once at row creation and
@@ -177,9 +200,10 @@ function updateProcessTable(i, dev) {
     c[15].textContent = fmt(npu, 0);
     c[16].textContent = fmtKib(npuMem != null ? npuMem * 1024 : null);
 
-    // Move row into the correct position; appendChild on an existing node
-    // moves the same DOM node — cells are kept, no re-parenting.
-    if (tbody.children[r] !== row.tr) tbody.appendChild(row.tr);
+    // insertBefore places the row at exactly position r; appendChild would
+    // only move it to the end, which produces wrong order for most permutations.
+    const ref = tbody.children[r];
+    if (ref !== row.tr) tbody.insertBefore(row.tr, ref ?? null);
   }
   // Drop rows whose pid disappeared this tick.
   for (const [pid, row] of h.procRows) {

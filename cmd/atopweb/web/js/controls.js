@@ -1,3 +1,4 @@
+'use strict';
 // ── Interval control ─────────────────────────────────────────────────────────
 function initIntervalCtrl() {
   fetchConfig();

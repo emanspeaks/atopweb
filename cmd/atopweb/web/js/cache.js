@@ -1,3 +1,4 @@
+'use strict';
 // ── History cache (localStorage) ─────────────────────────────────────────────
 // Binary Float32 + base64 keeps each array ~640 chars (120 pts × 4 B × 4/3).
 // Periodic saves avoid per-sample overhead; beforeunload catches tab closes.

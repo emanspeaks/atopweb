@@ -1,3 +1,4 @@
+'use strict';
 // ── Build DOM (once per device-count change) ─────────────────────────────────
 function buildDom(devices) {
   Object.values(state.charts).forEach(c => c.destroy());

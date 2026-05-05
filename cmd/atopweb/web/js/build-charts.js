@@ -1,3 +1,4 @@
+'use strict';
 function buildCharts(i, h) {
   const chartGrid = el('div', 'charts');
 

@@ -1,3 +1,4 @@
+'use strict';
 // ── RAF render loop ──────────────────────────────────────────────────────────
 // Chart.js defers actual canvas drawing to requestAnimationFrame even with
 // animation:false, so calling update() directly in the WebSocket handler can

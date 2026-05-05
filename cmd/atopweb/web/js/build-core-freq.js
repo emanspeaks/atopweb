@@ -1,3 +1,4 @@
+'use strict';
 function buildCoreFreqGrid(i, h) {
   const coreFreqGrid = el('div', 'charts-cores');
   for (let j = 0; j < 16; j++) {

@@ -1,3 +1,4 @@
+'use strict';
 // ── Power limits ─────────────────────────────────────────────────────────────
 function fetchPowerLimits() {
   fetch('/api/limits')

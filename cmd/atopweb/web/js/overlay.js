@@ -1,3 +1,4 @@
+'use strict';
 // ── Plot maximize overlay ─────────────────────────────────────────────────────
 function updateOverlayPosition() {
   const overlay = document.getElementById('plot-overlay');

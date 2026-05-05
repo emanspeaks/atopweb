@@ -1,3 +1,4 @@
+'use strict';
 // ── Device info header ───────────────────────────────────────────────────────
 function updateDeviceInfoHeader(dev) {
   const el = document.getElementById('device-info');

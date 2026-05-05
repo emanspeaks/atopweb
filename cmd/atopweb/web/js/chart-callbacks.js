@@ -1,3 +1,4 @@
+'use strict';
 // ── Chart tooltip / tick helpers ─────────────────────────────────────────────
 function makeChartCallbacks(h) {
   return {
@@ -271,11 +272,10 @@ function memoryLimitAnnotations(h) {
 
 function setAnnotations(chart, times, extra, ...arrays) {
   const mm = minMaxAnnotations(times, chart.options.scales.x.min, chart._minMaxFmt ?? null, ...arrays);
-  // Preserve event annotations (process start/stop lines) so syncEventAnnotations
-  // doesn't have to re-sync them every tick — see update-process.js eventsDirty.
-  const prev   = chart.options.plugins.annotation.annotations;
-  const events = {};
-  if (prev) for (const k of Object.keys(prev)) if (k.startsWith('ev_')) events[k] = prev[k];
+  // Preserve event annotations using the side-channel store.  Reading ev_* keys
+  // back through chart.options (Chart.js proxy) triggers a data parse that fails
+  // when datasets hold Float32Array views; _eventAnnotations bypasses the proxy.
+  const events = chart._eventAnnotations || {};
   chart.options.plugins.annotation.annotations = { ...mm, ...extra, ...events };
 
   // Always re-apply %-of-range grace. Range covers data min/max AND any

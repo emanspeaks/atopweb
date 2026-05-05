@@ -1,3 +1,4 @@
+'use strict';
 // ── History + Chart rendering (called from updateDevice) ─────────────────────
 
 function pushChartHistory(i, dev) {
