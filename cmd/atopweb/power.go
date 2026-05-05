@@ -6,14 +6,15 @@ import (
 )
 
 // powerLimitsInfo holds the parsed power/thermal limits from ryzenadj.
+// JSON keys match what the frontend power-limits.js expects.
 type powerLimitsInfo struct {
-	STAPMWatts     *float64 `json:"stapm_watts,omitempty"`
-	FastWatts      *float64 `json:"fast_watts,omitempty"`
-	SlowWatts      *float64 `json:"slow_watts,omitempty"`
-	APUSlowWatts   *float64 `json:"apu_slow_watts,omitempty"`
-	THMCoreCelsius *float64 `json:"thm_core_celsius,omitempty"`
-	THMGFXCelsius  *float64 `json:"thm_gfx_celsius,omitempty"`
-	THMSOCCelsius  *float64 `json:"thm_soc_celsius,omitempty"`
+	STAPMWatts     *float64 `json:"stapm_w,omitempty"`
+	FastWatts      *float64 `json:"fast_w,omitempty"`
+	SlowWatts      *float64 `json:"slow_w,omitempty"`
+	APUSlowWatts   *float64 `json:"apu_slow_w,omitempty"`
+	THMCoreCelsius *float64 `json:"thm_core_c,omitempty"`
+	THMGFXCelsius  *float64 `json:"thm_gfx_c,omitempty"`
+	THMSOCCelsius  *float64 `json:"thm_soc_c,omitempty"`
 }
 
 // parseRyzenAdjInfo extracts power and thermal limits from `ryzenadj -i` output.

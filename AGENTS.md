@@ -4,7 +4,7 @@
 
 ```bash
 # Build
-go build -o atopweb .
+go build -o atopweb ./cmd/atopweb
 
 # Run (requires Linux + AMD GPU + amdgpu_top)
 ./atopweb --port 5899
@@ -14,7 +14,7 @@ Open `http://localhost:5899` in a browser.
 
 ## Critical Constraints
 
-- **VERSION bump required**: Every PR to `main` must update the `VERSION` file. CI enforces this. Exempt files: `readme.md`, `assets/*`, `.github/workflows/exempt.txt`.
+- **VERSION bump required**: Every PR to `main` must update the `VERSION` file at the repo root. CI enforces this. Exempt files: `readme.md`, `assets/*`, `.github/workflows/exempt.txt`.
 
 - **Build order**: `go vet ./...` → `go build` → verify binary runs. No separate test suite.
 
@@ -27,7 +27,7 @@ Open `http://localhost:5899` in a browser.
 
 ## Architecture Highlights
 
-- **Entry point**: `main.go` — single binary, no subpackages
+- **Entry point**: `cmd/atopweb/main.go` — single binary at `./cmd/atopweb`
 - **Core flow**: `amdgpu_top -J` → WebSocket broadcast → browser dashboard
 - **Process detection**: Three-layer pipeline (KFD poll → known-proc cache → fdinfo fallback)
 - **Memory accounting**: Split into two WebSocket frames:
@@ -38,13 +38,14 @@ Open `http://localhost:5899` in a browser.
 
 ## Key Files
 
-| File | Purpose |
-| ------ | --------- |
-| `main.go` | All logic: WebSocket hub, HTTP handlers, process watchers, memory readers |
-| `dashboard.html/css/js` | Browser UI (embedded via `//go:embed`) |
+| Path | Purpose |
+| ---- | ------- |
+| `cmd/atopweb/` | Main binary source (all `package main` Go files) |
+| `cmd/atopweb/web/` | Browser UI (HTML/CSS/JS, embedded via `//go:embed web`) |
+| `VERSION` | Semantic version (injected at release via `-ldflags`) |
+| `cmd/probe/` | Developer diagnostic tool for GPU hardware reads |
 | `flake.nix` | NixOS module + Go build definition |
 | `gomod2nix.toml` | Nix dependency hashes (auto-generated) |
-| `VERSION` | Semantic version (read at build time into binary) |
 
 ## NixOS Module Options
 
@@ -81,7 +82,7 @@ No automated tests. Manual verification:
 
 ## Release Flow
 
-1. Bump `VERSION` in a PR to `main`
+1. Bump `VERSION` (repo root) in a PR to `main`
 2. Merge → `release.yml` workflow:
    - Builds `atopweb-linux-amd64` and `atopweb-linux-arm64`
    - Creates GitHub Release with binaries

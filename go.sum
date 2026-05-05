@@ -1,5 +1,5 @@
-github.com/emanspeaks/amdgpu-go v0.1.0 h1:Jv6OoGPIwRIZcpX8SxMqx5Fl/fgMy2fgui4lKemWOBE=
-github.com/emanspeaks/amdgpu-go v0.1.0/go.mod h1:VPvB6TtuENXueyfjAE1IsQuIDasiJW5w2DbrI6FMMcY=
+github.com/emanspeaks/amdgpu-go v0.2.5 h1:wokpf7EV59XXB/trqa+J0aYRYwDgqBvJ9jIMUJbDbjA=
+github.com/emanspeaks/amdgpu-go v0.2.5/go.mod h1:VPvB6TtuENXueyfjAE1IsQuIDasiJW5w2DbrI6FMMcY=
 github.com/godbus/dbus/v5 v5.2.2 h1:TUR3TgtSVDmjiXOgAAyaZbYmIeP3DPkld3jgKGV8mXQ=
 github.com/godbus/dbus/v5 v5.2.2/go.mod h1:3AAv2+hPq5rdnr5txxxRwiGjPXamgoIHgz9FPBfOp3c=
 github.com/gorilla/websocket v1.5.3 h1:saDtZ6Pbx/0u+bgYQ3q96pZgCzfhKXGPqt7kZ72aNNg=

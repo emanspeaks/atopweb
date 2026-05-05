@@ -15,6 +15,7 @@ type configInfo struct {
 	ShowGttMargin   bool   `json:"show_gtt_margin"`
 	AtopwebVersion  string `json:"atopweb_version"`
 	AtopTopVersion  string `json:"amdgpu_top_version"`
+	BackendName     string `json:"backend_name,omitempty"`
 	TotalRAMMiB     uint64 `json:"total_ram_mib"`
 	KernelVersion   string `json:"kernel_version,omitempty"`
 	NixosVersion    string `json:"nixos_version,omitempty"`
@@ -33,6 +34,7 @@ func (h *hub) serveConfig(w http.ResponseWriter, r *http.Request) {
 		ShowGttMargin:   h.showGttMargin,
 		AtopwebVersion:  version,
 		AtopTopVersion:  h.atopVersion,
+		BackendName:     h.backendName,
 		TotalRAMMiB:     total,
 		KernelVersion:   readKernelVersion(),
 		NixosVersion:    nixosVer,

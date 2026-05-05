@@ -16,7 +16,7 @@ function updateDevice(i, dev) {
   const gttT   = v(vram, 'Total GTT');
   const sclk   = v(sens, 'GFX_SCLK');
   const mclk   = v(sens, 'GFX_MCLK');
-  const fclk   = v(sens, 'FCLK');
+  const fclk   = typeof gm.average_fclk_frequency === 'number' ? gm.average_fclk_frequency : null;
   const gfxPwr = v(sens, 'GFX Power');
   const pwr    = v(sens, 'Average Power') ?? v(sens, 'Socket Power') ?? v(sens, 'Input Power') ?? gfxPwr;
   const tempE  = v(sens, 'Edge Temperature');

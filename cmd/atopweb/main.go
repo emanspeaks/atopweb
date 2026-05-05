@@ -4,35 +4,22 @@ import (
 	"embed"
 	"flag"
 	"fmt"
+	"io/fs"
 	"log"
 	"net/http"
 	"os/exec"
 	"os/user"
-	"strings"
 	"time"
 
+	amdgpu "github.com/emanspeaks/amdgpu-go/amdgpu"
 	"github.com/gorilla/websocket"
 )
 
-//go:embed VERSION
-var versionFile string
+// version is overridden at release build time via -ldflags="-X main.version=vX.Y.Z".
+var version = "dev"
 
-var version = strings.TrimSpace(versionFile)
-
-//go:embed dashboard.html dashboard-base.css dashboard-header.css dashboard-cards.css dashboard-charts.css dashboard-process.css dashboard-overlays.css dashboard-status.css config.js raf.js state.js cache.js dom-helpers.js chart-callbacks.js build-dom.js build-cards.js build-memory-bar.js build-grbm.js build-charts.js build-core-freq.js build-process.js update-device.js update-chart-data.js update-grbm.js update-process.js ws.js device-header.js core-ranks.js system-info.js power-limits.js data-src-tooltip.js settings.js config-fetch.js controls.js status-bar.js overlay.js mem-treemap.js dashboard.js
-var static embed.FS
-
-// serveStatic serves an embedded static file with the given content type.
-func serveStatic(name, contentType string) http.HandlerFunc {
-	data, err := static.ReadFile(name)
-	if err != nil {
-		panic(err)
-	}
-	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", contentType)
-		w.Write(data)
-	}
-}
+//go:embed web
+var webFS embed.FS
 
 // ── main ─────────────────────────────────────────────────────────────────────
 
@@ -47,6 +34,7 @@ func main() {
 	useFanotify := flag.Bool("fanotify", false, "use Linux fanotify to watch GPU device nodes for zero-lag process start detection (requires CAP_SYS_ADMIN)")
 	showGttMargin := flag.Bool("show-gtt-margin", false, "show Non-GTT and GTT Margin calculations in the memory bar legend")
 	useTop := flag.Bool("use-top", !drmAvailable, "use amdgpu_top JSON mode instead of the default amdgpu-go libdrm bindings (requires amdgpu_top to be installed)")
+	legacyFront := flag.Bool("legacy-front", false, "serve the v1.6.11 legacy frontend instead of the current one")
 
 	// amdgpu_top JSON-mode passthrough flags (ignored unless --use-top is set)
 	intervalMs := flag.Int("s", 1000, "amdgpu_top refresh period in milliseconds")
@@ -71,6 +59,7 @@ func main() {
 
 	var binary string
 	var atopVer string
+	var backendName string
 	var atopArgs []string
 
 	if *useTop {
@@ -85,6 +74,7 @@ func main() {
 		log.Printf("amdgpu_top binary: %s", binary)
 
 		atopVer = getAtopVersion(binary)
+		backendName = "amdgpu_top"
 		log.Printf("amdgpu_top version: %s", atopVer)
 
 		atopArgs = buildAtopArgs(*updateIdx, *instance, *pci, *apu, *single, *nopc)
@@ -100,7 +90,9 @@ func main() {
 
 		log.Printf("amdgpu_top base args: %v (interval injected dynamically)", atopArgs)
 	} else {
-		log.Printf("using amdgpu-go libdrm bindings (default); pass --use-top to switch to amdgpu_top JSON mode")
+		atopVer = amdgpu.Version
+		backendName = "amdgpu-go"
+		log.Printf("using amdgpu-go libdrm bindings %s (default); pass --use-top to switch to amdgpu_top JSON mode", amdgpu.Version)
 	}
 
 	// Build ryzenadj invocation (with sudo prefix when --sudo is set).
@@ -119,6 +111,7 @@ func main() {
 		intervalMs:    *intervalMs,
 		showGttMargin: *showGttMargin,
 		atopVersion:   atopVer,
+		backendName:   backendName,
 		ryzenAdjArgs:  ryzenAdjArgs,
 		dramMaxBWKiBs: readDRAMMaxBWKiBs(),
 	}
@@ -152,9 +145,36 @@ func main() {
 		}
 	}()
 
+	// Serve embedded web assets.
+	if *legacyFront {
+		log.Printf("serving legacy (v1.6.11) frontend")
+		legacySub, err := fs.Sub(webFS, "web/legacy")
+		if err != nil {
+			log.Fatal(err)
+		}
+		legacyServer := http.FileServer(http.FS(legacySub))
+		http.Handle("/dashboard.css", legacyServer)
+		http.Handle("/dashboard.js", legacyServer)
+	} else {
+		sub, err := fs.Sub(webFS, "web")
+		if err != nil {
+			log.Fatal(err)
+		}
+		fileServer := http.FileServer(http.FS(sub))
+		http.Handle("/js/", fileServer)
+		http.Handle("/css/", fileServer)
+	}
+
 	// Dashboard: log each browser connection and refresh the ryzenadj cache so
 	// the /api/limits call the browser makes after loading gets fresh data.
-	dashHandler := serveStatic("dashboard.html", "text/html; charset=utf-8")
+	dashPath := "web/dashboard.html"
+	if *legacyFront {
+		dashPath = "web/legacy/dashboard.html"
+	}
+	dashBytes, err := webFS.ReadFile(dashPath)
+	if err != nil {
+		log.Fatal(err)
+	}
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {
 			http.NotFound(w, r)
@@ -162,45 +182,9 @@ func main() {
 		}
 		log.Printf("dashboard opened from %s", r.RemoteAddr)
 		go h.refreshPowerLimits()
-		dashHandler(w, r)
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write(dashBytes)
 	})
-	http.HandleFunc("/dashboard-base.css", serveStatic("dashboard-base.css", "text/css; charset=utf-8"))
-	http.HandleFunc("/dashboard-header.css", serveStatic("dashboard-header.css", "text/css; charset=utf-8"))
-	http.HandleFunc("/dashboard-cards.css", serveStatic("dashboard-cards.css", "text/css; charset=utf-8"))
-	http.HandleFunc("/dashboard-charts.css", serveStatic("dashboard-charts.css", "text/css; charset=utf-8"))
-	http.HandleFunc("/dashboard-process.css", serveStatic("dashboard-process.css", "text/css; charset=utf-8"))
-	http.HandleFunc("/dashboard-overlays.css", serveStatic("dashboard-overlays.css", "text/css; charset=utf-8"))
-	http.HandleFunc("/dashboard-status.css", serveStatic("dashboard-status.css", "text/css; charset=utf-8"))
-	http.HandleFunc("/config.js", serveStatic("config.js", "application/javascript; charset=utf-8"))
-	http.HandleFunc("/raf.js", serveStatic("raf.js", "application/javascript; charset=utf-8"))
-	http.HandleFunc("/state.js", serveStatic("state.js", "application/javascript; charset=utf-8"))
-	http.HandleFunc("/cache.js", serveStatic("cache.js", "application/javascript; charset=utf-8"))
-	http.HandleFunc("/dom-helpers.js", serveStatic("dom-helpers.js", "application/javascript; charset=utf-8"))
-	http.HandleFunc("/chart-callbacks.js", serveStatic("chart-callbacks.js", "application/javascript; charset=utf-8"))
-	http.HandleFunc("/build-dom.js", serveStatic("build-dom.js", "application/javascript; charset=utf-8"))
-	http.HandleFunc("/build-cards.js", serveStatic("build-cards.js", "application/javascript; charset=utf-8"))
-	http.HandleFunc("/build-memory-bar.js", serveStatic("build-memory-bar.js", "application/javascript; charset=utf-8"))
-	http.HandleFunc("/build-grbm.js", serveStatic("build-grbm.js", "application/javascript; charset=utf-8"))
-	http.HandleFunc("/build-charts.js", serveStatic("build-charts.js", "application/javascript; charset=utf-8"))
-	http.HandleFunc("/build-core-freq.js", serveStatic("build-core-freq.js", "application/javascript; charset=utf-8"))
-	http.HandleFunc("/build-process.js", serveStatic("build-process.js", "application/javascript; charset=utf-8"))
-	http.HandleFunc("/update-device.js", serveStatic("update-device.js", "application/javascript; charset=utf-8"))
-	http.HandleFunc("/update-chart-data.js", serveStatic("update-chart-data.js", "application/javascript; charset=utf-8"))
-	http.HandleFunc("/update-grbm.js", serveStatic("update-grbm.js", "application/javascript; charset=utf-8"))
-	http.HandleFunc("/update-process.js", serveStatic("update-process.js", "application/javascript; charset=utf-8"))
-	http.HandleFunc("/ws.js", serveStatic("ws.js", "application/javascript; charset=utf-8"))
-	http.HandleFunc("/device-header.js", serveStatic("device-header.js", "application/javascript; charset=utf-8"))
-	http.HandleFunc("/core-ranks.js", serveStatic("core-ranks.js", "application/javascript; charset=utf-8"))
-	http.HandleFunc("/system-info.js", serveStatic("system-info.js", "application/javascript; charset=utf-8"))
-	http.HandleFunc("/power-limits.js", serveStatic("power-limits.js", "application/javascript; charset=utf-8"))
-	http.HandleFunc("/data-src-tooltip.js", serveStatic("data-src-tooltip.js", "application/javascript; charset=utf-8"))
-	http.HandleFunc("/settings.js", serveStatic("settings.js", "application/javascript; charset=utf-8"))
-	http.HandleFunc("/config-fetch.js", serveStatic("config-fetch.js", "application/javascript; charset=utf-8"))
-	http.HandleFunc("/controls.js", serveStatic("controls.js", "application/javascript; charset=utf-8"))
-	http.HandleFunc("/status-bar.js", serveStatic("status-bar.js", "application/javascript; charset=utf-8"))
-	http.HandleFunc("/overlay.js", serveStatic("overlay.js", "application/javascript; charset=utf-8"))
-	http.HandleFunc("/mem-treemap.js", serveStatic("mem-treemap.js", "application/javascript; charset=utf-8"))
-	http.HandleFunc("/dashboard.js", serveStatic("dashboard.js", "application/javascript; charset=utf-8"))
 	http.HandleFunc("/api/config", h.serveConfig)
 	http.HandleFunc("/api/interval", h.serveSetInterval)
 	http.HandleFunc("/api/vram", h.serveVRAM)
