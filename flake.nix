@@ -12,7 +12,7 @@
 
   outputs = { self, nixpkgs, flake-utils, gomod2nix }:
     let
-      supportedSystems = [ "x86_64-linux" "aarch64-linux" ];
+      supportedSystems = [ "x86_64-linux" ];
     in
     flake-utils.lib.eachSystem supportedSystems (system:
       let
@@ -150,6 +150,15 @@
               '';
             };
 
+            legacyFront = lib.mkOption {
+              type = lib.types.bool;
+              default = false;
+              description = ''
+                Serve the legacy (v1.6.11) frontend instead of the current one.
+                Passes --legacy-front to atopweb.
+              '';
+            };
+
             extraArgs = lib.mkOption {
               type = lib.types.listOf lib.types.str;
               default = [];
@@ -193,7 +202,8 @@
                   ++ lib.optionals cfg.sudo [ "--sudo" "--sudo-bin" "/run/wrappers/bin/sudo" ]
                   ++ lib.optionals (cfg.ryzenAdjBin != "") [ "--ryzenadj" cfg.ryzenAdjBin ]
                   ++ lib.optionals cfg.gpuProcCache [ "--proc-cache" "/var/lib/atopweb/gpu-procs.json" ]
-                  ++ lib.optional  cfg.fanotify    "--fanotify"
+                  ++ lib.optional  cfg.fanotify     "--fanotify"
+                  ++ lib.optional  cfg.legacyFront  "--legacy-front"
                   ++ cfg.extraArgs
                 );
 
