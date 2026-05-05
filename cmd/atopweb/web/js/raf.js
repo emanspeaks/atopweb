@@ -19,19 +19,24 @@ function scheduleRender() {
       const d = visible ? '' : 'none';
       if (el.style.display !== d) el.style.display = d;
     };
+
+    // Two-phase render: first do all the layout-mutating writes (display
+    // toggles, scale-range updates) so the browser reflows at most once;
+    // then call chart.update() which reads canvas geometry. Without this
+    // separation each chart.update reads layout after a previous iteration's
+    // setDisplay, forcing a synchronous reflow every loop iteration.
+    const toUpdate = [];
     for (const [key, c] of Object.entries(state.charts)) {
       const isCoreFreq = key.includes('-cpu-core-');
       const widthMs    = isCoreFreq ? state.coreTimeWidthMs : state.timeWidthMs;
       c.options.scales.x.min = now - widthMs;
       c.options.scales.x.max = now;
-      // Skip repaint when paused, when overlay is covering the main view,
-      // or when this chart has received no finite data within 10% of its window.
       const debounceMs  = widthMs * 0.1;
       const chartActive = (now - (state.chartLastData[key] || 0)) <= debounceMs;
       setDisplay(document.getElementById(`chart-box-${key}`), chartActive);
       if (!state.paused && !hasOverlay && chartActive &&
           (state.n <= 1 || parseInt(key, 10) === state.cur))
-        c.update('none');
+        toUpdate.push(c);
     }
     const cardDebounce = state.timeWidthMs * 0.1;
     for (const id in state.cardLastData) {
@@ -41,10 +46,30 @@ function scheduleRender() {
       const el = document.getElementById(id);
       setDisplay(el?.closest('.card'), active);
     }
+    // Refresh dataset.data and labels to current circular-buffer views.  The
+    // subarray references go stale every push (head advances), so we re-take
+    // them just before drawing.  `_buf` and `_labelBuf` were tagged when the
+    // chart was constructed (build-charts.js / build-core-freq.js).
+    for (const c of toUpdate) {
+      if (c._labelBuf) c.data.labels = bufView(c._labelBuf);
+      const dss = c.data.datasets;
+      for (let k = 0; k < dss.length; k++) {
+        const ds = dss[k];
+        if (ds._buf) ds.data = bufView(ds._buf);
+      }
+      c.update('none');
+    }
     if (hasOverlay && !state.paused) {
-      state.overlayChart.options.scales.x.min = now - state.overlayWidthMs;
-      state.overlayChart.options.scales.x.max = now;
-      state.overlayChart.update('none');
+      const o = state.overlayChart;
+      o.options.scales.x.min = now - state.overlayWidthMs;
+      o.options.scales.x.max = now;
+      if (o._labelBuf) o.data.labels = bufView(o._labelBuf);
+      const dss = o.data.datasets;
+      for (let k = 0; k < dss.length; k++) {
+        const ds = dss[k];
+        if (ds._buf) ds.data = bufView(ds._buf);
+      }
+      o.update('none');
     }
     if (state.memTreemapDev != null) {
       if (state.paused || _tmHovered) updateMemTreemapValues(state.memTreemapDev);

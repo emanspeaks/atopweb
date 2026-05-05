@@ -4,7 +4,7 @@ function makeChartCallbacks(h) {
     title(items) {
       const idx = items[0]?.dataIndex;
       if (idx == null) return '';
-      const ts = h.times[idx];
+      const ts = bufView(h.times)[idx];
       if (ts == null) return '';
       const t   = new Date(ts);
       const abs = t.toLocaleTimeString([], { hour12: false }) + '.' +
@@ -62,7 +62,7 @@ function makeCoreChartCallbacks(h, getArrays, unit) {
       const idx = items[0]?.dataIndex;
       if (idx == null) return [];
       const lines = [];
-      const ts = h.times[idx];
+      const ts = bufView(h.times)[idx];
       if (ts != null) {
         const t = new Date(ts);
         lines.push(
@@ -70,7 +70,7 @@ function makeCoreChartCallbacks(h, getArrays, unit) {
           ((Date.now() - ts) / 1000).toFixed(3) + 's ago',
         );
       }
-      const vals = getArrays().map(arr => arr[idx]).filter(Number.isFinite);
+      const vals = getArrays().map(b => bufView(b)[idx]).filter(Number.isFinite);
       if (vals.length) {
         lines.push(`Min: ${Math.min(...vals).toFixed(3)} ${unit}`);
         lines.push(`Max: ${Math.max(...vals).toFixed(3)} ${unit}`);
@@ -140,14 +140,17 @@ function syncEventAnnotations(chart, events, isCoreChart) {
 // Returns a min/max annotation object (does not modify the chart).
 // Only considers values within the visible time window (times[k] >= windowStart).
 // Labels are positioned below min and above max.
-// Iterates directly to avoid intermediate array allocations on every tick.
+// `times` and each `array` are circular buffers (see state.js makeBuf); we
+// iterate the linearized view in-place to avoid copying.
 function minMaxAnnotations(times, windowStart, fmt, ...arrays) {
   let minVal = Infinity, maxVal = -Infinity, count = 0;
-  for (const arr of arrays) {
-    for (let k = 0; k < arr.length; k++) {
-      const v = arr[k];
+  const tView = bufView(times);
+  for (const buf of arrays) {
+    const view = bufView(buf);
+    for (let k = 0; k < view.length; k++) {
+      const v = view[k];
       if (!Number.isFinite(v)) continue;
-      if (windowStart != null && (times[k] == null || times[k] < windowStart)) continue;
+      if (windowStart != null && (tView[k] == null || tView[k] < windowStart)) continue;
       if (v < minVal) minVal = v;
       if (v > maxVal) maxVal = v;
       count++;
@@ -268,7 +271,12 @@ function memoryLimitAnnotations(h) {
 
 function setAnnotations(chart, times, extra, ...arrays) {
   const mm = minMaxAnnotations(times, chart.options.scales.x.min, chart._minMaxFmt ?? null, ...arrays);
-  chart.options.plugins.annotation.annotations = { ...mm, ...extra };
+  // Preserve event annotations (process start/stop lines) so syncEventAnnotations
+  // doesn't have to re-sync them every tick — see update-process.js eventsDirty.
+  const prev   = chart.options.plugins.annotation.annotations;
+  const events = {};
+  if (prev) for (const k of Object.keys(prev)) if (k.startsWith('ev_')) events[k] = prev[k];
+  chart.options.plugins.annotation.annotations = { ...mm, ...extra, ...events };
 
   // Always re-apply %-of-range grace. Range covers data min/max AND any
   // line-type annotation values (limit lines) so that explicitly-set limits

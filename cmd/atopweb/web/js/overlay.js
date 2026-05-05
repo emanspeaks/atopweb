@@ -48,8 +48,9 @@ function openOverlay(chartKey, title) {
     options: srcOpts,
     plugins: src.config.plugins || [],
   });
-  state.overlayChart._minMaxFmt  = src._minMaxFmt ?? null;
+  state.overlayChart._minMaxFmt   = src._minMaxFmt ?? null;
   state.overlayChart._showDramMax = src._showDramMax ?? true;
+  state.overlayChart._labelBuf    = src._labelBuf;     // shared circular-buffer ref
 
   const isCoreFreq = chartKey.includes('-cpu-core-');
   state.overlayWidthMs  = isCoreFreq ? state.coreTimeWidthMs : state.timeWidthMs;

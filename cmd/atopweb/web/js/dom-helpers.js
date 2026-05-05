@@ -57,7 +57,21 @@ function setBar(id, pct) {
   if (bar) bar.style.width = (pct == null ? 0 : Math.min(100, Math.max(0, pct))) + '%';
 }
 
-function pushHistory(arr, val) {
-  arr.copyWithin(0, 1);
-  arr[arr.length - 1] = (val == null || !Number.isFinite(val)) ? NaN : val;
+// Append a value to a circular history buffer (see state.js makeBuf).
+// Most pushes are O(1).  Once per `size` pushes we slide the last `size`
+// values back to position 0 with a single copyWithin (one O(size) op
+// instead of O(size) per push).
+function pushHistory(b, val) {
+  b.buf[b.head++] = (val == null || !Number.isFinite(val)) ? NaN : val;
+  if (b.head >= b.buf.length) {
+    b.buf.copyWithin(0, b.size, b.buf.length);
+    b.head = b.size;
+  }
 }
+
+// View the latest `size` values as a contiguous typed-array slice.  Cheap —
+// no copy.  The reference becomes stale after the next pushHistory; callers
+// that hand the view to long-lived consumers (Chart.js datasets) must refresh
+// before each render.
+function bufView(b) { return b.buf.subarray(b.head - b.size, b.head); }
+function bufLast(b) { return b.buf[b.head - 1]; }

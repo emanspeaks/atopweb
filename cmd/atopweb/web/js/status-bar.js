@@ -1,5 +1,6 @@
 // ── Status bar ────────────────────────────────────────────────────────────────
 let barRestoreTimer = null;
+const LOG_MAX_LINES = 500;
 
 function appendLog(msg, cls) {
   const log = document.getElementById('status-log');
@@ -12,6 +13,8 @@ function appendLog(msg, cls) {
   span.className = 'log-line' + (cls ? ' ' + cls : '');
   span.textContent = `[${ts}]  ${msg}`;
   log.appendChild(span);
+  // Cap log to last N lines so a long-lived page doesn't accumulate unbounded DOM.
+  while (log.childElementCount > LOG_MAX_LINES) log.removeChild(log.firstElementChild);
   if (atBottom) log.scrollTop = log.scrollHeight;
   const textEl = document.getElementById('status-bar-text');
   if (textEl) {

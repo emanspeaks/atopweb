@@ -45,13 +45,14 @@ function buildGRBMSection(i, h) {
             pcCfg.scales.y.ticks.callback = fmtTick;
             pcCfg.scales.y.ticks.font = { size: 9 };
             pcCfg.scales.y.ticks.maxTicksLimit = 3;
-            state.charts[chartKey] = new Chart(canvas, {
+            const grbmChart = new Chart(canvas, {
               type: 'line',
               data: {
-                labels: h.times,
+                labels: bufView(h.times),
                 datasets: [{
                   label: key,
-                  data: histArr[ki],
+                  _buf: histArr[ki],
+                  data: bufView(histArr[ki]),
                   sourcePath: `devices[${i}].${srcObj}['${key}']`,
                   borderColor: color,
                   backgroundColor: color + '1a',
@@ -63,6 +64,8 @@ function buildGRBMSection(i, h) {
               },
               options: pcCfg,
             });
+            grbmChart._labelBuf = h.times;
+            state.charts[chartKey] = grbmChart;
           }
           state.charts[chartKey].resize();
           state.charts[chartKey].update('none');

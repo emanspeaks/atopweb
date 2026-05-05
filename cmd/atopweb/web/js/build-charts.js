@@ -37,7 +37,8 @@ function buildCharts(i, h) {
       coreData: () => h.corePwr, coreUnit: 'W',
       datasets: () => Array.from({length: 16}, (_, j) => ({
         label: `CPU ${coreLabel(j)}`,
-        data: h.corePwr[j],
+        _buf: h.corePwr[j],
+        data: bufView(h.corePwr[j]),
         sourcePath: `devices[${i}].gpu_metrics.average_core_power[${j}] / 1000`,
         borderColor: coreColor(j),
         backgroundColor: 'transparent',
@@ -86,7 +87,8 @@ function buildCharts(i, h) {
       coreData: () => h.npuBusy, coreUnit: '%',
       datasets: () => Array.from({length: 8}, (_, j) => ({
         label: `NPU Tile ${j}`,
-        data: h.npuBusy[j],
+        _buf: h.npuBusy[j],
+        data: bufView(h.npuBusy[j]),
         sourcePath: `devices[${i}].npu_metrics.npu_busy[${j}]`,
         borderColor: coreColor(j),
         backgroundColor: 'transparent',
@@ -163,10 +165,11 @@ function buildCharts(i, h) {
 
     const chart = new Chart(canvas, {
       type: 'line',
-      data: { labels: h.times, datasets: def.datasets() },
+      data: { labels: bufView(h.times), datasets: def.datasets() },
       options: cfg,
       plugins: def.coreData ? [verticalLinePlugin] : [],
     });
+    chart._labelBuf     = h.times;          // raf.js refreshes data.labels each frame
     chart._yFloorHint   = def.noYMin ? null : 0;
     chart._yCeilingHint = def.yMax ?? null;
     chart._minMaxFmt    = def.minMaxFmt ?? null;

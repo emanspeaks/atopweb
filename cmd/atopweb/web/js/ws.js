@@ -66,6 +66,7 @@ function connect() {
         if (!h.earlyStartedPids.has(pidStr)) {
           h.earlyStartedPids.add(pidStr);
           h.events.push({ timeMs: data.time_ms, type: 'start', name: data.name, pid: data.pid });
+          h.eventsDirty = true;
         }
       }
       appendLog(`Process start: ${data.name} (PID ${data.pid}) [early]`, 'ok');

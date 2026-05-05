@@ -12,8 +12,9 @@ function pushChartHistory(i, dev) {
   // Chart.js breaks the line instead of connecting across the discontinuity.
   // This catches WebSocket reconnects after reboots/pauses without a page reload.
   const idleMs = 5 * state.intervalMs;
-  if (nowMs - h.times[h.times.length - 1] > idleMs)
-    shiftHistGap(h, Math.round((nowMs - h.times[h.times.length - 1]) / state.intervalMs), state.intervalMs);
+  const lastT = bufLast(h.times);
+  if (nowMs - lastT > idleMs)
+    shiftHistGap(h, Math.round((nowMs - lastT) / state.intervalMs), state.intervalMs);
 
   pushHistory(h.times,     nowMs);
   pushHistory(h.coreTimes, nowMs);

@@ -42,53 +42,69 @@ function xStepSize(widthMs) {
   return steps.find(s => s >= target) ?? steps[steps.length - 1];
 }
 
+// History buffers are circular: each channel is a 2N-sized typed array with a
+// head pointer.  pushHistory writes at head and advances; the visible window is
+// always buf.subarray(head - size, head).  When head reaches the end of the
+// backing array we slide the last N values back to position 0 in a single
+// copyWithin (one O(N) copy per N pushes) instead of shifting on every push
+// (the previous Array-based approach was O(N) per push at 10 Hz).
+function makeBuf(size) {
+  return { buf: new Float32Array(2 * size).fill(NaN), head: size, size };
+}
+function makeBufN(rows, size) {
+  return Array.from({ length: rows }, () => makeBuf(size));
+}
+
 function makeHist(size, coreSize) {
-  const a  = n => new Array(n).fill(NaN);
-  const a2 = (rows, n) => Array.from({length: rows}, () => new Array(n).fill(NaN));
-  // Pre-fill times with evenly-spaced epoch ms so the x-axis is valid before
-  // real data arrives.  pushHistory overwrites them as samples come in.
-  const now = Date.now();
   const ms  = state.intervalMs;
+  const now = Date.now();
+  // Time axes use Float64 because epoch ms can't be stored exactly in Float32.
+  // Pre-fill so the x-axis is valid before any sample arrives.
+  const tBuf = (n) => {
+    const b = { buf: new Float64Array(2 * n), head: n, size: n };
+    for (let k = 0; k < n; k++) b.buf[k] = now - (n - 1 - k) * ms;
+    return b;
+  };
   return {
-    times:     Array.from({length: size},     (_, k) => now - (size - 1 - k) * ms),
-    coreTimes: Array.from({length: coreSize}, (_, k) => now - (coreSize - 1 - k) * ms),
-    gfx:      a(size),
-    mem:      a(size),
-    media:    a(size),
-    vram:     a(size),
-    vramOnly: a(size),
-    gttOnly:  a(size),
-    pwr:      a(size),
-    fan:      a(size),
-    ppt:      a(size),
-    cpuPwr:   a(size),
-    npuPwr:   a(size),
-    tempE:    a(size),
-    tempC:    a(size),
-    tempS:    a(size),
-    tempGfx:  a(size),
-    tempHot:  a(size),
-    tempMem:  a(size),
-    sclk:     a(size),
-    mclk:     a(size),
-    fclk:     a(size),
-    fclkAvg:  a(size),
-    socClk:   a(size),
-    vclk:     a(size),
-    vddgfx:   a(size),
-    vddnb:    a(size),
-    dramReads:  a(size),
-    dramWrites: a(size),
-    npuBusy:   a2(8,  size),
-    npuClk:    a(size),
-    npuMpClk:  a(size),
-    npuReads:  a(size),
-    npuWrites: a(size),
-    grbm:          a2(GRBM_KEYS.length,  size),
-    grbm2:         a2(GRBM2_KEYS.length, size),
-    corePwr:       a2(16, size),     // CPU core power — global chart
-    coreClk:       a2(16, coreSize), // CPU core SMU clocks — per-core charts
-    cpuScalingClk: a2(16, coreSize), // CPU core cpufreq scaling — per-core charts
+    times:     tBuf(size),
+    coreTimes: tBuf(coreSize),
+    gfx:      makeBuf(size),
+    mem:      makeBuf(size),
+    media:    makeBuf(size),
+    vram:     makeBuf(size),
+    vramOnly: makeBuf(size),
+    gttOnly:  makeBuf(size),
+    pwr:      makeBuf(size),
+    fan:      makeBuf(size),
+    ppt:      makeBuf(size),
+    cpuPwr:   makeBuf(size),
+    npuPwr:   makeBuf(size),
+    tempE:    makeBuf(size),
+    tempC:    makeBuf(size),
+    tempS:    makeBuf(size),
+    tempGfx:  makeBuf(size),
+    tempHot:  makeBuf(size),
+    tempMem:  makeBuf(size),
+    sclk:     makeBuf(size),
+    mclk:     makeBuf(size),
+    fclk:     makeBuf(size),
+    fclkAvg:  makeBuf(size),
+    socClk:   makeBuf(size),
+    vclk:     makeBuf(size),
+    vddgfx:   makeBuf(size),
+    vddnb:    makeBuf(size),
+    dramReads:  makeBuf(size),
+    dramWrites: makeBuf(size),
+    npuBusy:   makeBufN(8,  size),
+    npuClk:    makeBuf(size),
+    npuMpClk:  makeBuf(size),
+    npuReads:  makeBuf(size),
+    npuWrites: makeBuf(size),
+    grbm:          makeBufN(GRBM_KEYS.length,  size),
+    grbm2:         makeBufN(GRBM2_KEYS.length, size),
+    corePwr:       makeBufN(16, size),     // CPU core power — global chart
+    coreClk:       makeBufN(16, coreSize), // CPU core SMU clocks — per-core charts
+    cpuScalingClk: makeBufN(16, coreSize), // CPU core cpufreq scaling — per-core charts
     vramMax:       1,
     events:           [],         // [{timeMs, type:'start'|'stop', name, pid}]
     prevProcNames:    new Map(),  // pid → name, previous tick
