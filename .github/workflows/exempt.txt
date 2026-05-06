@@ -8,3 +8,4 @@ assets/*
 assets/**
 .github/workflows/exempt.txt
 .opencode/**
+.devcontainer/**
