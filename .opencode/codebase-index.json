@@ -1,27 +1,15 @@
 {
   "embeddingProvider": "custom",
-  "customProvider": {
-    "baseUrl": "http://192.168.2.44:5900/v1",
-    "model": "opencode:qwen3-embed-0.6b",
-    "dimensions": 1024
-  },
-  "reranker": {
-    "enabled": true,
-    "baseUrl": "http://192.168.2.44:5900/v1",
-    "model": "opencode:qwen3-rerank-0.6b"
+  "knowledgeBases": [
+    "C:\\scratch\\git\\amdgpu-go"
+  ],
+  "exclude": [
+    "tui_log.txt"
+  ],
+  "indexing": {
+    "skipAutoIndexOnLoad": true
   },
   "debug": {
-    "enabled": true,
-    "metrics": true,
-    "logLevel": "debug"
-  },
-  "knowledgeBases": [
-    "C:\\scratch\\git\\atopweb",
-    "C:\\scratch\\git\\amdgpu_top"
-  ],
-  "additionalInclude": [],
-  "indexing": {
-    "autoIndex": true,
-    "maxFilesPerDirectory": 1000
+    "progressLogFile": "indexing_progress.log"
   }
 }
