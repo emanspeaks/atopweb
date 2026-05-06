@@ -155,7 +155,7 @@ func (h *hub) broadcastProcEvent(ev procEvent) {
 	if err != nil {
 		return
 	}
-	h.broadcast(data)
+	h.pushEvent("proc", data)
 }
 
 // watchKFDProcs polls /sys/class/kfd/kfd/proc for new ROCm/HIP process opens.

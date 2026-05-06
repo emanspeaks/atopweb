@@ -143,8 +143,11 @@ function updateChartAnnotations(i) {
   const nowMs = Date.now();
   for (const [key, chart] of Object.entries(state.charts)) {
     if (!key.startsWith(devPrefix)) continue;
+    // Check the live buffer head, not ds.data — ds.data is a stale subarray
+    // until the RAF loop refreshes it, which only happens when the chart is
+    // already active.  Using the buffer directly breaks that deadlock.
     const hasData = chart.config.data.datasets.some(
-      ds => ds.data?.length && Number.isFinite(ds.data[ds.data.length - 1])
+      ds => ds._buf && Number.isFinite(ds._buf.buf[ds._buf.head - 1])
     );
     if (hasData) state.chartLastData[key] = nowMs;
   }

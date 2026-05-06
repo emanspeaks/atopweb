@@ -1,8 +1,6 @@
 'use strict';
 // ── Interval control ─────────────────────────────────────────────────────────
 function initIntervalCtrl() {
-  fetchConfig();
-
   const apply = () => {
     const ms = parseInt(document.getElementById('interval-input').value, 10);
     if (isNaN(ms) || ms < 50 || ms > 60000) return;

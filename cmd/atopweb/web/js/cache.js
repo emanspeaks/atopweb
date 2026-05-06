@@ -158,8 +158,20 @@ function _ensureCacheWorker() {
     const blob = new Blob([_cacheWorkerSrc], { type: 'application/javascript' });
     _cacheWorker = new Worker(URL.createObjectURL(blob));
     _cacheWorker.onmessage = (e) => {
-      try { localStorage.setItem(CACHE_KEY, e.data); }
-      catch { /* quota exceeded or storage unavailable */ }
+      // localStorage.setItem is synchronous and can block the main thread for
+      // 50–100 ms on large payloads.  Defer to an idle period so chart updates
+      // and WebSocket message processing are not interrupted.  The timeout
+      // ensures the write completes well before the next 5-second save cycle.
+      const json = e.data;
+      if (typeof requestIdleCallback === 'function') {
+        requestIdleCallback(() => {
+          try { localStorage.setItem(CACHE_KEY, json); }
+          catch { /* quota exceeded or storage unavailable */ }
+        }, { timeout: 4500 });
+      } else {
+        try { localStorage.setItem(CACHE_KEY, json); }
+        catch { /* quota exceeded or storage unavailable */ }
+      }
     };
     _cacheWorker.onerror = () => { _cacheWorker = null; }; // fall back to inline encode
   } catch { _cacheWorker = null; }

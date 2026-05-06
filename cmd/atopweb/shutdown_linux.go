@@ -107,7 +107,7 @@ func pushShutdownAlert(h *hub, msg string) {
 		ShutdownPending string `json:"shutdown_pending"`
 	}
 	b, _ := json.Marshal(alert{Type: "system_alert", ShutdownPending: msg})
-	h.pushAll(b)
+	h.pushEvent("alert", b)
 	log.Printf("shutdown alert pushed: %s", msg)
 }
 
