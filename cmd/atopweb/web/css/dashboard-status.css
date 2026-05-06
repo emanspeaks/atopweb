@@ -44,7 +44,8 @@
   font-family: 'Menlo', 'Consolas', monospace;
 }
 
-#status-log .log-line       { display: block; font-size: 10px; line-height: 1.7; }
+#status-log .log-line                   { display: block; font-size: 10px; line-height: 1.7; }
+#status-log .log-line:nth-child(odd)    { background: rgba(255,255,255,0.04); }
 #status-log .log-line.ok    { color: var(--green); }
 #status-log .log-line.warn  { color: var(--yellow); }
 #status-log .log-line.err   { color: var(--red); }
@@ -73,6 +74,7 @@
   min-height: 24px;
   cursor: pointer;
   user-select: none;
+  border-top: 1px solid var(--muted);
 }
 
 #status-bar-text {

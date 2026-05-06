@@ -73,12 +73,20 @@ function updateProcessTable(i, dev) {
       h.procRows.clear();
     }
     if (!tbody.firstElementChild?.classList.contains('proc-empty-row')) {
-      tbody.innerHTML = `<tr class="proc-empty-row"><td colspan="17" class="proc-empty" style="padding:12px 16px">No GPU / NPU processes</td></tr>`;
+      const tr = document.createElement('tr');
+      tr.className = 'proc-empty-row';
+      const td = document.createElement('td');
+      td.colSpan = 17;
+      td.className = 'proc-empty';
+      td.style.padding = '12px 16px';
+      td.textContent = 'No GPU / NPU processes';
+      tr.appendChild(td);
+      tbody.appendChild(tr);
     }
     return;
   }
   // First populated render after an empty render: clear the empty placeholder.
-  if (tbody.firstElementChild?.classList.contains('proc-empty-row')) tbody.innerHTML = '';
+  if (tbody.firstElementChild?.classList.contains('proc-empty-row')) tbody.firstElementChild.remove();
   if (!h.procRows) h.procRows = new Map();
 
   if (!h.procSort) h.procSort = { col: 'pid', dir: 1 };
