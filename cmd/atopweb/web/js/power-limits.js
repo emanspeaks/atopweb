@@ -27,9 +27,3 @@ function applyLimits(d) {
   if (parts.length) appendLog(`Power limits: ${parts.join('  ')}`, 'warn');
 }
 
-function fetchPowerLimits() {
-  fetch('/api/limits')
-    .then(r => r.json())
-    .then(d => applyLimits(d))
-    .catch(() => {});
-}

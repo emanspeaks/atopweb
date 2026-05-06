@@ -38,9 +38,3 @@ function applyCoreRanks(d) {
   }
 }
 
-function fetchCoreRanks() {
-  fetch('/api/cpu-ranks')
-    .then(r => r.ok ? r.json() : null)
-    .then(d => { if (d) applyCoreRanks(d); })
-    .catch(() => {});
-}

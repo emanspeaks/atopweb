@@ -1,14 +1,5 @@
 'use strict';
-// ── System info (fan / voltage / power / temp / RAM via /api/system) ────────
-// Polled at low frequency (1 Hz) since these metrics change slowly and the
-// endpoint is cheap to serve but not instant.
-function fetchSystem() {
-  fetch('/api/system')
-    .then(r => r.ok ? r.json() : null)
-    .then(sys => { if (sys) renderSystemInfo(sys); })
-    .catch(() => {});
-}
-
+// ── System info ──────────────────────────────────────────────────────────────
 function renderSystemInfo(sys) {
   if (!state.systemInfo) state.systemInfo = {};
   Object.assign(state.systemInfo, sys);

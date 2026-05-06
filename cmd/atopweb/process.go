@@ -31,11 +31,12 @@ import (
 // procEventTracker deduplicates start events across all three layers by PID.
 
 type procEvent struct {
-	Type   string `json:"type"`  // always "proc_event"
-	Event  string `json:"event"` // "start"
-	PID    int    `json:"pid"`
-	Name   string `json:"name"`
-	TimeMs int64  `json:"time_ms"`
+	Type    string `json:"type"`              // always "proc_event"
+	Event   string `json:"event"`             // "start"
+	PID     int    `json:"pid"`
+	Name    string `json:"name"`
+	CmdLine string `json:"cmdline,omitempty"` // full /proc/<pid>/cmdline, space-separated
+	TimeMs  int64  `json:"time_ms"`
 }
 
 type procEventTracker struct {
@@ -150,6 +151,16 @@ func readProcName(pid int) string {
 	return strings.TrimSpace(string(data))
 }
 
+// readProcCmdLine returns the full command line for pid by reading
+// /proc/<pid>/cmdline (NUL-separated args joined with spaces), or "" on error.
+func readProcCmdLine(pid int) string {
+	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid))
+	if err != nil || len(data) == 0 {
+		return ""
+	}
+	return strings.TrimRight(strings.ReplaceAll(string(data), "\x00", " "), " ")
+}
+
 func (h *hub) broadcastProcEvent(ev procEvent) {
 	data, err := json.Marshal(ev)
 	if err != nil {
@@ -195,7 +206,7 @@ func watchKFDProcs(h *hub, tracker *procEventTracker) {
 			}
 			h.broadcastProcEvent(procEvent{
 				Type: "proc_event", Event: "start",
-				PID: pid, Name: name, TimeMs: time.Now().UnixMilli(),
+				PID: pid, Name: name, CmdLine: readProcCmdLine(pid), TimeMs: time.Now().UnixMilli(),
 			})
 			log.Printf("kfd watcher: start pid=%d name=%q", pid, name)
 		}
@@ -243,7 +254,7 @@ func watchKnownGPUProcs(h *hub, cache *gpuProcCache, tracker *procEventTracker) 
 			}
 			h.broadcastProcEvent(procEvent{
 				Type: "proc_event", Event: "start",
-				PID: pid, Name: name, TimeMs: time.Now().UnixMilli(),
+				PID: pid, Name: name, CmdLine: readProcCmdLine(pid), TimeMs: time.Now().UnixMilli(),
 			})
 			log.Printf("known-proc watcher: start pid=%d name=%q", pid, name)
 		}

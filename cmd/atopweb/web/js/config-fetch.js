@@ -61,13 +61,6 @@ function applyConfig(cfg) {
   state.lastConfig = snap;
 }
 
-function fetchConfig() {
-  fetch('/api/config')
-    .then(r => r.json())
-    .then(cfg => applyConfig(cfg))
-    .catch(() => {});
-}
-
 function showVersionBanner(loadedVer, serverVer) {
   const banner = document.getElementById('version-banner');
   const msg    = document.getElementById('version-banner-msg');

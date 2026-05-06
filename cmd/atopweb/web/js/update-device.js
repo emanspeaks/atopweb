@@ -125,19 +125,52 @@ function updateDevice(i, dev) {
     const byId = id => document.getElementById(id);
 
     const pctInst = kib => `${kib / installedKiB * 100}%`;
+    const escAttr = s => String(s ?? '').replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+    const pidOverlayHTML = (procs, totalKiB, cls, fmt) => {
+      let html = '';
+      for (const p of procs) {
+        const kib = fmt(p);
+        const pct = totalKiB > 0 ? kib / totalKiB * 100 : 0;
+        const gib = (kib / 1048576).toFixed(3);
+        const tip = `${p.comm || '?'} (PID ${p.pid}): ${gib} GiB`
+                  + (p.cmdline ? `<br>\`${escHtml(p.cmdline)}\`` : '');
+        html += `<div class="mem-pid ${cls}" style="width:${pct}%" data-src="${escAttr(tip)}" data-dev="${i}">${p.pid}</div>`;
+      }
+      return html;
+    };
     const vramPartEl = byId(`mem-vram-part-${i}`);
     if (vramPartEl) vramPartEl.style.width = pctInst(vramTotalKiB);
     const setSegKiB = (el, kib) => { if (!el) return; el.style.width = pctInst(kib); el.style.minWidth = kib > 0 ? '1px' : ''; };
     const vramVisEl = byId(`mem-vram-vis-${i}`);
-    if (vramVisEl) { vramVisEl.style.width = vramTotalKiB > 0 ? `${visVramUsedKiB / vramTotalKiB * 100}%` : '0%'; vramVisEl.style.minWidth = visVramUsedKiB > 0 ? '1px' : ''; }
+    if (vramVisEl) {
+      vramVisEl.style.width    = vramTotalKiB > 0 ? `${visVramUsedKiB / vramTotalKiB * 100}%` : '0%';
+      vramVisEl.style.minWidth = visVramUsedKiB > 0 ? '1px' : '';
+      const procs = (drmMem.processes ?? []).filter(p => (p.vis_vram_kib ?? 0) > 0)
+                                             .sort((a, b) => (b.vis_vram_kib ?? 0) - (a.vis_vram_kib ?? 0));
+      vramVisEl.innerHTML = pidOverlayHTML(procs, visVramUsedKiB, 'mem-pid-white', p => p.vis_vram_kib ?? 0);
+    }
     const vramInvEl = byId(`mem-vram-inv-${i}`);
-    if (vramInvEl) { vramInvEl.style.width = vramTotalKiB > 0 ? `${vramInvUsedKiB / vramTotalKiB * 100}%` : '0%'; vramInvEl.style.minWidth = vramInvUsedKiB > 0 ? '1px' : ''; }
+    if (vramInvEl) {
+      vramInvEl.style.width    = vramTotalKiB > 0 ? `${vramInvUsedKiB / vramTotalKiB * 100}%` : '0%';
+      vramInvEl.style.minWidth = vramInvUsedKiB > 0 ? '1px' : '';
+      const invKib = p => Math.max(0, (p.vram_kib ?? 0) - (p.vis_vram_kib ?? 0));
+      const procs = (drmMem.processes ?? []).filter(p => invKib(p) > 0)
+                                             .sort((a, b) => invKib(b) - invKib(a));
+      vramInvEl.innerHTML = pidOverlayHTML(procs, vramInvUsedKiB, 'mem-pid-dark', invKib);
+    }
     setSegKiB(byId(`mem-kres-${i}`), kernelResKiB);
     setSegKiB(byId(`mem-fw-${i}`),   fwReservedKiB);
 
     const pctSys = kb => `${kb / totalKB * 100}%`;
     const setSeg = (id, kb) => { const e = byId(id); if (e) { e.style.width = pctSys(kb); e.style.minWidth = kb > 0 ? "1px" : ""; } };
-    setSeg(`mem-gtt-used-${i}`, gttKB);
+    const gttEl = byId(`mem-gtt-used-${i}`);
+    if (gttEl) {
+      gttEl.style.width    = pctSys(gttKB);
+      gttEl.style.minWidth = gttKB > 0 ? '1px' : '';
+      const procs = (drmMem.processes ?? []).filter(p => (p.gtt_kib ?? 0) > 0)
+                                             .sort((a, b) => (b.gtt_kib ?? 0) - (a.gtt_kib ?? 0));
+      gttEl.innerHTML = pidOverlayHTML(procs, gttKB, 'mem-pid-dark', p => p.gtt_kib ?? 0);
+    }
     setSeg(`mem-drmcpu-${i}`,   drmCpuKB);
 
     const gpuAppsEl = byId(`mem-anon-gpu-${i}`);
@@ -147,7 +180,6 @@ function updateDevice(i, dev) {
       const gpuProcs = (drmMem.processes ?? [])
         .filter(p => (p.pss_anon_kib ?? 0) > 0)
         .sort((a, b) => (b.pss_anon_kib ?? 0) - (a.pss_anon_kib ?? 0));
-      const escAttr = s => String(s ?? '').replace(/&/g, '&amp;').replace(/"/g, '&quot;');
       let html = '';
       for (const p of gpuProcs) {
         const kib    = p.pss_anon_kib ?? 0;

@@ -76,7 +76,8 @@ function connectSSE() {
         h.eventsDirty = true;
       }
     }
-    appendLog(`Process start: ${data.name} (PID ${data.pid}) [early]`, 'ok');
+    const cmdSuffix = data.cmdline ? ` — ${data.cmdline}` : '';
+    appendLog(`Process start: ${data.name} (PID ${data.pid})${cmdSuffix} [early]`, 'ok');
   });
 
   es.addEventListener('alert', evt => {

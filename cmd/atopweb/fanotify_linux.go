@@ -106,7 +106,7 @@ func watchFanotifyGPU(h *hub, tracker *procEventTracker, devices []string) {
 			}
 			h.broadcastProcEvent(procEvent{
 				Type: "proc_event", Event: "start",
-				PID: pid, Name: name, TimeMs: time.Now().UnixMilli(),
+				PID: pid, Name: name, CmdLine: readProcCmdLine(pid), TimeMs: time.Now().UnixMilli(),
 			})
 			log.Printf("fanotify watcher: start pid=%d name=%q", pid, name)
 		}
