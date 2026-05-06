@@ -114,9 +114,9 @@
 .mem-bar-sys-part  { flex: 1; }
 
 .mem-seg-vram-free { flex: 1;        background: rgba(76,175,80,0.08); }
-.mem-seg-vram-vis  { flex: 0 0 auto; background: #2e7d32; }  /* CPU-visible VRAM used — dark forest green */
-.mem-seg-vram-inv  { flex: 0 0 auto; background: #aed581; }  /* CPU-invisible VRAM used — light lime (high yellow) */
-.mem-seg-gtt-used  { flex: 0 0 auto; background: #80cbc4; }  /* GTT used — light teal (high blue) */
+.mem-seg-vram-vis  { flex: 0 0 auto; background: #2e7d32; display: flex; flex-direction: row; overflow: hidden; }  /* CPU-visible VRAM used — dark forest green */
+.mem-seg-vram-inv  { flex: 0 0 auto; background: #aed581; display: flex; flex-direction: row; overflow: hidden; }  /* CPU-invisible VRAM used — light lime (high yellow) */
+.mem-seg-gtt-used  { flex: 0 0 auto; background: #80cbc4; display: flex; flex-direction: row; overflow: hidden; }  /* GTT used — light teal (high blue) */
 .mem-seg-drmcpu    { flex: 0 0 auto; background: #00695c; }  /* DRM CPU-domain pinned — dark teal (high blue) */
 .mem-seg-anon-gpu   { flex: 0 0 auto; background: #43a047; display: flex; flex-direction: row; overflow: hidden; }  /* GPU process anon — Σ Pss_Anon for DRM-fdinfo PIDs (medium green; clusters with GPU greens) — flex container hosts one child per active GPU PID */
 .mem-anon-gpu-pid {
@@ -136,6 +136,23 @@
   min-width: 1px;
 }
 .mem-anon-gpu-pid:last-child { border-right: none; }
+.mem-pid {
+  flex: 0 0 auto;
+  background: transparent;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  font-weight: 600;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: clip;
+  min-width: 1px;
+}
+.mem-pid:last-child { border-right: none; }
+.mem-pid-white { color: rgba(255,255,255,0.95); border-right: 1px dotted rgba(255,255,255,0.7); }
+.mem-pid-dark  { color: rgba(0,0,0,0.80);       border-right: 1px dotted rgba(0,0,0,0.30);   }
 .mem-seg-anon-other { flex: 0 0 auto; background: #ff7043; }  /* AnonPages − GPU Pss_Anon — non-GPU process heap/stack */
 .mem-seg-shmem     { flex: 0 0 auto; background: #1e88e5; }  /* Shmem — tmpfs / SysV shared */
 .mem-seg-cached    { flex: 0 0 auto; background: #ff9800; }  /* Cached − Shmem — file page cache */

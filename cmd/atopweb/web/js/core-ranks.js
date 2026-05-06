@@ -29,16 +29,12 @@ function coreLabel(j) {
   return rank != null ? `C${j} (R#${rank})` : `C${j}`;
 }
 
-function fetchCoreRanks() {
-  fetch('/api/cpu-ranks')
-    .then(r => r.ok ? r.json() : null)
-    .then(d => {
-      if (d?.ranks?.length) {
-        const changed = d.ranks.length !== state.coreRanks.length ||
-          d.ranks.some((r, j) => r !== state.coreRanks[j]);
-        state.coreRanks = d.ranks;
-        if (changed && state.lastDevices) buildDom(state.lastDevices);
-      }
-    })
-    .catch(() => {});
+function applyCoreRanks(d) {
+  if (d?.ranks?.length) {
+    const changed = d.ranks.length !== state.coreRanks.length ||
+      d.ranks.some((r, j) => r !== state.coreRanks[j]);
+    state.coreRanks = d.ranks;
+    if (changed && state.lastDevices) buildDom(state.lastDevices);
+  }
 }
+

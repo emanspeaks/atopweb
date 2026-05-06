@@ -39,10 +39,10 @@ function buildMemoryBar(i) {
       <span class="mem-legend-item" data-src="${MEM_TIPS.shmem}"><span class="mem-lswatch mem-lswatch-shmem"></span>Shm: <span class="mem-legend-val" id="mem-lbl-shmem-${i}">—</span></span>
       <span class="mem-legend-item" data-src="${MEM_TIPS.cached}"><span class="mem-lswatch mem-lswatch-cached"></span>FCache: <span class="mem-legend-val" id="mem-lbl-cached-${i}">—</span></span>
       <span class="mem-legend-item" data-src="${MEM_TIPS.buf}"><span class="mem-lswatch mem-lswatch-buf"></span>Bufs: <span class="mem-legend-val" id="mem-lbl-buf-${i}">—</span></span>
-      <span class="mem-legend-item" data-src="${MEM_TIPS.sreclm}"><span class="mem-lswatch mem-lswatch-sreclm"></span>SReclm: <span class="mem-legend-val" id="mem-lbl-sreclm-${i}">—</span></span>
-      <span class="mem-legend-item" data-src="${MEM_TIPS.sunrec}"><span class="mem-lswatch mem-lswatch-sunrec"></span>SUnreclm: <span class="mem-legend-val" id="mem-lbl-sunrec-${i}">—</span></span>
+      <span class="mem-legend-item" data-src="${MEM_TIPS.sreclm}"><span class="mem-lswatch mem-lswatch-sreclm"></span>SRec: <span class="mem-legend-val" id="mem-lbl-sreclm-${i}">—</span></span>
+      <span class="mem-legend-item" data-src="${MEM_TIPS.sunrec}"><span class="mem-lswatch mem-lswatch-sunrec"></span>SUnrec: <span class="mem-legend-val" id="mem-lbl-sunrec-${i}">—</span></span>
       <span class="mem-legend-item" data-src="${MEM_TIPS.vmalloc}"><span class="mem-lswatch mem-lswatch-vmalloc"></span>Vmalloc: <span class="mem-legend-val" id="mem-lbl-vmalloc-${i}">—</span></span>
-      <span class="mem-legend-item" data-src="${MEM_TIPS.kstack}"><span class="mem-lswatch mem-lswatch-kstack"></span>KStack: <span class="mem-legend-val" id="mem-lbl-kstack-${i}">—</span></span>
+      <span class="mem-legend-item" data-src="${MEM_TIPS.kstack}"><span class="mem-lswatch mem-lswatch-kstack"></span>KStk: <span class="mem-legend-val" id="mem-lbl-kstack-${i}">—</span></span>
       <span class="mem-legend-item" data-src="${MEM_TIPS.ptables}"><span class="mem-lswatch mem-lswatch-ptables"></span>PgTbls: <span class="mem-legend-val" id="mem-lbl-ptables-${i}">—</span></span>
       <span class="mem-legend-item" data-src="${MEM_TIPS.netbuf}"><span class="mem-lswatch mem-lswatch-netbuf"></span>NetBufs: <span class="mem-legend-val" id="mem-lbl-netbuf-${i}">—</span></span>
       <span class="mem-legend-item" data-src="${MEM_TIPS.drvpg}"><span class="mem-lswatch mem-lswatch-drvpg"></span>DrvPgs: <span class="mem-legend-val" id="mem-lbl-drvpg-${i}">—</span></span>

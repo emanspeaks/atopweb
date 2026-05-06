@@ -24,10 +24,12 @@ type configInfo struct {
 	DRAMMaxBWKiBs   uint64 `json:"dram_max_bw_kibs,omitempty"`
 }
 
-func (h *hub) serveConfig(w http.ResponseWriter, r *http.Request) {
+func buildConfigJSON(h *hub) ([]byte, error) {
 	mem := readMemInfoAll()
 	total := mem["MemTotal"] / 1024
 	nixosVer, nixosGen := readNixosInfo()
+	kernelVer := readKernelVersion()
+	cpuGov := readCPUGovernor()
 	h.mu.Lock()
 	info := configInfo{
 		IntervalMs:      h.intervalMs,
@@ -36,17 +38,58 @@ func (h *hub) serveConfig(w http.ResponseWriter, r *http.Request) {
 		AtopTopVersion:  h.atopVersion,
 		BackendName:     h.backendName,
 		TotalRAMMiB:     total,
-		KernelVersion:   readKernelVersion(),
+		KernelVersion:   kernelVer,
 		NixosVersion:    nixosVer,
 		NixosGeneration: nixosGen,
-		CPUGovernor:     readCPUGovernor(),
+		CPUGovernor:     cpuGov,
 		DRAMMaxBWKiBs:   h.dramMaxBWKiBs,
 	}
 	h.mu.Unlock()
+	return json.Marshal(info)
+}
 
+// buildInitFrames assembles the SSE frames sent to every new client on connect:
+// config, limits, cpu-ranks, and an initial system snapshot.  This replaces the
+// four REST calls the browser previously made at startup.
+func buildInitFrames(h *hub) []byte {
+	var out []byte
+
+	if b, err := buildConfigJSON(h); err == nil {
+		out = append(out, sseFrame("config", b)...)
+	}
+
+	h.mu.Lock()
+	lim := h.powerCache
+	h.mu.Unlock()
+	if b, err := json.Marshal(lim); err == nil {
+		out = append(out, sseFrame("limits", b)...)
+	}
+
+	coreRanksOnce.Do(func() { coreRanksData = readCoreRanks() })
+	ranks := coreRanksData
+	if ranks == nil {
+		ranks = []int{}
+	}
+	if b, err := json.Marshal(map[string][]int{"ranks": ranks}); err == nil {
+		out = append(out, sseFrame("cpu-ranks", b)...)
+	}
+
+	if b, err := json.Marshal(buildSystemInfo()); err == nil {
+		out = append(out, sseFrame("system", b)...)
+	}
+
+	return out
+}
+
+func (h *hub) serveConfig(w http.ResponseWriter, r *http.Request) {
+	b, err := buildConfigJSON(h)
+	if err != nil {
+		http.Error(w, "encode error", http.StatusInternalServerError)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
-	json.NewEncoder(w).Encode(info)
+	w.Write(b)
 }
 
 func (h *hub) serveSetInterval(w http.ResponseWriter, r *http.Request) {
@@ -70,6 +113,9 @@ func (h *hub) serveSetInterval(w http.ResponseWriter, r *http.Request) {
 		cancel()
 	}
 	log.Printf("update interval: %d ms → %d ms", old, ms)
+	if b, err := buildConfigJSON(h); err == nil {
+		h.pushEvent("config", b)
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -204,7 +250,11 @@ func (h *hub) refreshPowerLimits() {
 	h.mu.Lock()
 	h.powerCache = result
 	h.limitsRefreshedAt = time.Now()
+	lim := h.powerCache
 	h.mu.Unlock()
+	if b, err := json.Marshal(lim); err == nil {
+		h.pushEvent("limits", b)
+	}
 }
 
 func (h *hub) serveLimits(w http.ResponseWriter, r *http.Request) {

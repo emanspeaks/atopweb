@@ -12,7 +12,6 @@ import (
 	"time"
 
 	amdgpu "github.com/emanspeaks/amdgpu-go/amdgpu"
-	"github.com/gorilla/websocket"
 )
 
 // version is overridden at release build time via -ldflags="-X main.version=vX.Y.Z".
@@ -107,7 +106,7 @@ func main() {
 	}
 
 	h := &hub{
-		clients:       make(map[*websocket.Conn]struct{}),
+		clients:       make(map[*client]struct{}),
 		intervalMs:    *intervalMs,
 		showGttMargin: *showGttMargin,
 		atopVersion:   atopVer,
@@ -181,7 +180,14 @@ func main() {
 			return
 		}
 		log.Printf("dashboard opened from %s", r.RemoteAddr)
-		go h.refreshPowerLimits()
+		// Only refresh if the cached limits are stale — avoids spawning a new
+		// sudo ryzenadj process on every page open when the cache is fresh.
+		h.mu.Lock()
+		needRefresh := len(h.ryzenAdjArgs) > 0 && time.Since(h.limitsRefreshedAt) > 30*time.Second
+		h.mu.Unlock()
+		if needRefresh {
+			go h.refreshPowerLimits()
+		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Write(dashBytes)
 	})
@@ -192,7 +198,7 @@ func main() {
 	http.HandleFunc("/api/limits", h.serveLimits)
 	http.HandleFunc("/api/system", serveSystem)
 	http.HandleFunc("/api/cpu-ranks", serveCoreRanks)
-	http.HandleFunc("/ws", h.serveWS)
+	http.HandleFunc("/events", h.serveSSE)
 
 	addr := fmt.Sprintf(":%d", *port)
 	log.Printf("listening on http://0.0.0.0%s", addr)

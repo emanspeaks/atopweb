@@ -10,12 +10,22 @@ function appendLog(msg, cls) {
   const now = new Date();
   const ts  = now.toLocaleTimeString([], { hour12: false }) + '.' +
               String(now.getMilliseconds()).padStart(3, '0');
-  const span = document.createElement('span');
-  span.className = 'log-line' + (cls ? ' ' + cls : '');
-  span.textContent = `[${ts}]  ${msg}`;
-  log.appendChild(span);
-  // Cap log to last N lines so a long-lived page doesn't accumulate unbounded DOM.
-  while (log.childElementCount > LOG_MAX_LINES) log.removeChild(log.firstElementChild);
+
+  const last = log.lastElementChild;
+  if (last && last.dataset.msg === msg && last.dataset.cls === (cls || '')) {
+    const count = (parseInt(last.dataset.count, 10) || 1) + 1;
+    last.dataset.count = count;
+    last.textContent = `[${ts}]  (${count}x) ${msg}`;
+  } else {
+    const span = document.createElement('span');
+    span.className = 'log-line' + (cls ? ' ' + cls : '');
+    span.dataset.msg = msg;
+    span.dataset.cls = cls || '';
+    span.textContent = `[${ts}]  ${msg}`;
+    log.appendChild(span);
+    // Cap log to last N lines so a long-lived page doesn't accumulate unbounded DOM.
+    while (log.childElementCount > LOG_MAX_LINES) log.removeChild(log.firstElementChild);
+  }
   if (atBottom) log.scrollTop = log.scrollHeight;
   const textEl = document.getElementById('status-bar-text');
   if (textEl) {

@@ -88,9 +88,49 @@ function buildMemSegs(devIdx) {
   }
 
   add('vramFree',  'VRAM Free',    vramFreeKiB,    MEM_COLORS.vramFree,  MEM_TIPS.vramFree);
-  add('vramVis',   'VRAM Vis',     visVramUsedKiB, MEM_COLORS.vramVis,   MEM_TIPS.vramVis);
-  add('vramInv',   'VRAM Inv',     vramInvUsedKiB, MEM_COLORS.vramInv,   MEM_TIPS.vramInv);
-  add('gtt',       'GTT Used',     gttKB,          MEM_COLORS.gtt,       MEM_TIPS.gtt);
+
+  const _pidChildren = (procs, color, textColor, labelFn, kibFn, descFn) =>
+    procs.map(p => ({ key: `pid-${color.replace('#','')}-${p.pid}`, label: labelFn(p),
+                      kib: kibFn(p), color, textColor, cmdline: p.cmdline || '', desc: descFn(p) }));
+
+  const vramVisProcs = (drmMem.processes ?? []).filter(p => (p.vis_vram_kib ?? 0) > 0)
+                                                .sort((a, b) => (b.vis_vram_kib ?? 0) - (a.vis_vram_kib ?? 0));
+  if (vramVisProcs.length > 0) {
+    const children = _pidChildren(vramVisProcs, MEM_COLORS.vramVis, '#e6edf3',
+      p => `${p.comm || '?'} (${p.pid})`, p => p.vis_vram_kib ?? 0,
+      p => `${p.comm || '?'} (PID ${p.pid}): ${((p.vis_vram_kib??0)/1048576).toFixed(3)} GiB Vis VRAM`);
+    segs.push({ key: 'vramVis', label: 'VRAM Vis', kib: visVramUsedKiB,
+                color: MEM_COLORS.vramVis, desc: MEM_TIPS.vramVis, children });
+  } else {
+    add('vramVis', 'VRAM Vis', visVramUsedKiB, MEM_COLORS.vramVis, MEM_TIPS.vramVis);
+  }
+
+  const invKib = p => Math.max(0, (p.vram_kib ?? 0) - (p.vis_vram_kib ?? 0));
+  const vramInvProcs = (drmMem.processes ?? []).filter(p => invKib(p) > 0)
+                                                .sort((a, b) => invKib(b) - invKib(a));
+  if (vramInvProcs.length > 0) {
+    const children = _pidChildren(vramInvProcs, MEM_COLORS.vramInv, '#1a1a1a',
+      p => `${p.comm || '?'} (${p.pid})`, invKib,
+      p => `${p.comm || '?'} (PID ${p.pid}): ${(invKib(p)/1048576).toFixed(3)} GiB Invis VRAM`);
+    segs.push({ key: 'vramInv', label: 'VRAM Inv', kib: vramInvUsedKiB,
+                color: MEM_COLORS.vramInv, textColor: '#1a1a1a', desc: MEM_TIPS.vramInv, children });
+  } else {
+    segs.push({ key: 'vramInv', label: 'VRAM Inv', kib: vramInvUsedKiB,
+                color: MEM_COLORS.vramInv, textColor: '#1a1a1a', desc: MEM_TIPS.vramInv });
+  }
+
+  const gttProcs = (drmMem.processes ?? []).filter(p => (p.gtt_kib ?? 0) > 0)
+                                            .sort((a, b) => (b.gtt_kib ?? 0) - (a.gtt_kib ?? 0));
+  if (gttProcs.length > 0) {
+    const children = _pidChildren(gttProcs, MEM_COLORS.gtt, '#1a1a1a',
+      p => `${p.comm || '?'} (${p.pid})`, p => p.gtt_kib ?? 0,
+      p => `${p.comm || '?'} (PID ${p.pid}): ${((p.gtt_kib??0)/1048576).toFixed(3)} GiB GTT`);
+    segs.push({ key: 'gtt', label: 'GTT Used', kib: gttKB,
+                color: MEM_COLORS.gtt, textColor: '#1a1a1a', desc: MEM_TIPS.gtt, children });
+  } else {
+    segs.push({ key: 'gtt', label: 'GTT Used', kib: gttKB,
+                color: MEM_COLORS.gtt, textColor: '#1a1a1a', desc: MEM_TIPS.gtt });
+  }
   add('drmCpu',    'DRM CPU',      drmCpuKB,       MEM_COLORS.drmCpu,    MEM_TIPS.drmCpu);
   add('anonOther', 'Apps',         anonOtherKB,    MEM_COLORS.anonOther, MEM_TIPS.anonOther);
   add('shmem',     'Shared Mem',   shmemKB,        MEM_COLORS.shmem,     MEM_TIPS.shmem);
@@ -196,7 +236,7 @@ function _tmAddLeaf(svg, ns, item, x, y, w, h, GAP) {
     text.setAttribute('y',                  y + h / 2);
     text.setAttribute('text-anchor',        'middle');
     text.setAttribute('dominant-baseline',  'middle');
-    text.setAttribute('fill',               '#e6edf3');
+    text.setAttribute('fill',               item.textColor ?? '#e6edf3');
     text.setAttribute('font-size',          fontSize);
     text.setAttribute('font-family',        'system-ui, sans-serif');
     text.setAttribute('pointer-events',     'none');
