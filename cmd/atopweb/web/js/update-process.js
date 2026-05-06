@@ -36,8 +36,10 @@ function updateProcessTable(i, dev) {
   for (const [pid] of currentProcNames) {
     if (!h.prevProcNames.has(pid) && !h.earlyStartedPids.has(pid)) {
       const name = currentProcNames.get(pid);
+      const cmdline = procMap[pid]?.drm?.cmdline;
+      const cmdSuffix = cmdline ? ` — ${cmdline}` : '';
       h.events.push({ timeMs: nowMs, type: 'start', name, pid: Number(pid) });
-      appendLog(`Process start: ${name} (PID ${pid})`, 'ok');
+      appendLog(`Process start: ${name} (PID ${pid})${cmdSuffix}`, 'ok');
       h.eventsDirty = true;
     }
   }
