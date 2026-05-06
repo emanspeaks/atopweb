@@ -125,19 +125,8 @@ function updateDevice(i, dev) {
     const byId = id => document.getElementById(id);
 
     const pctInst = kib => `${kib / installedKiB * 100}%`;
-    const escAttr = s => String(s ?? '').replace(/&/g, '&amp;').replace(/"/g, '&quot;');
-    const pidOverlayHTML = (procs, totalKiB, cls, fmt) => {
-      let html = '';
-      for (const p of procs) {
-        const kib = fmt(p);
-        const pct = totalKiB > 0 ? kib / totalKiB * 100 : 0;
-        const gib = (kib / 1048576).toFixed(3);
-        const tip = `${p.comm || '?'} (PID ${p.pid}): ${gib} GiB`
-                  + (p.cmdline ? `<br>\`${escHtml(p.cmdline)}\`` : '');
-        html += `<div class="mem-pid ${cls}" style="width:${pct}%" data-src="${escAttr(tip)}" data-dev="${i}">${p.pid}</div>`;
-      }
-      return html;
-    };
+    const pidTip = (p, kib) => `${p.comm || '?'} (PID ${p.pid}): ${(kib/1048576).toFixed(3)} GiB`
+                             + (p.cmdline ? `<br>\`${escHtml(p.cmdline)}\`` : '');
     const vramPartEl = byId(`mem-vram-part-${i}`);
     if (vramPartEl) vramPartEl.style.width = pctInst(vramTotalKiB);
     const setSegKiB = (el, kib) => { if (!el) return; el.style.width = pctInst(kib); el.style.minWidth = kib > 0 ? '1px' : ''; };
@@ -147,7 +136,7 @@ function updateDevice(i, dev) {
       vramVisEl.style.minWidth = visVramUsedKiB > 0 ? '1px' : '';
       const procs = (drmMem.processes ?? []).filter(p => (p.vis_vram_kib ?? 0) > 0)
                                              .sort((a, b) => (b.vis_vram_kib ?? 0) - (a.vis_vram_kib ?? 0));
-      vramVisEl.innerHTML = pidOverlayHTML(procs, visVramUsedKiB, 'mem-pid-white', p => p.vis_vram_kib ?? 0);
+      syncPidOverlay(vramVisEl, procs, visVramUsedKiB, 'mem-pid mem-pid-white', p => p.vis_vram_kib ?? 0, pidTip);
     }
     const vramInvEl = byId(`mem-vram-inv-${i}`);
     if (vramInvEl) {
@@ -156,7 +145,7 @@ function updateDevice(i, dev) {
       const invKib = p => Math.max(0, (p.vram_kib ?? 0) - (p.vis_vram_kib ?? 0));
       const procs = (drmMem.processes ?? []).filter(p => invKib(p) > 0)
                                              .sort((a, b) => invKib(b) - invKib(a));
-      vramInvEl.innerHTML = pidOverlayHTML(procs, vramInvUsedKiB, 'mem-pid-dark', invKib);
+      syncPidOverlay(vramInvEl, procs, vramInvUsedKiB, 'mem-pid mem-pid-dark', invKib, pidTip);
     }
     setSegKiB(byId(`mem-kres-${i}`), kernelResKiB);
     setSegKiB(byId(`mem-fw-${i}`),   fwReservedKiB);
@@ -169,7 +158,7 @@ function updateDevice(i, dev) {
       gttEl.style.minWidth = gttKB > 0 ? '1px' : '';
       const procs = (drmMem.processes ?? []).filter(p => (p.gtt_kib ?? 0) > 0)
                                              .sort((a, b) => (b.gtt_kib ?? 0) - (a.gtt_kib ?? 0));
-      gttEl.innerHTML = pidOverlayHTML(procs, gttKB, 'mem-pid-dark', p => p.gtt_kib ?? 0);
+      syncPidOverlay(gttEl, procs, gttKB, 'mem-pid mem-pid-dark', p => p.gtt_kib ?? 0, pidTip);
     }
     setSeg(`mem-drmcpu-${i}`,   drmCpuKB);
 
@@ -180,22 +169,16 @@ function updateDevice(i, dev) {
       const gpuProcs = (drmMem.processes ?? [])
         .filter(p => (p.pss_anon_kib ?? 0) > 0)
         .sort((a, b) => (b.pss_anon_kib ?? 0) - (a.pss_anon_kib ?? 0));
-      let html = '';
-      for (const p of gpuProcs) {
-        const kib    = p.pss_anon_kib ?? 0;
-        const thpKib = p.anon_huge_pages_kib ?? 0;
-        const pct    = gpuAnonKB > 0 ? (kib / gpuAnonKB * 100) : 0;
-        const gib    = (kib / 1024 / 1024).toFixed(3);
-        const thpGib = (thpKib / 1024 / 1024).toFixed(3);
-        const thpPct = kib > 0 ? Math.round(thpKib / kib * 100) : 0;
-        const note = thpPct >= 80 ? ' — likely UMA model'
-                   : thpPct <  20 ? ' — heap/stack dominant'
-                   : '';
-        const tip = `${p.comm || '?'} (PID ${p.pid}): ${gib} GiB Pss_Anon (${thpGib} GiB THP, ${thpPct}%${note})`
-                  + (p.cmdline ? `<br>\`${escHtml(p.cmdline)}\`` : '');
-        html += `<div class="mem-anon-gpu-pid" style="width:${pct}%" data-src="${escAttr(tip)}" data-dev="${i}">${p.pid}</div>`;
-      }
-      gpuAppsEl.innerHTML = html;
+      syncPidOverlay(gpuAppsEl, gpuProcs, gpuAnonKB, 'mem-anon-gpu-pid',
+        p => p.pss_anon_kib ?? 0,
+        (p, kib) => {
+          const thpKib = p.anon_huge_pages_kib ?? 0;
+          const thpPct = kib > 0 ? Math.round(thpKib / kib * 100) : 0;
+          const note   = thpPct >= 80 ? ' — likely UMA model' : thpPct < 20 ? ' — heap/stack dominant' : '';
+          return `${p.comm || '?'} (PID ${p.pid}): ${(kib/1048576).toFixed(3)} GiB Pss_Anon`
+               + ` (${(thpKib/1048576).toFixed(3)} GiB THP, ${thpPct}%${note})`
+               + (p.cmdline ? `<br>\`${escHtml(p.cmdline)}\`` : '');
+        });
     }
     setSeg(`mem-anon-other-${i}`, anonOtherKB);
     setSeg(`mem-shmem-${i}`,    shmemKB);

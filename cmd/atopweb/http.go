@@ -78,6 +78,10 @@ func buildInitFrames(h *hub) []byte {
 		out = append(out, sseFrame("system", b)...)
 	}
 
+	if b, err := json.Marshal(buildMemSnapshot()); err == nil {
+		out = append(out, sseFrame("mem", b)...)
+	}
+
 	return out
 }
 

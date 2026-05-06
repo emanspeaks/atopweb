@@ -1,5 +1,7 @@
 'use strict';
 // ── Config fetch (version check + subtitle refresh) ───────────────────────────
+const fmtVer = v => v && /^\d/.test(v) ? `v${v}` : (v || '');
+
 function applyConfig(cfg) {
   if (!localStorage.getItem('atopweb.intervalMs')) {
     state.intervalMs = cfg.interval_ms;
@@ -9,9 +11,10 @@ function applyConfig(cfg) {
   applyGttMarginVisibility();
   const newVer = cfg.atopweb_version || '';
   const subSpans = [];
-  const _backendLabel = cfg.backend_name && cfg.amdgpu_top_version
-    ? `${cfg.backend_name} ${cfg.amdgpu_top_version}`
-    : (cfg.amdgpu_top_version || cfg.backend_name || null);
+  const _ver = cfg.amdgpu_top_version ? fmtVer(cfg.amdgpu_top_version) : null;
+  const _backendLabel = cfg.backend_name && _ver
+    ? `${cfg.backend_name} ${_ver}`
+    : (_ver || cfg.backend_name || null);
   if (_backendLabel) subSpans.push(`<span data-src="/api/config → backend">${_backendLabel}</span>`);
   if (cfg.kernel_version)     subSpans.push(`<span data-src="/api/config → kernel_version (/proc/sys/kernel/osrelease)">Linux v${cfg.kernel_version}</span>`);
   if (cfg.nixos_version)      subSpans.push(`<span data-src="/api/config → nixos_version (/etc/os-release VERSION_ID)">NixOS v${cfg.nixos_version}</span>`);
@@ -23,7 +26,7 @@ function applyConfig(cfg) {
   if (cfg.dram_max_bw_kibs) state.dramMaxBWKiBs = cfg.dram_max_bw_kibs;
   if (state.serverVersion === null && newVer) {
     state.serverVersion = newVer;
-    document.getElementById('page-title').textContent = `atopweb v${newVer}`;
+    document.getElementById('page-title').textContent = `atopweb ${fmtVer(newVer)}`;
   } else if (state.serverVersion && newVer && newVer !== state.serverVersion) {
     showVersionBanner(state.serverVersion, newVer);
   }
@@ -54,7 +57,7 @@ function applyConfig(cfg) {
     chk('NixOS',           lc.nixos_version,      snap.nixos_version);
     chk('Nix generation',  lc.nixos_generation,   snap.nixos_generation);
     chk('CPU governor',    lc.cpu_gov,             snap.cpu_gov);
-    chk('amdgpu_top',      lc.amdgpu_top_version, snap.amdgpu_top_version);
+    chk('backend version', lc.amdgpu_top_version, snap.amdgpu_top_version);
     chk('backend',         lc.backend_name,       snap.backend_name);
     chk('Show GTT margin', lc.show_gtt_margin,    snap.show_gtt_margin);
   }
@@ -66,7 +69,7 @@ function showVersionBanner(loadedVer, serverVer) {
   const msg    = document.getElementById('version-banner-msg');
   if (!banner || !msg) return;
   msg.textContent =
-    `atopweb updated on server: v${loadedVer} → v${serverVer}. Refresh the page to run the new version.`;
+    `atopweb updated on server: ${fmtVer(loadedVer)} → ${fmtVer(serverVer)}. Refresh the page to run the new version.`;
   banner.hidden = false;
-  appendLog(`atopweb server updated: v${loadedVer} → v${serverVer} — refresh to update`, 'warn');
+  appendLog(`atopweb server updated: ${fmtVer(loadedVer)} → ${fmtVer(serverVer)} — refresh to update`, 'warn');
 }

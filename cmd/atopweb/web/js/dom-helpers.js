@@ -9,6 +9,45 @@ function el(tag, cls, text) {
 
 // Escape string for safe insertion into innerHTML (& < > → entities).
 const escHtml = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+// Escape string for safe use as an HTML attribute value.
+const escAttr = s => String(s ?? '').replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+
+// Keyed DOM update for PID overlay bars inside the memory bar segments.
+// Updates width and tooltip in-place rather than replacing innerHTML each tick,
+// so the target element survives from mousedown to mouseup and click fires reliably.
+//   container  — the parent flex element (e.g. vramVisEl, gpuAppsEl)
+//   procs      — array of process objects, already sorted descending by usage
+//   totalKiB   — denominator for width percentages
+//   cls        — full CSS class string for each child div
+//   kibFn      — (p) => kib value for this segment
+//   tipFn      — (p, kib) => HTML string for data-src tooltip
+function syncPidOverlay(container, procs, totalKiB, cls, kibFn, tipFn) {
+  const existing = new Map();
+  for (const child of container.children) {
+    if (child.dataset.pid != null) existing.set(child.dataset.pid, child);
+  }
+  const live = new Set();
+  procs.forEach((p, idx) => {
+    const pidStr = String(p.pid);
+    live.add(pidStr);
+    const kib = kibFn(p);
+    const pct = totalKiB > 0 ? kib / totalKiB * 100 : 0;
+    let div = existing.get(pidStr);
+    if (!div) {
+      div = document.createElement('div');
+      div.className = cls;
+      div.dataset.pid = pidStr;
+      div.textContent = p.pid;
+    }
+    div.style.width = pct + '%';
+    div.setAttribute('data-src', escAttr(tipFn(p, kib)));
+    const ref = container.children[idx];
+    if (ref !== div) container.insertBefore(div, ref ?? null);
+  });
+  for (const [pid, div] of existing) {
+    if (!live.has(pid)) div.remove();
+  }
+}
 
 function setConnStatus(status, label) {
   document.getElementById('conn-dot').className = 'conn-dot ' + status;

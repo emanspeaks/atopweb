@@ -48,5 +48,6 @@ function updateDeviceInfoHeader(dev) {
     limitsHtml = `<div class="di-limits"><span class="di-limit-label">ryzenadj limits:</span> ${limitParts.join(' ◆ ')}</div>`;
   }
 
-  el.innerHTML = (nameStr ? `<div class="di-name">${nameStr}</div>` : '') + metaHtml + specsHtml + limitsHtml;
+  const html = (nameStr ? `<div class="di-name">${nameStr}</div>` : '') + metaHtml + specsHtml + limitsHtml;
+  if (el.innerHTML !== html) el.innerHTML = html;
 }
